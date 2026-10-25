@@ -119,6 +119,10 @@ For custom providers, `openai.key_file` holds the separate OpenAI credentials us
 
 For small, targeted edits `replace_lines` with a hash is usually easier; `apply_patch` is meant for multi-line or multi-file changes.
 
+## Documentation
+
+The [`docs/`](docs/README.md) directory describes the concept and architecture: guiding principles and provider integration, the agent loop and supervision, tools and file editing, history and semantic compaction, and the security and quality standards.
+
 ## Safety
 
 Keimling is experimental and is not a sandbox. In automatic modes, tools act with the permissions of the current user; shell commands can bypass restrictions applied to individual file tools. Review actions and outputs, and do not use it unattended for sensitive tasks.
