@@ -112,10 +112,10 @@ For custom providers, `openai.key_file` holds the separate OpenAI credentials us
 +added line
 ```
 
-- `@@ ~120` searches within 50 lines of line 120. A bare `@@` searches forward from the previous hunk and takes the first match; legacy `@@ -1,2 +1,2 @@` headers are accepted, but their counts are ignored.
-- Exact context matches win. Trailing-whitespace and indentation differences are accepted only as a fallback, and the result reports which relaxation was used. Context lines are copied from the file, so indentation is preserved.
-- When a context match fails, the error contains the actual file lines and tells the model to re-read them. Ambiguous hunks are rejected with the number of candidates.
-- `--- /dev/null` creates a file. All files are validated before anything is written, and failures roll back already written files.
+- `@@ ~120` searches within 50 lines of line 120. A bare `@@` searches forward from the previous hunk. Legacy `@@ -1,2 +1,2 @@` headers are accepted; their counts only help parse empty context lines, so stale counts do not fail a patch.
+- The nearest context match wins; only equally close matches are rejected as ambiguous. Exact matches win over trailing-whitespace and indentation relaxations, and the result reports which relaxation was used. Context lines are copied from the file, so indentation and line endings are preserved.
+- When a context match fails, the error contains the actual file lines and tells the model to re-read them.
+- `--- /dev/null` creates a file and fails if the target already exists; `+++ /dev/null` deletes one and must quote the removed lines exactly. Pasted `git diff` preambles are skipped. All files are validated before anything is written, and failures roll back already written and deleted files.
 
 For small, targeted edits `replace_lines` with a hash is usually easier; `apply_patch` is meant for multi-line or multi-file changes.
 

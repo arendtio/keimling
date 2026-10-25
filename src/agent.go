@@ -282,6 +282,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					fmt.Println("Approval required:", truncate(reason, 240))
 				}
 				if !allowed {
+					if preview := renderApprovalPreview(item.Name, item.Arguments); preview != "" {
+						fmt.Print(preview)
+					}
 					if a.Control != nil && isTerminal(0) {
 						var e error
 						allowed, e = a.Control.requestApproval(ctx)

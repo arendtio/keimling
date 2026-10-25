@@ -39,7 +39,44 @@ func forceApproval(name, args string) (bool, string) {
 	}
 	if name == "replace_lines" || name == "apply_patch" {
 		if name == "apply_patch" {
-			return true, "patch modifies files"
+			var a struct {
+				Patch string `json:"patch"`
+			}
+			if json.Unmarshal([]byte(args), &a) != nil {
+				return true, "invalid arguments"
+			}
+			targets, err := patchTargets(a.Patch)
+			if err != nil {
+				return true, "invalid patch arguments"
+			}
+			if len(targets) == 0 {
+				return true, "empty patch"
+			}
+			cwd, _ := os.Getwd()
+			names := make([]string, 0, len(targets))
+			deletes := false
+			for _, target := range targets {
+				p, e := filepath.Abs(target.path)
+				if e != nil {
+					return true, "invalid path"
+				}
+				rel, e := filepath.Rel(cwd, p)
+				if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+					return true, "write outside working directory"
+				}
+				if privatePath(target.path) {
+					return true, "protected path"
+				}
+				names = append(names, target.path)
+				deletes = deletes || target.delete
+				if _, e := os.Lstat(p); e != nil && !target.create {
+					return true, "patch target does not exist"
+				}
+			}
+			if deletes {
+				return true, "patch deletes files: " + strings.Join(names, ", ")
+			}
+			return true, "patch modifies files: " + strings.Join(names, ", ")
 		}
 		var a struct {
 			Path string `json:"path"`
