@@ -50,8 +50,17 @@ reasoning content stay intact.
 | Mode | Behaviour |
 | --- | --- |
 | `ask` | Confirm write operations and system changes |
-| `auto` | Judge individual operations with a separate review model; critical actions stay protected |
+| `auto` | Routine development work runs directly; everything else is judged by a separate review model; critical actions stay protected |
 | `yolo` | Skip approvals as configured; only for isolated environments |
+
+In `auto` mode these run without asking, as long as they stay inside the
+working directory and are not critical commands: reads, ordinary file edits
+(`replace_lines`, non-deleting patches), and formatters, linters, build, vet and
+test runs such as `gofmt -w .`, `go vet ./...`, `go test ./...`, `golangci-lint run`,
+`prettier --write .` or `git diff`. Redirections other than to `/dev/null`,
+command substitution, pipes into shells, `cd ..`, deletions, `git commit`,
+`git push`, `make install` and similar remain subject to review. The hard floor in
+`forceApproval` still applies to every call before anything is auto-approved.
 
 Before any approval question, Keimling prints what would happen: the tool line
 names the affected files (with `(new)` and `(delete)` markers for patches), and

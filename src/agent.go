@@ -262,7 +262,13 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				reason := ""
 				if a.Cfg.Mode == "auto" && !allowed {
 					if forced, why := forceApproval(item.Name, item.Arguments); forced {
+						// Hard safety floor: never auto-approved.
 						reason = why
+					} else if autoApproved(item.Name, item.Arguments) {
+						// Routine development work: formatters, linters, build and
+						// test runs, reads, and ordinary edits inside the working
+						// directory.
+						allowed = true
 					} else {
 						cwd, _ := os.Getwd()
 						verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd)

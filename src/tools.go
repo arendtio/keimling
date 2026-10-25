@@ -297,14 +297,46 @@ func selectedShell() string {
 
 func commandUsesSudo(command string) bool {
 	// Conservative: only a hint for authentication; not a security boundary.
-	for _, f := range strings.FieldsFunc(command, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '\n' || r == ';' || r == '|' || r == '&'
+	// Only a token in command position counts, so text inside quotes, heredocs or
+	// arguments does not trigger a password prompt.
+	for _, segment := range strings.FieldsFunc(stripQuoted(command), func(r rune) bool {
+		return r == '\n' || r == ';' || r == '|' || r == '&'
 	}) {
-		if f == "sudo" || f == "/usr/bin/sudo" || f == "/bin/sudo" {
-			return true
+		fields := strings.Fields(segment)
+		// Skip leading VAR=value assignments and harmless wrappers.
+		for len(fields) > 0 && (strings.Contains(fields[0], "=") || fields[0] == "env" || fields[0] == "command" || fields[0] == "time" || fields[0] == "nohup") {
+			fields = fields[1:]
+		}
+		if len(fields) > 0 {
+			switch fields[0] {
+			case "sudo", "/usr/bin/sudo", "/bin/sudo":
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// stripQuoted removes single- and double-quoted spans so that quoted text is
+// never mistaken for a command. Unterminated quotes are dropped to the end.
+func stripQuoted(s string) string {
+	var b strings.Builder
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\'' || c == '"' {
+			quote = c
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // toolNeedsTerminal checks decoded arguments, not JSON formatting.
