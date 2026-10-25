@@ -99,25 +99,14 @@ During a task, type a message to steer the next step. Key bindings: `Ctrl+G` tog
 
 For custom providers, `openai.key_file` holds the separate OpenAI credentials used for web search and transcription; the model provider never receives that key.
 
-## Patch format
+## File editing
 
-`apply_patch` edits files without needing exact line numbers. A patch looks like this:
-
-```text
---- a/src/main.go
-+++ b/src/main.go
-@@ ~120
- context line (leading space)
--removed line
-+added line
-```
-
-- `@@ ~120` searches within 50 lines of line 120. A bare `@@` searches forward from the previous hunk. Legacy `@@ -1,2 +1,2 @@` headers are accepted; their counts only help parse empty context lines, so stale counts do not fail a patch.
-- The nearest context match wins; only equally close matches are rejected as ambiguous. Exact matches win over trailing-whitespace and indentation relaxations, and the result reports which relaxation was used. Context lines are copied from the file, so indentation and line endings are preserved.
-- When a context match fails, the error contains the actual file lines and tells the model to re-read them.
-- `--- /dev/null` creates a file and fails if the target already exists; `+++ /dev/null` deletes one and must quote the removed lines exactly. Pasted `git diff` preambles are skipped. All files are validated before anything is written, and failures roll back already written and deleted files.
-
-For small, targeted edits `replace_lines` with a hash is usually easier; `apply_patch` is meant for multi-line or multi-file changes.
+Edits happen through two tools: `replace_lines` replaces an exact line range, and
+`apply_patch` applies multi-line or multi-file patches. The patch syntax and the
+matching rules are written for the model, not for humans; see
+[tools-and-editing.md](docs/tools-and-editing.md) for the details. In automatic
+modes every edit inside the working directory is either approved by the review
+model or shown as a diff before the approval prompt.
 
 ## Documentation
 
