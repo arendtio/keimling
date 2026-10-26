@@ -65,6 +65,10 @@ type fileConfig struct {
 		WebSearch               *bool `json:"web_search"`
 		DisableExternalServices bool  `json:"disable_external_services"`
 	} `json:"features"`
+	Presentation string `json:"presentation"`
+	Listen       string `json:"listen"`
+	Connect      string `json:"connect"`
+	AccessSecret string `json:"access_secret"`
 }
 
 func readConfiguration(path string) (fileConfig, error) {
@@ -132,6 +136,12 @@ func main() {
 	session := flag.String("session", "", "Session file (JSONL)")
 	resume := flag.Bool("resume", true, "Resume last session (default: true)")
 	voiceModel := flag.String("voice-model", "gpt-transcribe", "Transcription model")
+	uiMode := flag.Bool("ui", false, "Force native WebView UI (fail if unavailable)")
+	cliMode := flag.Bool("cli", false, "Force shell client")
+	serverMode := flag.Bool("server", false, "Run HTTP agent server only")
+	listenAddr := flag.String("listen", "", "HTTP listen address (required with --server), e.g. 0.0.0.0:7420")
+	connectURL := flag.String("connect", "", "Connect to remote Keimling agent base URL")
+	accessSecret := flag.String("access-secret", "", "Shared secret for agent HTTP API/UI")
 	flag.Parse()
 	if *apiMode != "responses" {
 		fmt.Fprintln(os.Stderr, "only --api-mode responses is supported")
@@ -148,6 +158,49 @@ func main() {
 	}
 	changed := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { changed[f.Name] = true })
+	if !changed["listen"] && fc.Listen != "" {
+		*listenAddr = fc.Listen
+	}
+	if !changed["connect"] && fc.Connect != "" {
+		*connectURL = fc.Connect
+	}
+	if !changed["access-secret"] && fc.AccessSecret != "" {
+		*accessSecret = fc.AccessSecret
+	}
+	presentation, perr := resolvePresentation(fc.Presentation, *uiMode, *cliMode, *serverMode)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr, perr)
+		os.Exit(2)
+	}
+	if presentation == presentationServer {
+		if err := validateServerListen(*listenAddr, *accessSecret); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	if strings.TrimSpace(*connectURL) != "" {
+		if presentation == presentationServer {
+			fmt.Fprintln(os.Stderr, "--connect cannot be combined with --server")
+			os.Exit(2)
+		}
+		wantGUI := presentation == presentationUI || presentation == presentationAuto
+		if wantGUI {
+			if err := runGUIRemote(*connectURL, *accessSecret); err != nil {
+				if presentation == presentationUI {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				fmt.Fprintln(os.Stderr, "GUI unavailable, falling back to CLI:", err)
+			} else {
+				return
+			}
+		}
+		if err := runRemoteCLI(*connectURL, *accessSecret); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if !changed["base-url"] && fc.API.BaseURL != "" {
 		*baseURL = fc.API.BaseURL
 	}
@@ -265,6 +318,24 @@ func main() {
 			fmt.Fprintln(os.Stderr, "WARNING:", checkErr, "(continuing; use --check-model=false to disable check)")
 		} else {
 			fmt.Println("Model validated:", c.Model)
+		}
+	}
+	if presentation == presentationServer {
+		if err := runAppServer(*listenAddr, *accessSecret, a); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if presentation == presentationUI || presentation == presentationAuto {
+		if err := runGUILocal(a, *accessSecret); err != nil {
+			if presentation == presentationUI {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			fmt.Fprintln(os.Stderr, "GUI unavailable, falling back to CLI:", err)
+		} else {
+			return
 		}
 	}
 	input := bufio.NewReader(os.Stdin)

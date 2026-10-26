@@ -9,6 +9,30 @@ import (
 	"time"
 )
 
+// compactionSkipEvent drops non-conversation items (system/developer) from compact input/output.
+func compactionSkipEvent(raw json.RawMessage) bool {
+	var v struct {
+		Role string `json:"role"`
+	}
+	if json.Unmarshal(raw, &v) != nil {
+		return false
+	}
+	role := strings.ToLower(strings.TrimSpace(v.Role))
+	return role == "system" || role == "developer"
+}
+
+// forCompaction returns the conversational slice to feed the semantic compactor.
+func forCompaction(history []json.RawMessage) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(history))
+	for _, raw := range history {
+		if compactionSkipEvent(raw) {
+			continue
+		}
+		out = append(out, raw)
+	}
+	return out
+}
+
 // The journal is the immutable source of truth. History is a compact model-facing view.
 // Conservative, configurable estimate; API-reported tokens are preferred once available.
 func contextEstimate(history []json.RawMessage) int {
@@ -129,7 +153,10 @@ func (a *Agent) compactContext(ctx context.Context, level, instruction string) e
 		}
 		return fmt.Errorf("context almost full; no safe compaction boundary")
 	}
-	compactInput := a.History[:end]
+	compactInput := forCompaction(a.History[:end])
+	if len(compactInput) == 0 {
+		return fmt.Errorf("nothing conversational left to compact (system/developer items excluded)")
+	}
 	// Summarize bounded chunks; never send the full history in one request.
 	summary, err := func() (string, error) {
 		started := time.Now()

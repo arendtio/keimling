@@ -31,6 +31,48 @@ type Agent struct {
 	CompactionRetryAfter time.Time
 	LastTaskMessage      string
 	ResumeAvailable      bool
+	// Emit, when set, receives UI events (kind "line" or "status") for HTTP/SSE clients.
+	Emit func(kind, text string)
+	// ApprovalCh, when non-nil, receives approval decisions instead of reading stdin.
+	ApprovalCh chan bool
+}
+
+func (a *Agent) emit(kind, text string) {
+	if a == nil || a.Emit == nil {
+		return
+	}
+	a.Emit(kind, text)
+}
+
+func (a *Agent) emitJSON(kind string, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	a.emit(kind, string(b))
+}
+
+func (a *Agent) emitLine(text string) {
+	if strings.Contains(text, "\r") {
+		return
+	}
+	a.emit("line", text)
+}
+
+func (a *Agent) print(args ...any) {
+	s := fmt.Sprint(args...)
+	a.emitLine(s)
+	fmt.Fprint(os.Stdout, s)
+}
+
+func (a *Agent) printf(format string, args ...any) {
+	s := fmt.Sprintf(format, args...)
+	a.emitLine(s)
+	fmt.Fprint(os.Stdout, s)
+}
+
+func (a *Agent) println(args ...any) {
+	a.print(fmt.Sprintln(args...))
 }
 
 type PlanStep struct {
@@ -87,6 +129,7 @@ func (a *Agent) repairInterruptedCalls() error {
 }
 
 func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) error {
+	defer func() { _ = a.updateHistoryIndex("") }()
 	if message != "" {
 		if err := a.add(map[string]any{"role": "user", "content": message}); err != nil {
 			return err
@@ -100,6 +143,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 	a.TaskDone = false
 	a.TaskBlocked = false
 	a.PilotReport = ""
+	a.emit("status", "running")
+	defer a.emit("status", "idle")
 	pilotCycles := 0
 	lastPilotReport := ""
 	repeatedReports := 0
@@ -110,30 +155,30 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		if step >= a.Cfg.MaxSteps {
 			if !a.Cfg.Autopilot || !a.TaskActive {
 				if a.TaskActive {
-					fmt.Printf("\nResumable plan paused: reached %d API rounds.\n", a.Cfg.MaxSteps)
+					a.printf("\nResumable plan paused: reached %d API rounds.\n", a.Cfg.MaxSteps)
 				}
 				return fmt.Errorf("maximum API rounds (%d) reached", a.Cfg.MaxSteps)
 			}
 			if repeatedReports >= 3 || pilotCycles >= 200 {
-				fmt.Println("\n◈ Autopilot stopped: repeated result or 200-supervision limit; human review needed")
+				a.println("\n◈ Autopilot stopped: repeated result or 200-supervision limit; human review needed")
 				return nil
 			}
 			pilotCycles++
-			fmt.Printf("\n◌ Autopilot reviewing %d-round limit (supervision %d/200)…\n", a.Cfg.MaxSteps, pilotCycles)
+			a.printf("\n◌ Autopilot reviewing %d-round limit (supervision %d/200)…\n", a.Cfg.MaxSteps, pilotCycles)
 			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, "Worker reached its API-round limit without completing the active task. Review progress and decide whether to continue for another block of rounds.", a.History)
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot round-limit review: %w", pilotErr)
 			}
-			fmt.Printf("◇ Autopilot: %s", decision.Action)
+			a.printf("◇ Autopilot: %s", decision.Action)
 			if decision.Reason != "" {
-				fmt.Printf(" · %s", truncate(decision.Reason, 180))
+				a.printf(" · %s", truncate(decision.Reason, 180))
 			}
-			fmt.Println()
+			a.println()
 			if decision.Action == "done" {
 				// Do not mark an unverified unfinished task complete merely because the supervisor says so.
-				fmt.Println("Autopilot requested completion at round limit; worker must verify with finish_task.")
+				a.println("Autopilot requested completion at round limit; worker must verify with finish_task.")
 			} else if decision.Action == "stop" {
-				fmt.Println("Autopilot requested human guidance:", decision.Message)
+				a.println("Autopilot requested human guidance:", decision.Message)
 				return nil
 			}
 			if decision.Action != "continue" && decision.Action != "done" {
@@ -156,16 +201,16 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		var streamedText strings.Builder
 		a.Client.StreamText = func(delta string) {
 			if streamingStarted.CompareAndSwap(false, true) {
-				fmt.Print("\r\033[2K\n")
+				a.print("\r\033[2K\n")
 			}
 			streamedText.WriteString(delta)
-			fmt.Print(delta)
+			a.print(delta)
 		}
 		a.Client.StreamProgress = func(chars int, elapsed time.Duration) { receivedChars.Store(int64(chars)) }
 		finished := make(chan struct{})
 		var statusWG sync.WaitGroup
 		statusWG.Add(1)
-		fmt.Print("\r\033[2K\033[36m◌\033[0m Working… 0s")
+		a.print("\r\033[2K\033[36m◌\033[0m Working… 0s")
 		go func() {
 			defer statusWG.Done()
 			tick := time.NewTicker(time.Second)
@@ -180,9 +225,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						if count > 0 {
 							elapsed := time.Since(started).Seconds()
 							rate := float64(count) / 4 / elapsed
-							fmt.Printf("\r\033[2K\033[36m◌\033[0m Working… %s · ~%.1f tok/s", time.Since(started).Truncate(time.Second), rate)
+							a.printf("\r\033[2K\033[36m◌\033[0m Working… %s · ~%.1f tok/s", time.Since(started).Truncate(time.Second), rate)
 						} else {
-							fmt.Printf("\r\033[2K\033[36m◌\033[0m Working… %s", time.Since(started).Truncate(time.Second))
+							a.printf("\r\033[2K\033[36m◌\033[0m Working… %s", time.Since(started).Truncate(time.Second))
 						}
 					}
 				}
@@ -198,13 +243,13 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			if duration > 0 {
 				estimated := receivedChars.Load() / 4
 				if resp.Usage.OutputTokens > 0 {
-					fmt.Printf("\n[Generated: %d output tokens · %.1f tok/s over %.1fs]\n", resp.Usage.OutputTokens, float64(resp.Usage.OutputTokens)/duration, duration)
+					a.printf("\n[Generated: %d output tokens · %.1f tok/s over %.1fs]\n", resp.Usage.OutputTokens, float64(resp.Usage.OutputTokens)/duration, duration)
 				} else {
-					fmt.Printf("\n[Streaming: ~%d visible tokens · ~%.1f tok/s over %.1fs]\n", estimated, float64(estimated)/duration, duration)
+					a.printf("\n[Streaming: ~%d visible tokens · ~%.1f tok/s over %.1fs]\n", estimated, float64(estimated)/duration, duration)
 				}
 			}
 		} else {
-			fmt.Print("\r\033[2K")
+			a.print("\r\033[2K")
 		}
 		if err != nil {
 			return err
@@ -230,16 +275,16 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				for _, part := range item.Content {
 					if part.Type == "output_text" && part.Text != "" {
 						if strings.Contains(part.Text, "<tool_call>") || strings.Contains(part.Text, "<arg_key>") {
-							fmt.Println("\n\033[33m! Model returned tool-call markup as text, not a native Responses API function_call. No command executed. Check server tool-calling format/template.\033[0m")
+							a.println("\n\033[33m! Model returned tool-call markup as text, not a native Responses API function_call. No command executed. Check server tool-calling format/template.\033[0m")
 							continue
 						}
 						if !resp.StreamedText || !strings.Contains(streamedText.String(), part.Text) {
-							fmt.Println("\n" + formatTerminal(part.Text))
+							a.println("\n" + formatTerminal(part.Text))
 						}
 					}
 				}
 			case "web_search_call":
-				fmt.Println("\033[36m⌕\033[0m Web search completed")
+				a.println("\033[36m⌕\033[0m Web search completed")
 			case "function_call":
 				if a.PendingSteering {
 					// A newly received instruction may invalidate an action planned before it arrived.
@@ -247,7 +292,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": "SKIPPED: New user steering arrived. Re-evaluate the plan and this action before retrying."}); err != nil {
 						return err
 					}
-					fmt.Println("↻ Action deferred: new steering received")
+					a.println("↻ Action deferred: new steering received")
 					calls++
 					continue
 				}
@@ -256,7 +301,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					return fmt.Errorf("function call without call_id")
 				}
 				if item.Name != "finish_task" && item.Name != "update_plan" {
-					fmt.Println(renderToolCall(item.Name, item.Arguments))
+					a.println(renderToolCall(item.Name, item.Arguments))
 				}
 				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate"
 				reason := ""
@@ -285,20 +330,36 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					allowed = true
 				}
 				if reason != "" {
-					fmt.Println("Approval required:", truncate(reason, 240))
+					a.println("Approval required:", truncate(reason, 240))
 				}
 				if !allowed {
-					if preview := renderApprovalPreview(item.Name, item.Arguments); preview != "" {
-						fmt.Print(preview)
+					preview := renderApprovalPreview(item.Name, item.Arguments)
+					if preview != "" {
+						a.print(preview)
 					}
-					if a.Control != nil && isTerminal(0) {
+					if a.ApprovalCh != nil {
+						a.emitJSON("approval", map[string]any{
+							"name":    item.Name,
+							"command": toolCommandLabel(item.Name, item.Arguments),
+							"reason":  reason,
+							"preview": preview,
+						})
+						a.emit("status", "awaiting_approval")
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						case allowed = <-a.ApprovalCh:
+						}
+						a.emitJSON("approval", map[string]any{"clear": true})
+						a.emit("status", "running")
+					} else if a.Control != nil && isTerminal(0) {
 						var e error
 						allowed, e = a.Control.requestApproval(ctx)
 						if e != nil {
 							return e
 						}
 					} else {
-						fmt.Print("Approve? [Y/n] ")
+						a.print("Approve? [Y/n] ")
 						answer, e := reader.ReadString('\n')
 						if e != nil {
 							return e
@@ -322,7 +383,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 							a.Plan = p.Steps
 							a.TaskActive = true
 							result = "plan updated"
-							fmt.Print(renderPlan(a.Plan))
+							a.print(renderPlan(a.Plan))
 						}
 					} else if item.Name == "finish_task" {
 						var f struct {
@@ -339,7 +400,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 							a.TaskActive = false
 							a.PilotReport = f.Status + ": " + f.Summary
 							result = "task status recorded: " + f.Status
-							fmt.Println(renderFinish(f.Status, f.Summary))
+							a.println(renderFinish(f.Status, f.Summary))
 						}
 					} else if item.Name == "web_search" {
 						var args struct {
@@ -350,7 +411,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						} else if a.Cfg.ExternalClient == nil || !a.Cfg.Web {
 							result = "web search disabled or unavailable"
 						} else {
-							fmt.Println("⌕ Searching web…")
+							a.println("⌕ Searching web…")
 							answer, e := a.Cfg.ExternalClient.SearchWeb(ctx, args.Query)
 							if e != nil {
 								result = "web search error: " + e.Error()
@@ -371,7 +432,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 							if e != nil {
 								result = "delegate error: " + e.Error()
 							} else {
-								fmt.Printf("\033[35m◇ Delegate\033[0m · %s · %s\n", args.Profile, truncate(args.Task, 160))
+								a.printf("\033[35m◇ Delegate\033[0m · %s · %s\n", args.Profile, truncate(args.Task, 160))
 								answer, e := a.Client.Delegate(ctx, model, effort, args)
 								if e != nil {
 									result = "delegate error: " + e.Error()
@@ -408,26 +469,31 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					}
 					output := strings.TrimPrefix(displayedResult, "exit_code="+code+"\n")
 					if code != "0" {
-						fmt.Printf("\033[31mFAIL: Return Value %s\033[0m\n", code)
+						a.printf("\033[31mFAIL: Return Value %s\033[0m\n", code)
 					}
 					if strings.TrimSpace(output) != "" {
-						fmt.Print(output)
+						a.print(output)
 						if !strings.HasSuffix(output, "\n") {
-							fmt.Println()
+							a.println()
 						}
 					}
 					if rawExecResult != "" && result != rawExecResult {
 						modelVisible := truncate(result, 32<<10)
-						fmt.Printf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExecResult), len(modelVisible), modelVisible)
+						a.printf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExecResult), len(modelVisible), modelVisible)
 					}
 				} else {
 					if strings.HasPrefix(result, "patch failed:") || strings.HasPrefix(result, "hash mismatch") || strings.HasPrefix(result, "file hash mismatch") || strings.HasPrefix(result, "invalid line range") || strings.HasPrefix(result, "access denied:") {
-						fmt.Printf("\033[31m✗\033[0m %s\n", truncate(result, 1800))
+						a.printf("\033[31m✗\033[0m %s\n", truncate(result, 1800))
 					} else {
-						fmt.Printf("\033[32m✓\033[0m %s\n", truncate(result, 1800))
+						a.printf("\033[32m✓\033[0m %s\n", truncate(result, 1800))
 					}
 				}
-				if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10)}); err != nil {
+				outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10)}
+				// raw_output is UI-only; normalizeResponseInput strips it before the model sees history.
+				if rawExecResult != "" && rawExecResult != result {
+					outItem["raw_output"] = truncate(rawExecResult, 32<<10)
+				}
+				if err := a.add(outItem); err != nil {
 					return err
 				}
 			}
@@ -445,25 +511,25 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				lastPilotReport = report
 			}
 			if repeatedReports >= 3 || pilotCycles >= 200 {
-				fmt.Println("\n◈ Autopilot stopped: repeated result or 200-supervision limit; human review needed")
+				a.println("\n◈ Autopilot stopped: repeated result or 200-supervision limit; human review needed")
 				return nil
 			}
 			pilotCycles++
-			fmt.Println("\033[36m◌\033[0m Autopilot reviewing outcome…")
+			a.println("\033[36m◌\033[0m Autopilot reviewing outcome…")
 			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, report, a.History)
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot review: %w", pilotErr)
 			}
-			fmt.Printf("◇ Autopilot: %s", decision.Action)
+			a.printf("◇ Autopilot: %s", decision.Action)
 			if decision.Reason != "" {
-				fmt.Printf(" · %s", truncate(decision.Reason, 180))
+				a.printf(" · %s", truncate(decision.Reason, 180))
 			}
-			fmt.Println()
+			a.println()
 			if decision.Action == "done" {
 				return nil
 			}
 			if decision.Action == "stop" {
-				fmt.Println("Autopilot requested human guidance:", decision.Message)
+				a.println("Autopilot requested human guidance:", decision.Message)
 				return nil
 			}
 			a.TaskDone = false

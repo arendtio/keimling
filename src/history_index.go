@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The session journal remains authoritative. This sidecar contains only a
@@ -21,12 +22,16 @@ type HistorySection struct {
 	End     int    `json:"end"`
 	Status  string `json:"status"`
 	Summary string `json:"summary,omitempty"`
+	// Memory: raw | keep | distill | summarize | collapse — how compaction treated this span.
+	Memory string `json:"memory,omitempty"`
 }
 type HistoryIndex struct {
 	Version      int              `json:"version"`
 	Sections     []HistorySection `json:"sections"`
 	WorkingState string           `json:"working_state,omitempty"`
 }
+
+const historyIndexVersion = 2
 
 func originalEvents(path string) ([]json.RawMessage, error) {
 	f, e := os.Open(path)
@@ -78,42 +83,51 @@ func trimLabel(s string) string {
 	return s
 }
 func buildHistoryIndex(events []json.RawMessage, previous HistoryIndex) HistoryIndex {
-	idx := HistoryIndex{Version: 1, WorkingState: previous.WorkingState}
+	idx := HistoryIndex{Version: historyIndexVersion, WorkingState: previous.WorkingState}
 	if len(events) == 0 {
 		return idx
 	}
 	taskStart := 0
-	taskTitle := "Initial conversation"
 	count := 0
 	for i, e := range events {
 		label := eventLabel(e)
 		// New human turns start top-level tasks. Internal supervisor messages do not.
 		if label != "" && label != "[task finished]" && !strings.HasPrefix(label, "[AUTOPILOT") && !strings.HasPrefix(label, "Continue the current plan autonomously.") && !strings.HasPrefix(label, "<compacted_conversation_memory>") && i > taskStart {
-			addTaskSections(&idx, events, taskStart, i, taskTitle, count)
+			addTaskSections(&idx, events, taskStart, i, count)
 			count++
 			taskStart = i
-			taskTitle = trimLabel(label)
-		} else if i == 0 && label != "" {
-			taskTitle = trimLabel(label)
 		}
 	}
-	addTaskSections(&idx, events, taskStart, len(events), taskTitle, count)
-	// Preserve summaries for segments with unchanged event boundaries.
-	old := map[string]string{}
+	addTaskSections(&idx, events, taskStart, len(events), count)
+	// Preserve title / summary / memory for segments with unchanged event boundaries.
+	old := map[string]HistorySection{}
 	for _, s := range previous.Sections {
-		old[fmt.Sprintf("%s:%d:%d", s.Level, s.Start, s.End)] = s.Summary
+		old[fmt.Sprintf("%s:%d:%d", s.Level, s.Start, s.End)] = s
 	}
 	for i := range idx.Sections {
 		s := &idx.Sections[i]
-		s.Summary = old[fmt.Sprintf("%s:%d:%d", s.Level, s.Start, s.End)]
+		if prev, ok := old[fmt.Sprintf("%s:%d:%d", s.Level, s.Start, s.End)]; ok {
+			if prev.Title != "" {
+				s.Title = prev.Title
+			}
+			s.Summary = prev.Summary
+			if prev.Memory != "" {
+				s.Memory = prev.Memory
+			}
+		}
+		if s.Level == "task" && s.Memory == "" {
+			s.Memory = memoryRaw
+		}
 	}
 	return idx
 }
-func addTaskSections(idx *HistoryIndex, events []json.RawMessage, start, end int, title string, id int) {
+func addTaskSections(idx *HistoryIndex, events []json.RawMessage, start, end, id int) {
 	if end <= start {
 		return
 	}
 	taskID := fmt.Sprintf("task-%d", start+1)
+	// Title is generated separately — never use the first user message as the heading.
+	title := fmt.Sprintf("Chapter %d", id+1)
 	status := "active"
 	for _, raw := range events[start:end] {
 		var call struct {
@@ -134,7 +148,10 @@ func addTaskSections(idx *HistoryIndex, events []json.RawMessage, start, end int
 			}
 		}
 	}
-	idx.Sections = append(idx.Sections, HistorySection{ID: taskID, Level: "task", Title: title, Start: start + 1, End: end, Status: status})
+	idx.Sections = append(idx.Sections, HistorySection{
+		ID: taskID, Level: "task", Title: title, Start: start + 1, End: end,
+		Status: status, Memory: memoryRaw,
+	})
 	// Episodes and segments form a bounded hierarchical index, not a complete AST.
 	episodeSize := 100
 	segmentSize := 25
@@ -158,10 +175,10 @@ func indexPath(session string) string { return session + ".index.json" }
 func loadHistoryIndex(session string) HistoryIndex {
 	var idx HistoryIndex
 	b, e := os.ReadFile(indexPath(session))
-	if e == nil && json.Unmarshal(b, &idx) == nil && idx.Version == 1 {
+	if e == nil && json.Unmarshal(b, &idx) == nil && idx.Version == historyIndexVersion {
 		return idx
 	}
-	return HistoryIndex{Version: 1}
+	return HistoryIndex{Version: historyIndexVersion}
 }
 func saveHistoryIndex(session string, idx HistoryIndex) error {
 	b, e := json.MarshalIndent(idx, "", "  ")
@@ -203,8 +220,39 @@ func (a *Agent) updateHistoryIndex(summary string) error {
 	idx := buildHistoryIndex(events, prev)
 	if summary != "" {
 		idx.WorkingState = summary
+		applyMemoryFromCompaction(&idx, summary)
 	}
+	a.ensureChapterTitles(context.Background(), &idx, events)
 	return saveHistoryIndex(a.Cfg.SessionPath, idx)
+}
+
+// ensureChapterTitles replaces provisional "Chapter N" labels with a short generated title.
+// The first user message stays a message in the transcript — never the heading itself.
+func (a *Agent) ensureChapterTitles(ctx context.Context, idx *HistoryIndex, events []json.RawMessage) {
+	if a == nil || a.Client == nil || idx == nil {
+		return
+	}
+	for i := range idx.Sections {
+		s := &idx.Sections[i]
+		if s.Level != "task" || !isProvisionalChapterTitle(s.Title) {
+			continue
+		}
+		seed := firstUserTextInRange(events, s.Start, s.End)
+		if seed == "" {
+			continue
+		}
+		askCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		title, err := a.Client.compactionAsk(askCtx, a.compactionModel(),
+			`Write a short chapter title for this agent task (3–8 words). Do NOT copy or lightly paraphrase the user message. Prefer a topic label (e.g. "PTY deadlock fix"). Title only — no quotes, no punctuation fluff.`,
+			"User request:\n"+truncate(seed, 800), 64)
+		cancel()
+		if err != nil {
+			continue
+		}
+		if cleaned := cleanGeneratedTitle(title); cleaned != "" && !isProvisionalChapterTitle(cleaned) {
+			s.Title = cleaned
+		}
+	}
 }
 func (a *Agent) searchHistory(args string) string {
 	var q struct {

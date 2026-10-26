@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -34,7 +33,10 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 	if end == 0 {
 		return false
 	}
-	snapshot := append([]json.RawMessage(nil), a.History[:end]...)
+	snapshot := forCompaction(a.History[:end])
+	if len(snapshot) == 0 {
+		return false
+	}
 	// Snapshot is independently compacted in bounded sections.
 	base := a.SessionCtx
 	if base == nil {

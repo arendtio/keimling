@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keimling</title>
+  <link rel="icon" href="/assets/keimling.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div id="gate" class="gate" hidden>
+    <div class="gate-card gate-wide">
+      <p class="brand"><img class="brand-mark" src="/assets/keimling.svg" alt="" width="36" height="36">Keimling</p>
+      <p id="gate-title" class="gate-copy">Welcome</p>
+      <p id="gate-copy" class="gate-copy muted"></p>
+
+      <div class="settings-tabs" id="settings-tabs" hidden>
+        <button type="button" class="settings-tab active" data-tab="connection">Connection</button>
+        <button type="button" class="settings-tab" data-tab="agent">Agent</button>
+      </div>
+
+      <div id="pane-connection" class="settings-pane">
+        <div class="choice-row">
+          <button type="button" id="choice-local" class="choice active">This agent</button>
+          <button type="button" id="choice-remote" class="choice">Remote URL</button>
+        </div>
+
+        <label id="url-field" hidden>Server URL
+          <input id="connect-url" type="url" placeholder="http://host:7420" autocomplete="off">
+        </label>
+        <label id="secret-field">Access secret
+          <input id="secret" type="password" autocomplete="off">
+        </label>
+        <p id="local-hint" class="hint" hidden>Local embedded agents do not need a secret — continue to resume.</p>
+      </div>
+
+      <div id="pane-agent" class="settings-pane" hidden>
+        <label>Model
+          <input id="set-model" type="text" autocomplete="off">
+        </label>
+        <label>Approval mode
+          <select id="set-mode">
+            <option value="ask">ask</option>
+            <option value="auto">auto</option>
+            <option value="yolo">yolo</option>
+          </select>
+        </label>
+        <label>Reasoning
+          <select id="set-reasoning">
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
+          </select>
+        </label>
+        <label class="check"><input id="set-web" type="checkbox"> Web search</label>
+        <label class="check"><input id="set-autopilot" type="checkbox"> Autopilot</label>
+        <label>Max steps
+          <input id="set-max-steps" type="number" min="1" step="1">
+        </label>
+        <label>Context limit
+          <input id="set-context-limit" type="number" min="1000" step="1000">
+        </label>
+        <label>Voice model
+          <input id="set-voice-model" type="text" autocomplete="off">
+        </label>
+        <p class="hint">Applies to the running agent for this session (same knobs as CLI flags).</p>
+      </div>
+
+      <div class="gate-actions">
+        <button id="gate-cancel" type="button" class="ghost" hidden>Cancel</button>
+        <button id="save-settings" type="button" hidden>Save agent settings</button>
+        <button id="connect" type="button">Continue</button>
+      </div>
+      <p id="gate-err" class="gate-err" hidden></p>
+    </div>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <p class="brand brand-sidebar">
+            <img class="brand-mark" src="/assets/keimling.svg" alt="Keimling">
+            <span class="brand-name">Keimling</span>
+          </p>
+          <p class="meta"><span id="model">—</span> · <span id="mode">—</span></p>
+          <span id="state" class="state">idle</span>
+        </div>
+
+        <details class="block chapters-block" open>
+          <summary>Chapters</summary>
+          <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
+        </details>
+
+        <div class="sidebar-foot">
+          <button type="button" id="new-chat" class="ghost wide">New chat</button>
+          <button type="button" id="open-connection" class="ghost wide">Settings</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="column">
+          <details id="working-wrap" class="block" hidden>
+            <summary>Working state</summary>
+            <pre id="working" class="block-body"></pre>
+          </details>
+
+          <div id="thread" class="thread" aria-live="polite"></div>
+
+          <details id="live-wrap" class="block live-block" hidden>
+            <summary>Live output</summary>
+            <pre id="live-out" class="block-body mono"></pre>
+          </details>
+
+          <div id="approval" class="approval" hidden>
+            <p class="approval-label">Approval needed</p>
+            <p id="approval-reason" class="approval-reason"></p>
+            <pre id="approval-cmd" class="approval-cmd"></pre>
+            <pre id="approval-preview" class="approval-preview" hidden></pre>
+            <div class="approval-actions">
+              <button id="approve" type="button">Approve</button>
+              <button id="deny" type="button" class="ghost danger">Deny</button>
+            </div>
+          </div>
+
+          <form id="composer" class="composer">
+            <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
+            <div class="composer-actions">
+              <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
+              <button id="send" type="submit" disabled>Send</button>
+            </div>
+            <p id="voice-status" class="hint" hidden></p>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="/assets/ansi.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

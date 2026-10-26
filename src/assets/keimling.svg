@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Keimling – ursprüngliche Blätter, flache Erde</title>
+  <desc id="desc">Zwei grüne Blätter wachsen aus dunkler Erde, in der zwei dezente grüne Bot-Augen leuchten.</desc>
+  <defs>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#A0CF53"/>
+      <stop offset="1" stop-color="#4D9D3C"/>
+    </linearGradient>
+    <linearGradient id="leafDark" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#6BAE46"/>
+      <stop offset="1" stop-color="#347F37"/>
+    </linearGradient>
+    <linearGradient id="stem" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74B649"/>
+      <stop offset="1" stop-color="#3A8C3C"/>
+    </linearGradient>
+    <linearGradient id="soil" x1="0" y1="0" x2="0.75" y2="1">
+      <stop offset="0" stop-color="#413632"/>
+      <stop offset="1" stop-color="#211D1C"/>
+    </linearGradient>
+    <linearGradient id="eyes" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ADE063"/>
+      <stop offset="1" stop-color="#68B946"/>
+    </linearGradient>
+  </defs>
+  <!-- Sprout: organic asymmetry, matching the selected concept. -->
+  <path d="M252 341 C252 302 254 272 247 250 C238 228 225 220 194 216 C139 208 115 182 95 128 C87 107 76 89 66 76 C60 68 67 60 79 57 C161 36 232 65 248 132 C256 167 253 210 260 236 C269 205 290 173 332 155 C375 135 414 134 451 137 C463 138 467 145 460 158 C440 198 425 234 391 251 C358 268 321 261 297 269 C280 275 273 304 272 341 Z" fill="url(#leaf)"/>
+  <!-- Subtle veining/shadows inside leaves -->
+  <path d="M105 93 C171 102 217 145 246 238 C228 215 201 207 180 202 C145 191 120 163 105 93Z" fill="url(#leafDark)" opacity=".65"/>
+  <path d="M413 175 C353 184 302 219 263 264 C284 218 324 183 413 175Z" fill="#32823C" opacity=".38"/>
+  <path d="M248 247 C254 268 253 304 250 385 L273 385 C271 302 269 271 263 240 Z" fill="url(#stem)"/>
+  <!-- Low, fractured soil silhouette instead of piled rounded mounds -->
+  <path d="M65 376 Q93 367 121 373 L151 363 L183 370 L211 352 L238 362 L261 349 L294 365 L327 355 L358 368 L388 365 Q419 366 447 376 L454 401 Q452 425 420 428 L91 428 Q59 427 57 404 Z" fill="url(#soil)"/>
+  <!-- Layering and granular edges emphasize ground, not stacked blobs -->
+  <path d="M65 376 Q93 367 121 373 L151 363 L183 370 L211 352 L238 362 L261 349 L294 365 L327 355 L358 368 L388 365 Q419 366 447 376" stroke="#564741" stroke-width="5" stroke-linejoin="round" fill="none" opacity=".48"/>
+  <path d="M79 409 Q158 399 225 412 T438 406" stroke="#191818" stroke-width="5" stroke-linecap="round" fill="none" opacity=".26"/>
+  <path d="M113 358 l9 -6 12 3 -7 9z M376 355 l10 -7 12 4 -4 10z" fill="#3A302C"/>
+  <circle cx="95" cy="355" r="5" fill="#302925"/>
+  <circle cx="412" cy="351" r="4" fill="#302925"/>
+  <!-- Eyes remain understated: two slender luminous apertures -->
+  <rect x="226" y="385" width="15" height="26" rx="7.5" fill="url(#eyes)"/>
+  <rect x="271" y="385" width="15" height="26" rx="7.5" fill="url(#eyes)"/>
+</svg>

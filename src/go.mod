@@ -1,3 +1,5 @@
 module keimling
 
-go 1.21
+go 1.26
+
+require github.com/samcharles93/webview_go v0.14.0
