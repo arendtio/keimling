@@ -21,6 +21,7 @@ type Config struct {
 	Autopilot                                                                                                   bool
 	ExternalClient                                                                                              *Client
 	Web                                                                                                         bool
+	CompactParallel                                                                                             bool // parallel leaf distill/summarize (API); off for local models
 	MaxSteps, ContextLimit                                                                                      int
 }
 
@@ -132,6 +133,7 @@ func main() {
 	mode := flag.String("mode", "auto", "ask, auto, or yolo")
 	web := flag.Bool("web", true, "Enable OpenAI web search")
 	ctxLimit := flag.Int("context-limit", 128000, "Context window token budget for two-stage compaction")
+	compactParallel := flag.Bool("compact-parallel", true, "Run distill/summarize leaf renders in parallel (disable for single local models)")
 	steps := flag.Int("max-steps", 200, "Maximum API rounds per user task")
 	session := flag.String("session", "", "Session file (JSONL)")
 	resume := flag.Bool("resume", true, "Resume last session (default: true)")
@@ -299,7 +301,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History}
 	a.Client.BaseURL = resolvedURL
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())

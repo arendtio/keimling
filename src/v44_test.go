@@ -40,7 +40,7 @@ func TestV44RejectBadTree(t *testing.T) {
 }
 func TestV44DepthLimit(t *testing.T) {
 	n := semanticSection{Start: 1, End: 1, Title: "leaf", Action: "keep"}
-	for i := 0; i < 9; i++ {
+	for i := 0; i < semanticMaxDepth-1; i++ {
 		n = semanticSection{Start: 1, End: 1, Title: "parent", Action: "keep", Children: []semanticSection{n}}
 	}
 	if err := validateSemanticNodes([]semanticSection{n}, 1, 1, 1); err != nil {
@@ -48,6 +48,6 @@ func TestV44DepthLimit(t *testing.T) {
 	}
 	n = semanticSection{Start: 1, End: 1, Title: "too deep", Action: "keep", Children: []semanticSection{n}}
 	if err := validateSemanticNodes([]semanticSection{n}, 1, 1, 1); err == nil {
-		t.Fatal("accepted 11 levels")
+		t.Fatalf("accepted more than %d levels", semanticMaxDepth)
 	}
 }

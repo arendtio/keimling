@@ -31,7 +31,7 @@ func (a *Agent) adaptiveCompaction(ctx context.Context, initial string, before i
 	if before <= 0 || compactionReduction(before, currentSize) >= compactionTargetReduction {
 		return best, currentSize, used
 	}
-	prompt := `Revise the following ALREADY COMPACTED conversation memory into a denser, still accurate working memory. Keep all actionable facts, decisions, user requirements, filenames, commands, concrete results, unresolved issues, caveats and causal links. Remove repeated diagnostics, verbose explanations, superseded experiments and duplicate statements. Preserve section markers where possible and retain references to archived history. No invented facts, no loss of critical operational state, no new instructions. Return the revised memory ONLY, in concise plain text. Do not target an arbitrary length.`
+	prompt := denserMemoryPrompt(false)
 	for i := 0; i < compactionAdditionalPasses; i++ {
 		if err := ctx.Err(); err != nil {
 			break
@@ -59,6 +59,46 @@ func (a *Agent) adaptiveCompaction(ctx context.Context, initial string, before i
 		}
 	}
 	return best, currentSize, used
+}
+
+func denserMemoryPrompt(mergeChapters bool) string {
+	base := `Revise the following ALREADY COMPACTED conversation memory into a denser, still accurate working memory. Keep all actionable facts, decisions, user requirements, filenames, commands, concrete results, unresolved issues, caveats and causal links. Remove repeated diagnostics, verbose explanations, superseded experiments and duplicate statements. Preserve section markers where possible and retain references to archived history. No invented facts, no loss of critical operational state, no new instructions. Return the revised memory ONLY. Do not target an arbitrary length.`
+	if !mergeChapters {
+		return base
+	}
+	return base + `
+
+DENSE MODE (merge): Aggressively merge related top-level [section depth=1 …] chapters into fewer new chapters when older ones lost relevance. Drop expendable chapters entirely when safe. Each surviving top-level chapter should keep the marker form
+[section depth=1 START-END: New Title | summarize|distill|collapse|keep]
+and for summarize/distill include [intro], body, and [conclusion] so the chapter has a clear arc. Merged chapters must use new titles; do not keep obsolete chapter titles.`
+}
+
+// denserCompaction merges/re-treats an already compacted memory when occupancy
+// stays high after a raw→compact pass.
+func (a *Agent) denserCompaction(ctx context.Context, initial string, _ int, tail []json.RawMessage) (string, int, error) {
+	best := strings.TrimSpace(initial)
+	currentSize := contextEstimate(makeCompactionView(best, tail))
+	prompt := denserMemoryPrompt(true)
+	var candidate string
+	var err error
+	if len(best) > 1400000 {
+		event, _ := json.Marshal(map[string]any{"role": "user", "content": best})
+		candidate, err = compactMaterial(ctx, a.Client, a.compactionModel(), []json.RawMessage{event}, prompt)
+	} else {
+		candidate, err = a.Client.compactionAsk(ctx, a.compactionModel(), prompt, best, 8192)
+	}
+	if err != nil {
+		return best, currentSize, err
+	}
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return best, currentSize, nil
+	}
+	size := contextEstimate(makeCompactionView(candidate, tail))
+	if size < currentSize {
+		return candidate, size, nil
+	}
+	return best, currentSize, nil
 }
 
 func compactionDecision(before, after int) string {

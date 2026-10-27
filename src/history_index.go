@@ -14,16 +14,20 @@ import (
 // The session journal remains authoritative. This sidecar contains only a
 // rebuildable navigation view. Events are numbered by their item records.
 type HistorySection struct {
-	ID      string `json:"id"`
-	Parent  string `json:"parent,omitempty"`
-	Level   string `json:"level"`
-	Title   string `json:"title"`
-	Start   int    `json:"start"`
-	End     int    `json:"end"`
-	Status  string `json:"status"`
-	Summary string `json:"summary,omitempty"`
+	ID         string `json:"id"`
+	Parent     string `json:"parent,omitempty"`
+	Level      string `json:"level"`
+	Title      string `json:"title"`
+	Start      int    `json:"start"`
+	End        int    `json:"end"`
+	Status     string `json:"status"`
+	Summary    string `json:"summary,omitempty"`
+	Intro      string `json:"intro,omitempty"`
+	Conclusion string `json:"conclusion,omitempty"`
 	// Memory: raw | keep | distill | summarize | collapse — how compaction treated this span.
 	Memory string `json:"memory,omitempty"`
+	// Hidden chapters are superseded (e.g. merged denser) and must not appear in the GUI.
+	Hidden bool `json:"hidden,omitempty"`
 }
 type HistoryIndex struct {
 	Version      int              `json:"version"`
@@ -111,6 +115,9 @@ func buildHistoryIndex(events []json.RawMessage, previous HistoryIndex) HistoryI
 				s.Title = prev.Title
 			}
 			s.Summary = prev.Summary
+			s.Intro = prev.Intro
+			s.Conclusion = prev.Conclusion
+			s.Hidden = prev.Hidden
 			if prev.Memory != "" {
 				s.Memory = prev.Memory
 			}
@@ -221,6 +228,7 @@ func (a *Agent) updateHistoryIndex(summary string) error {
 	if summary != "" {
 		idx.WorkingState = summary
 		applyMemoryFromCompaction(&idx, summary)
+		applyVisibleChaptersFromCompaction(&idx, summary)
 	}
 	a.ensureChapterTitles(context.Background(), &idx, events)
 	return saveHistoryIndex(a.Cfg.SessionPath, idx)
@@ -234,7 +242,7 @@ func (a *Agent) ensureChapterTitles(ctx context.Context, idx *HistoryIndex, even
 	}
 	for i := range idx.Sections {
 		s := &idx.Sections[i]
-		if s.Level != "task" || !isProvisionalChapterTitle(s.Title) {
+		if s.Level != "task" || s.Hidden || !isProvisionalChapterTitle(s.Title) {
 			continue
 		}
 		seed := firstUserTextInRange(events, s.Start, s.End)

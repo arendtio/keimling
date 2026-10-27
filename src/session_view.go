@@ -16,13 +16,15 @@ type sessionMessage struct {
 }
 
 type sessionChapter struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Status  string `json:"status"`
-	Memory  string `json:"memory,omitempty"` // raw | keep | distill | summarize | collapse
-	Summary string `json:"summary,omitempty"`
-	Start   int    `json:"start"`
-	End     int    `json:"end"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Status     string `json:"status"`
+	Memory     string `json:"memory,omitempty"` // raw | keep | distill | summarize | collapse
+	Summary    string `json:"summary,omitempty"`
+	Intro      string `json:"intro,omitempty"`
+	Conclusion string `json:"conclusion,omitempty"`
+	Start      int    `json:"start"`
+	End        int    `json:"end"`
 }
 
 func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
@@ -114,7 +116,7 @@ func toolCommandLabel(name, args string) string {
 			return a.Command
 		}
 	}
-	if name == "apply_patch" || name == "replace_lines" || name == "read_file" {
+	if name == "edit_file" || name == "write_file" || name == "read_file" {
 		var a struct {
 			Path string `json:"path"`
 		}
@@ -141,7 +143,7 @@ func sessionChapters(sessionPath string) []sessionChapter {
 	}
 	var chapters []sessionChapter
 	for _, s := range idx.Sections {
-		if s.Level != "task" {
+		if s.Level != "task" || s.Hidden {
 			continue
 		}
 		mem := s.Memory
@@ -149,13 +151,15 @@ func sessionChapters(sessionPath string) []sessionChapter {
 			mem = memoryRaw
 		}
 		chapters = append(chapters, sessionChapter{
-			ID:      s.ID,
-			Title:   s.Title,
-			Status:  s.Status,
-			Memory:  mem,
-			Summary: s.Summary,
-			Start:   s.Start,
-			End:     s.End,
+			ID:         s.ID,
+			Title:      s.Title,
+			Status:     s.Status,
+			Memory:     mem,
+			Summary:    s.Summary,
+			Intro:      s.Intro,
+			Conclusion: s.Conclusion,
+			Start:      s.Start,
+			End:        s.End,
 		})
 	}
 	return chapters

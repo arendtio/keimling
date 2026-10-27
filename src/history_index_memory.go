@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ const (
 )
 
 var sectionMemoryMarker = regexp.MustCompile(`(?m)^\[section (?:depth=\d+ )?(\d+)-(\d+): .*? \| (keep|distill|summarize|collapse)\]$`)
+var topLevelSectionMarker = regexp.MustCompile(`(?m)^\[section depth=1 (\d+)-(\d+): (.*?) \| (keep|distill|summarize|collapse)\]$`)
 
 func memoryRank(m string) int {
 	switch m {
@@ -34,6 +36,91 @@ func memoryRank(m string) int {
 }
 
 // applyMemoryFromCompaction marks task sections from semantic section markers in a summary.
+// applyVisibleChaptersFromCompaction replaces the visible task list with top-level
+// compact chapters when denser/raw compaction produced framed section markers.
+// Prior task chapters overlapping those ranges are hidden (GUI must not show them).
+func applyVisibleChaptersFromCompaction(idx *HistoryIndex, summary string) {
+	if idx == nil || strings.TrimSpace(summary) == "" {
+		return
+	}
+	type top struct {
+		start, end              int
+		title, action           string
+		intro, body, conclusion string
+	}
+	var tops []top
+	matches := topLevelSectionMarker.FindAllStringSubmatchIndex(summary, -1)
+	for i, loc := range matches {
+		m := topLevelSectionMarker.FindStringSubmatch(summary[loc[0]:loc[1]])
+		if len(m) < 5 {
+			continue
+		}
+		start, _ := strconv.Atoi(m[1])
+		end, _ := strconv.Atoi(m[2])
+		title := strings.TrimSpace(m[3])
+		action := m[4]
+		bodyStart := loc[1]
+		bodyEnd := len(summary)
+		if i+1 < len(matches) {
+			bodyEnd = matches[i+1][0]
+		}
+		chunk := summary[bodyStart:bodyEnd]
+		intro, body, conclusion := parseFramedSummary(chunk)
+		if body == "" {
+			body = strings.TrimSpace(chunk)
+		}
+		tops = append(tops, top{start: start, end: end, title: title, action: action, intro: intro, body: body, conclusion: conclusion})
+	}
+	if len(tops) == 0 {
+		return
+	}
+	for i := range idx.Sections {
+		s := &idx.Sections[i]
+		if s.Level != "task" {
+			continue
+		}
+		for _, t := range tops {
+			if s.End < t.start || s.Start > t.end {
+				continue
+			}
+			s.Hidden = true
+		}
+	}
+	for _, t := range tops {
+		id := fmt.Sprintf("compact-%d-%d", t.start, t.end)
+		found := false
+		for i := range idx.Sections {
+			s := &idx.Sections[i]
+			if s.ID == id || (s.Level == "task" && s.Start == t.start && s.End == t.end && strings.HasPrefix(s.ID, "compact-")) {
+				s.Hidden = false
+				s.Title = t.title
+				s.Memory = t.action
+				s.Intro = t.intro
+				s.Summary = t.body
+				s.Conclusion = t.conclusion
+				s.Status = "compacted"
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		idx.Sections = append(idx.Sections, HistorySection{
+			ID:         id,
+			Level:      "task",
+			Title:      t.title,
+			Start:      t.start,
+			End:        t.end,
+			Status:     "compacted",
+			Memory:     t.action,
+			Intro:      t.intro,
+			Summary:    t.body,
+			Conclusion: t.conclusion,
+		})
+	}
+}
+
 func applyMemoryFromCompaction(idx *HistoryIndex, summary string) {
 	if idx == nil || strings.TrimSpace(summary) == "" {
 		return

@@ -43,6 +43,7 @@ cd src && CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -tags webkitgtk_41 -
 | `./keimling --ui` | Force native WebView (local embedded agent) |
 | `./keimling --ui --connect URL --access-secret SECRET` | WebView against remote |
 | `./keimling --cli` | Force shell REPL (local agent) |
+| `./keimling --compact-parallel=false` | Disable parallel distill/summarize (e.g. single local model) |
 
 ## Spike / demos
 

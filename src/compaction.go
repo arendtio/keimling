@@ -190,12 +190,25 @@ func (a *Agent) compactContext(ctx context.Context, level, instruction string) e
 	if summary == "" {
 		return fmt.Errorf("semantic context compaction returned empty summary")
 	}
-	summary, _, passes := a.adaptiveCompaction(ctx, summary, estimate, a.History[end:])
+	summary, afterSize, passes := a.adaptiveCompaction(ctx, summary, estimate, a.History[end:])
+	denserUsed := false
+	if shouldRunDenserPass(estimate, afterSize, a.Cfg.ContextLimit) {
+		if denser, denserSize, denserErr := a.denserCompaction(ctx, summary, estimate, a.History[end:]); denserErr == nil {
+			summary, afterSize = denser, denserSize
+			denserUsed = true
+		} else {
+			fmt.Println("Denser compaction skipped:", denserErr)
+		}
+	}
 	next := makeCompactionView(summary, a.History[end:])
 	if !compactionAcceptable(estimate, contextEstimate(next)) {
 		return fmt.Errorf("semantic compaction did not produce a useful reduction (estimated %d → %d tokens, %.1f%%; minimum %.0f%%); original context preserved", estimate, contextEstimate(next), compactionReduction(estimate, contextEstimate(next)), compactionMinimumUsefulReduction)
 	}
-	fmt.Printf("Compaction: %s · additional passes: %d\n", compactionDecision(estimate, contextEstimate(next)), passes)
+	fmt.Printf("Compaction: %s · additional passes: %d", compactionDecision(estimate, contextEstimate(next)), passes)
+	if denserUsed {
+		fmt.Print(" · denser merge")
+	}
+	fmt.Println()
 	if err := a.checkpoint(next, "semantic"); err != nil {
 		return err
 	}

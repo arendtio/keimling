@@ -79,14 +79,26 @@ func (a *Agent) adoptCompaction(job *compactionJob, result compactionResult) err
 		return fmt.Errorf("empty background summary")
 	}
 	before := contextEstimate(a.History)
-	text, _, passes := a.adaptiveCompaction(jobContext(job), text, before, a.History[job.end:])
+	text, afterSize, passes := a.adaptiveCompaction(jobContext(job), text, before, a.History[job.end:])
+	denserUsed := false
+	if shouldRunDenserPass(before, afterSize, a.Cfg.ContextLimit) {
+		if denser, denserSize, denserErr := a.denserCompaction(jobContext(job), text, before, a.History[job.end:]); denserErr == nil {
+			text, afterSize = denser, denserSize
+			denserUsed = true
+		}
+	}
+	_ = afterSize
 	next := makeCompactionView(text, a.History[job.end:])
 	if !compactionAcceptable(before, contextEstimate(next)) {
 		a.CompactionFailures++
 		a.CompactionRetryAfter = time.Now().Add(time.Minute * time.Duration(1<<min(a.CompactionFailures-1, 6)))
 		return fmt.Errorf("background compaction saved only %.1f%% (snapshot ~%d, current ~%d, result ~%d tokens; minimum useful %.0f%%); original context preserved", compactionReduction(before, contextEstimate(next)), contextEstimate(a.History[:job.end]), before, contextEstimate(next), compactionMinimumUsefulReduction)
 	}
-	fmt.Printf("Background compaction: %s · additional passes: %d\n", compactionDecision(before, contextEstimate(next)), passes)
+	fmt.Printf("Background compaction: %s · additional passes: %d", compactionDecision(before, contextEstimate(next)), passes)
+	if denserUsed {
+		fmt.Print(" · denser merge")
+	}
+	fmt.Println()
 	if err := a.checkpoint(next, "semantic-background"); err != nil {
 		return err
 	}

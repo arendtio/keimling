@@ -34,13 +34,18 @@ segment by meaning and assess relevance, then distill or hide selected content.
 
 - The model identifies semantic section and subsection boundaries using event
   IDs, not line numbers or fixed-size blocks.
-- The tree is recursive with up to ten levels; actual depth follows the content.
+- The tree is recursive with **at most three levels** (often one or two); depth
+  follows the content.
 - Parent and child nodes are evaluated independently, so an important overall
   topic can stay active while completed subtopics are distilled or collapsed.
 - Original events are assigned to leaf ranges completely and without overlap;
   parents aggregate their children without duplicating events.
-- The section index is updated incrementally during long sessions. Stable node
-  IDs and a globally linked tree remain future work.
+- Compaction runs in two phases: a fast **index** (ranges, titles, actions) and
+  a **render** of leaf bodies (optionally parallel via `--compact-parallel`).
+- Distill/summarize leaves receive story-arc context (objective, siblings, outline)
+  and, near the top of the tree, an `[intro]` / body / `[conclusion]` frame.
+- When occupancy stays high after compact (~70%+), an automatic **denser** pass
+  may merge top-level chapters; superseded chapters are hidden in the GUI.
 
 ### Treatment modes
 
@@ -58,17 +63,18 @@ findings survive. Facts, hypotheses, and unverified claims are never conflated.
 
 ### Procedure
 
-1. Semantically analyse the original history, or the part not yet structured.
-2. Produce and structurally validate the section tree, relevance decisions, and
-   fidelity requirements.
-3. Process `distill`/`summarize` sections, replace `collapse` sections with a
-   short archive reference, and reserve `keep` for indispensable exact content.
-4. Review the whole result for coherence, contradictions, duplicated facts,
-   current constraints, and outstanding tasks.
-5. Estimate net savings and atomically commit the best qualitatively valid
-   candidate as the active context checkpoint, without touching the journal.
-6. Report before/after token estimates, percentage saved, node count and depth,
-   treatment modes, and informative section titles.
+1. **Index:** outline the (raw or already-compact) window into a ≤3-level tree
+   with actions only — no chapter bodies yet.
+2. Validate the tree (contiguous ranges, depth, actions).
+3. **Render:** process leaves (`keep` / `distill` / `summarize` / `collapse`)
+   with arc context; optional parallel leaf calls; frame summarize/distill near
+   the top with intro/conclusion.
+4. Review for a concise global `working_state`.
+5. Adaptive densify if under the 30% reduction target; if occupancy remains
+   ~70%+, run denser merge on the compact memory.
+6. Checkpoint the model-facing view; update the chapter index (hide superseded
+   chapters, expose merged compact chapters). Journal untouched.
+7. Report before/after estimates, passes, and section treatments.
 
 ### Adaptive acceptance
 

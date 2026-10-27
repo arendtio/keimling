@@ -60,6 +60,7 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 | `--max-steps` | `200` | Maximum API rounds per user task |
 | `--context-limit` | `128000` | Context token budget for compaction |
 | `--compaction-model` | main model | Model used for context compaction |
+| `--compact-parallel` | on | Parallel leaf distill/summarize (`false` for single local models) |
 | `--review-model` | `gpt-6-luna` | Model for automatic approval review |
 | `--approval-policy` | none | Path to additional approval policy text |
 | `--autopilot` | `false` | Enable the autonomous task supervisor |
