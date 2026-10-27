@@ -23,6 +23,7 @@
 | --- | --- | --- | --- |
 | `GET` | `/` | no | UI shell (`index.html`) |
 | `GET` | `/assets/*` | no | CSS/JS |
+| `GET` | `/files/{token}` | capability token | Shared file download (see `05-file-shares.md`); no access secret |
 | `GET` | `/api/health` | yes | Liveness + build/mode info |
 | `GET` | `/api/session` | yes | Session view: `messages`, `chapters` (task-level history index), `working_state`, legacy `lines` |
 | `POST` | `/api/message` | yes | Send user instruction `{ "text": "..." }` |
@@ -62,6 +63,7 @@ data: {"state":"idle"|"running"|"awaiting_approval"}
 | `--server` | `"presentation": "server"` | HTTP agent only |
 | *(default)* | `"presentation": "auto"` or omit | Autodetect GUI → else CLI |
 | `--listen` | `"listen"` | `host:port`; required for server |
+| `--public-url` | `"public_url"` | Public base for `share_file` capability URLs |
 | `--connect` | `"connect"` | Remote agent base URL; no local agent |
 | `--access-secret` | `"access_secret"` | Shared client/server secret |
 

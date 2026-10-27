@@ -34,6 +34,8 @@ type Agent struct {
 	Emit func(kind, text string)
 	// ApprovalCh, when non-nil, receives approval decisions instead of reading stdin.
 	ApprovalCh chan bool
+	// Shares holds capability-URL file shares for GET /files/{token}.
+	Shares *fileShareHub
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -421,6 +423,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 								result = answer
 							}
 						}
+					} else if item.Name == "share_file" {
+						result = a.shareFile(item.Arguments)
+						a.println("\033[35m📎 Share\033[0m " + truncate(result, 240))
 					} else if item.Name == "search_history" {
 						result = a.searchHistory(item.Arguments)
 					} else if item.Name == "read_history" {
@@ -579,5 +584,8 @@ func (a *Agent) NewChat() error {
 	a.LastTaskMessage = ""
 	a.ResumeAvailable = false
 	_ = os.Remove(indexPath(a.Cfg.SessionPath))
+	if a.Shares != nil {
+		a.Shares.Clear()
+	}
 	return nil
 }

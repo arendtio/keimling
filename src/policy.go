@@ -25,7 +25,7 @@ func forceApproval(name, args string) (bool, string) {
 	if name == "update_plan" || name == "finish_task" {
 		return false, ""
 	}
-	if name == "read_file" {
+	if name == "read_file" || name == "share_file" {
 		var a struct {
 			Path string `json:"path"`
 		}
@@ -34,6 +34,9 @@ func forceApproval(name, args string) (bool, string) {
 		}
 		if privatePath(a.Path) {
 			return true, "protected path"
+		}
+		if name == "share_file" && !insideWorkingDir(a.Path) {
+			return true, "share outside working directory"
 		}
 		return false, ""
 	}
@@ -204,6 +207,14 @@ func autoApproved(name, args string) bool {
 		_, err := os.Lstat(a.Path)
 		return err == nil
 	case "write_file":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
+			return false
+		}
+		return insideWorkingDir(a.Path) && !privatePath(a.Path)
+	case "share_file":
 		var a struct {
 			Path string `json:"path"`
 		}

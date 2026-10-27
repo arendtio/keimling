@@ -46,6 +46,7 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 | `--listen` | none | Listen address for `--server` (required), e.g. `0.0.0.0:7420` |
 | `--connect` | none | Attach CLI to remote agent base URL (needs `--access-secret`) |
 | `--access-secret` | none | Shared secret for agent HTTP API (required with `--server`; or `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE`) |
+| `--public-url` | none | Public base URL for `share_file` links (e.g. `https://keimling.example.com`); else derived from `X-Forwarded-*` |
 | `--mode` | `auto` | Approval mode: `ask`, `auto`, or `yolo` |
 | `--model` | `gpt-6-luna` | Model for the main conversation |
 | `--reasoning` | `high` | Reasoning effort: `low`, `medium`, `high`, `xhigh`, `max` |

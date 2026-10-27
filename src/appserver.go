@@ -44,6 +44,12 @@ func newAppServer(opts appServerOpts) *appServer {
 		mux:    http.NewServeMux(),
 	}
 	if s.agent != nil {
+		if s.agent.Shares == nil {
+			s.agent.Shares = newFileShareHub()
+		}
+		if base := strings.TrimSpace(s.agent.Cfg.PublicURL); base != "" {
+			s.agent.Shares.SetPublicBase(base)
+		}
 		s.agent.Emit = func(kind, text string) {
 			switch kind {
 			case "status":
@@ -84,10 +90,20 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/approve", s.requireSecret(http.HandlerFunc(s.handleApprove)))
 	s.mux.Handle("/api/transcribe", s.requireSecret(http.HandlerFunc(s.handleTranscribe)))
 	s.mux.Handle("/events", s.requireSecret(http.HandlerFunc(s.handleEvents)))
+	s.mux.HandleFunc("/files/", s.handleFileShare)
 	return s
 }
 
-func (s *appServer) Handler() http.Handler { return s.mux }
+func (s *appServer) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.agent != nil && s.agent.Shares != nil && strings.TrimSpace(s.agent.Cfg.PublicURL) == "" {
+			if base := publicBaseFromRequest(r); base != "" {
+				s.agent.Shares.SetPublicBase(base)
+			}
+		}
+		s.mux.ServeHTTP(w, r)
+	})
+}
 
 func (s *appServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

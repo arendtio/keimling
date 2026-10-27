@@ -19,6 +19,7 @@ type Config struct {
 	Model, CompactionModel, Mode, Key, SessionPath, VoiceModel, ReviewModel, ApprovalPolicy, Reasoning, BaseURL string
 	DelegateFast, DelegateBalanced, DelegateDeep, PilotModel, PilotReasoning                                    string
 	ConfigPath                                                                                                  string // --config path; used to persist settings
+	PublicURL                                                                                                   string // public agent base URL for share_file links (optional)
 	Autopilot                                                                                                   bool
 	ExternalClient                                                                                              *Client
 	Web                                                                                                         bool
@@ -75,6 +76,7 @@ type fileConfig struct {
 	Listen       string `json:"listen"`
 	Connect      string `json:"connect"`
 	AccessSecret string `json:"access_secret"`
+	PublicURL    string `json:"public_url"`
 }
 
 func readConfiguration(path string) (fileConfig, error) {
@@ -174,6 +176,7 @@ func main() {
 	listenAddr := flag.String("listen", "", "HTTP listen address (required with --server), e.g. 0.0.0.0:7420")
 	connectURL := flag.String("connect", "", "Connect to remote Keimling agent base URL")
 	accessSecret := flag.String("access-secret", "", "Shared secret for agent HTTP API/UI")
+	publicURL := flag.String("public-url", "", "Public base URL for share_file links (e.g. https://keimling.example.com)")
 	flag.Parse()
 	if *apiMode != "responses" {
 		fmt.Fprintln(os.Stderr, "only --api-mode responses is supported")
@@ -198,6 +201,9 @@ func main() {
 	}
 	if !changed["access-secret"] && fc.AccessSecret != "" {
 		*accessSecret = fc.AccessSecret
+	}
+	if !changed["public-url"] && fc.PublicURL != "" {
+		*publicURL = fc.PublicURL
 	}
 	if !changed["access-secret"] && strings.TrimSpace(*accessSecret) == "" {
 		if s, err := accessSecretFromEnv(); err != nil {
@@ -351,9 +357,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath}
-	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/")}
+	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub()}
 	a.Client.BaseURL = resolvedURL
+	if c.PublicURL != "" {
+		a.Shares.SetPublicBase(c.PublicURL)
+	}
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	a.SessionCtx = sessionCtx
 	defer sessionCancel()
