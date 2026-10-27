@@ -50,9 +50,9 @@ cd src && CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -tags webkitgtk_41 -
 | Command | Purpose |
 | --- | --- |
 | `docker build -t keimling .` | Multi-stage image: static `nogui` binary, listens on `0.0.0.0:7420` |
-| `docker run --rm -p 7420:7420 -e OPENAI_API_KEY -e KEIMLING_SECRET -v keimling-data:/home/nonroot/.local/state/keimling keimling` | Run HTTP agent (put TLS on your reverse proxy) |
+| `docker run --rm -p 7420:7420 -e OPENAI_API_KEY -e KEIMLING_SECRET -v keimling-data:/data keimling` | Run HTTP agent (put TLS on your reverse proxy) |
 
-The image `CMD` is `--server --listen 0.0.0.0:7420`. Secrets: `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`, `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE` (Compose secrets). No WebKit/GUI in this image.
+The image `CMD` is `--server --listen 0.0.0.0:7420`. State lives in `$HOME` (`/data`, uid `65532`). Mount the volume on `/data`. Secrets: `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`, `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE` (Compose secrets). No WebKit/GUI in this image.
 
 ## Spike / demos
 
