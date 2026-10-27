@@ -442,6 +442,20 @@
     return wrap;
   }
 
+  function renderAssistantHTML(text) {
+    var raw = text || "";
+    try {
+      if (typeof marked !== "undefined" && marked.parse) {
+        var html = marked.parse(raw, { async: false, gfm: true, breaks: true });
+        if (typeof DOMPurify !== "undefined" && DOMPurify.sanitize) {
+          return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+        }
+        return html;
+      }
+    } catch (e) {}
+    return window.ansiToHtml(raw);
+  }
+
   function appendMessageNode(parent, m) {
     if (m.role === "tool_group") {
       parent.appendChild(toolCard(m));
@@ -450,7 +464,7 @@
     var el = document.createElement("article");
     el.className = "msg " + (m.role || "assistant");
     var who = m.role === "user" ? "You" : m.role === "system" ? "System" : "Keimling";
-    var body = m.role === "assistant" ? window.ansiToHtml(m.text || "") : esc(m.text || "");
+    var body = m.role === "assistant" ? renderAssistantHTML(m.text) : esc(m.text || "");
     el.innerHTML = '<p class="who">' + esc(who) + '</p><div class="body">' + body + "</div>";
     parent.appendChild(el);
   }

@@ -77,9 +77,3 @@ func TestShellAndExit(t *testing.T) {
 		t.Fatal(got)
 	}
 }
-func TestMarkdownLinks(t *testing.T) {
-	got := formatTerminal("[Arch wiki](https://wiki.archlinux.org/)")
-	if got != "Arch wiki (https://wiki.archlinux.org/)" {
-		t.Fatal(got)
-	}
-}

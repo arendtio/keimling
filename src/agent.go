@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -199,12 +198,11 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		var receivedChars atomic.Int64
 		var streamingStarted atomic.Bool
 		var streamedText strings.Builder
+		// Buffer streamed markdown; print a formatted block when the turn finishes
+		// so **bold**/code fences are not left as raw markers in the terminal.
 		a.Client.StreamText = func(delta string) {
-			if streamingStarted.CompareAndSwap(false, true) {
-				a.print("\r\033[2K\n")
-			}
+			streamingStarted.Store(true)
 			streamedText.WriteString(delta)
-			a.print(delta)
 		}
 		a.Client.StreamProgress = func(chars int, elapsed time.Duration) { receivedChars.Store(int64(chars)) }
 		finished := make(chan struct{})
@@ -238,18 +236,22 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		statusWG.Wait()
 		a.Client.StreamText = nil
 		a.Client.StreamProgress = nil
+		a.print("\r\033[2K")
 		if streamingStarted.Load() {
+			formatted := formatTerminal(streamedText.String())
+			a.print(formatted)
+			if formatted != "" && !strings.HasSuffix(formatted, "\n") {
+				a.print("\n")
+			}
 			duration := time.Since(started).Seconds()
 			if duration > 0 {
 				estimated := receivedChars.Load() / 4
 				if resp.Usage.OutputTokens > 0 {
-					a.printf("\n[Generated: %d output tokens · %.1f tok/s over %.1fs]\n", resp.Usage.OutputTokens, float64(resp.Usage.OutputTokens)/duration, duration)
+					a.printf("[Generated: %d output tokens · %.1f tok/s over %.1fs]\n", resp.Usage.OutputTokens, float64(resp.Usage.OutputTokens)/duration, duration)
 				} else {
-					a.printf("\n[Streaming: ~%d visible tokens · ~%.1f tok/s over %.1fs]\n", estimated, float64(estimated)/duration, duration)
+					a.printf("[Streaming: ~%d visible tokens · ~%.1f tok/s over %.1fs]\n", estimated, float64(estimated)/duration, duration)
 				}
 			}
-		} else {
-			a.print("\r\033[2K")
 		}
 		if err != nil {
 			return err
@@ -555,8 +557,6 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		}
 	}
 }
-
-var mdLink = regexp.MustCompile(`\[([^]\n]+)\]\((https?://[^)\s]+)\)`)
 
 func formatTerminal(s string) string {
 	return renderMarkdown(s)

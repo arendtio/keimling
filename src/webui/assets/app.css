@@ -550,6 +550,63 @@ button.wide { width: 100%; max-width: 100%; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.msg.assistant .body {
+  white-space: normal;
+  line-height: 1.55;
+  display: grid;
+  gap: 0.55rem;
+}
+.msg.assistant .body > :first-child { margin-top: 0; }
+.msg.assistant .body > :last-child { margin-bottom: 0; }
+.msg.assistant .body p { margin: 0; }
+.msg.assistant .body h1,
+.msg.assistant .body h2,
+.msg.assistant .body h3,
+.msg.assistant .body h4 {
+  margin: 0.2rem 0 0;
+  font-family: var(--font-brand);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.msg.assistant .body h1 { font-size: 1.25rem; }
+.msg.assistant .body h2 { font-size: 1.12rem; }
+.msg.assistant .body h3,
+.msg.assistant .body h4 { font-size: 1.02rem; }
+.msg.assistant .body ul,
+.msg.assistant .body ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.msg.assistant .body li { margin: 0.15rem 0; }
+.msg.assistant .body a { color: var(--accent); }
+.msg.assistant .body code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--chrome) 70%, var(--panel));
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+}
+.msg.assistant .body pre {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--chrome) 75%, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.msg.assistant .body pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.84rem;
+  white-space: pre;
+}
+.msg.assistant .body blockquote {
+  margin: 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
 
 .tool-line {
   min-width: 0;

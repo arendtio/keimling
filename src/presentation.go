@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -129,20 +128,4 @@ func renderFinish(status, summary string) string {
 		return "\n\033[32m✓ Task complete\033[0m\n" + renderMarkdown(strings.TrimSpace(summary))
 	}
 	return "\n\033[33m! Action needed\033[0m\n" + renderMarkdown(strings.TrimSpace(summary))
-}
-
-var (
-	mdBold    = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
-	mdCode    = regexp.MustCompile("`([^`\\n]+)`")
-	mdItalic  = regexp.MustCompile(`(^|[^*])\*([^*\n]+)\*`)
-	mdHeading = regexp.MustCompile(`(?m)^#{1,6} +(.+)$`)
-)
-
-func renderMarkdown(s string) string {
-	s = mdLink.ReplaceAllString(s, "$1 ($2)")
-	s = mdHeading.ReplaceAllString(s, "\033[1m$1\033[0m")
-	s = mdBold.ReplaceAllString(s, "\033[1m$1\033[0m")
-	s = mdCode.ReplaceAllString(s, "\033[36m$1\033[0m")
-	s = mdItalic.ReplaceAllString(s, "$1\033[3m$2\033[0m")
-	return s
 }
