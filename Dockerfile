@@ -3,10 +3,12 @@
 #
 #   docker build -t keimling .
 #   docker run --rm -p 7420:7420 \
-#     -e OPENAI_API_KEY \
+#     -e OPENAI_API_KEY_FILE=/run/secrets/openai_api_key \
+#     -e KEIMLING_SECRET_FILE=/run/secrets/keimling_secret \
 #     -v keimling-data:/home/nonroot/.local/state/keimling \
-#     keimling --access-secret "$SECRET"
+#     keimling
 #
+# Secrets: OPENAI_API_KEY[_FILE], KEIMLING_SECRET[_FILE] (also KEIMLING_ACCESS_SECRET / ACCESS_SECRET).
 # Override listen / flags after the image name; ENTRYPOINT is the binary.
 
 # ---- build (static, server-only) ----
@@ -28,11 +30,11 @@ LABEL org.opencontainers.image.title="keimling" \
 COPY --from=build /out/keimling /keimling
 
 # Sessions / index under $HOME; mount a volume if you want persistence.
-ENV HOME=/home/nonroot \
-    OPENAI_API_KEY=
+ENV HOME=/home/nonroot
 
 EXPOSE 7420
 
 # Bind all interfaces so a Traefik/Caddy/nginx proxy on another container can reach us.
+# Access secret and API key come from env / *_FILE (Compose secrets), not CMD.
 ENTRYPOINT ["/keimling"]
 CMD ["--server", "--listen", "0.0.0.0:7420"]

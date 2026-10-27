@@ -5,7 +5,7 @@ Keimling is an experimental interactive Linux agent written in Go. It uses the O
 ## Requirements
 
 - Linux, macOS, or Windows, and Go 1.26 or newer to build
-- An OpenAI API key, supplied through `OPENAI_API_KEY` or `~/.credentials_openai` (mode `600`)
+- An OpenAI API key, supplied through `OPENAI_API_KEY`, `OPENAI_API_KEY_FILE`, or `~/.credentials_openai` (mode `600`)
 - `arecord` (for example, from `alsa-utils`) for voice recording
 - For the native GUI: system WebView (WebKitGTK 4.1+ on Linux, WKWebView on macOS, WebView2 on Windows). `make build` enables GUI when the Linux WebKit packages are present; `make build-nogui` forces a CLI/server-only binary.
 
@@ -45,7 +45,7 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 | `--server` | off | HTTP agent server only (UI + API; no interactive client) |
 | `--listen` | none | Listen address for `--server` (required), e.g. `0.0.0.0:7420` |
 | `--connect` | none | Attach CLI to remote agent base URL (needs `--access-secret`) |
-| `--access-secret` | none | Shared secret for agent HTTP API (required with `--server`) |
+| `--access-secret` | none | Shared secret for agent HTTP API (required with `--server`; or `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE`) |
 | `--mode` | `auto` | Approval mode: `ask`, `auto`, or `yolo` |
 | `--model` | `gpt-6-luna` | Model for the main conversation |
 | `--reasoning` | `high` | Reasoning effort: `low`, `medium`, `high`, `xhigh`, `max` |

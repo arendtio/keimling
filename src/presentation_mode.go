@@ -50,7 +50,7 @@ func validateServerListen(listen, secret string) error {
 		return fmt.Errorf("--listen is required with --server")
 	}
 	if strings.TrimSpace(secret) == "" {
-		return fmt.Errorf("--access-secret is required with --server")
+		return fmt.Errorf("--access-secret is required with --server (or set KEIMLING_SECRET / KEIMLING_SECRET_FILE)")
 	}
 	return nil
 }

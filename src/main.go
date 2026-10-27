@@ -26,7 +26,9 @@ type Config struct {
 }
 
 func apiKey() (string, error) {
-	if s := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); s != "" {
+	if s, err := envOrFile("OPENAI_API_KEY"); err != nil {
+		return "", err
+	} else if s != "" {
 		return s, nil
 	}
 	home, err := os.UserHomeDir()
@@ -36,7 +38,7 @@ func apiKey() (string, error) {
 	p := filepath.Join(home, ".credentials_openai")
 	st, err := os.Stat(p)
 	if err != nil {
-		return "", fmt.Errorf("API key not found: OPENAI_API_KEY or %s", p)
+		return "", fmt.Errorf("API key not found: OPENAI_API_KEY, OPENAI_API_KEY_FILE, or %s", p)
 	}
 	if st.Mode().Perm()&0077 != 0 {
 		return "", fmt.Errorf("insecure file permissions for %s: chmod 600 %s", p, p)
@@ -168,6 +170,14 @@ func main() {
 	}
 	if !changed["access-secret"] && fc.AccessSecret != "" {
 		*accessSecret = fc.AccessSecret
+	}
+	if !changed["access-secret"] && strings.TrimSpace(*accessSecret) == "" {
+		if s, err := accessSecretFromEnv(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		} else if s != "" {
+			*accessSecret = s
+		}
 	}
 	presentation, perr := resolvePresentation(fc.Presentation, *uiMode, *cliMode, *serverMode)
 	if perr != nil {
