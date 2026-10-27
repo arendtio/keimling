@@ -316,22 +316,28 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				reason := ""
 				if a.Cfg.Mode == "auto" && !allowed {
 					if forced, why := forceApproval(item.Name, item.Arguments); forced {
-						// Hard safety floor: never auto-approved.
+						// Hard safety floor: never model-overridable.
 						reason = why
 					} else if autoApproved(item.Name, item.Arguments) {
-						// Routine development work: formatters, linters, build and
-						// test runs, reads, and ordinary edits inside the working
-						// directory.
+						// Routine development / read-only diagnostics: no reviewer.
 						allowed = true
 					} else {
 						cwd, _ := os.Getwd()
-						verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd)
+						var sus *SoftSuspicion
+						if hit, ok := softSuspicion(item.Name, item.Arguments); ok {
+							sus = &hit
+							a.println("◌ Soft rule", hit.ID, "— reviewer checking for false positive…")
+						}
+						verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, sus)
 						if e != nil {
 							reason = "review unavailable: " + e.Error()
 						} else if verdict.Decision == "approve" {
 							allowed = true
 						} else {
 							reason = verdict.Reason
+							if sus != nil && reason == "" {
+								reason = sus.Reason
+							}
 						}
 					}
 				}
