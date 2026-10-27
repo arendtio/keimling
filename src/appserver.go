@@ -80,6 +80,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
+	s.mux.Handle("/api/gui-prefs", s.requireSecret(http.HandlerFunc(s.handleGuiPrefs)))
 	s.mux.Handle("/api/approve", s.requireSecret(http.HandlerFunc(s.handleApprove)))
 	s.mux.Handle("/api/transcribe", s.requireSecret(http.HandlerFunc(s.handleTranscribe)))
 	s.mux.Handle("/events", s.requireSecret(http.HandlerFunc(s.handleEvents)))
@@ -317,6 +318,37 @@ func (s *appServer) applySettings(body agentSettings) error {
 		return fmt.Errorf("persist config: %w", err)
 	}
 	return nil
+}
+
+func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
+	path := ""
+	if s.agent != nil {
+		path = s.agent.Cfg.ConfigPath
+	}
+	switch r.Method {
+	case http.MethodGet:
+		p, err := readGuiPrefs(path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(p)
+	case http.MethodPut, http.MethodPatch:
+		var body guiPrefs
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if err := writeGuiPrefs(path, body); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) error {

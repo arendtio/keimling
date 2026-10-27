@@ -8,8 +8,8 @@
 #     -v keimling-data:/data \
 #     keimling
 #
-# Persist at /data (uid 65532). Named volumes inherit image ownership; bind mounts
-# must be writable by 65532 (or chown).
+# Persist at /data (uid 65532): HOME, WORKDIR, and named-volume mount. Bind mounts
+# must be writable by 65532 (or chown). Agent-created relative paths stay on the volume.
 # Secrets: OPENAI_API_KEY[_FILE], KEIMLING_SECRET[_FILE] (also KEIMLING_ACCESS_SECRET / ACCESS_SECRET).
 # Override listen / flags after the image name; ENTRYPOINT is the binary.
 #
@@ -52,8 +52,9 @@ RUN apt-get update \
 
 COPY --from=build /out/keimling /keimling
 
-# Sessions / index under $HOME; mount a volume on /data for persistence.
+# Sessions / index under $HOME; CWD is /data so relative file writes hit the volume.
 ENV HOME=/data
+WORKDIR /data
 USER nonroot:nonroot
 
 EXPOSE 7420

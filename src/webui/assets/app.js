@@ -549,13 +549,30 @@
     return wrap;
   }
 
+  var SCROLL_STICKY_PX = 100;
+
+  function nearBottom() {
+    var el = document.documentElement;
+    var gap = el.scrollHeight - (window.scrollY + window.innerHeight);
+    return gap <= SCROLL_STICKY_PX;
+  }
+
+  function stickScrollIfNearBottom(wasNear) {
+    if (!wasNear) return;
+    requestAnimationFrame(function () {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+  }
+
   function renderThread() {
+    var stick = nearBottom();
     thread.innerHTML = "";
     if (!messages.length) {
       var hint = document.createElement("div");
       hint.className = "msg system";
       hint.innerHTML = '<p class="who">Keimling</p><p class="body">Send a message to continue this session.</p>';
       thread.appendChild(hint);
+      stickScrollIfNearBottom(stick);
       return;
     }
 
@@ -570,6 +587,7 @@
         if (!inChapter(m)) return;
         appendMessageNode(thread, m);
       });
+      stickScrollIfNearBottom(stick);
       return;
     }
 
@@ -580,15 +598,19 @@
       chapters.forEach(function (ch) {
         thread.appendChild(renderChapterOverview(ch));
       });
+      stickScrollIfNearBottom(stick);
       return;
     }
 
     messages.forEach(function (m) { appendMessageNode(thread, m); });
+    stickScrollIfNearBottom(stick);
   }
 
   function appendLive(text) {
+    var stick = nearBottom();
     liveWrap.hidden = false;
     liveOut.insertAdjacentHTML("beforeend", window.ansiToHtml(text));
+    stickScrollIfNearBottom(stick);
   }
 
   function clearLive() {
@@ -693,6 +715,17 @@
     return s;
   }
 
+  // Persist last desktop connection outside ephemeral-port localStorage.
+  function saveGuiPrefs(body) {
+    return fetch(apiURL("/api/gui-prefs"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify(body || {}),
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+    }).catch(function () { /* best-effort; still navigate/connect */ });
+  }
+
   function openSession() {
     gateErr.hidden = true;
     if (mode === "remote") {
@@ -721,7 +754,9 @@
         } else {
           storePrefs();
           connectBtn.disabled = true;
-          location.assign(dest);
+          saveGuiPrefs({ connect: remoteBase, access_secret: secret() }).then(function () {
+            location.assign(dest);
+          });
           return;
         }
       } catch (e) {
@@ -746,7 +781,9 @@
       }
     }
     connectBtn.disabled = true;
-    loadSession()
+    var clearRemote = mode !== "remote";
+    (clearRemote ? saveGuiPrefs({ connect: "", access_secret: "" }) : Promise.resolve())
+      .then(function () { return loadSession(); })
       .then(function () {
         connected = true;
         storePrefs();

@@ -212,6 +212,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, perr)
 		os.Exit(2)
 	}
+	if presentation != presentationServer {
+		if err := applyGuiPrefsConnect(*configPath, connectURL, accessSecret, changed["connect"]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	}
 	if presentation == presentationServer {
 		if err := validateServerListen(*listenAddr, *accessSecret); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -223,6 +229,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "--connect cannot be combined with --server")
 			os.Exit(2)
 		}
+		_ = writeGuiPrefs(*configPath, guiPrefs{Connect: *connectURL, AccessSecret: *accessSecret})
 		wantGUI := presentation == presentationUI || presentation == presentationAuto
 		if wantGUI {
 			if err := runGUIRemote(*connectURL, *accessSecret); err != nil {
