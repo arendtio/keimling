@@ -21,6 +21,12 @@ func TestRoutineCommandAcceptsDevelopmentWork(t *testing.T) {
 		"ls -la",
 		"grep -rn foo .",
 		"go test ./... | tail -20",
+		"ip -brief address show 2>/dev/null || ip address show 2>/dev/null",
+		"cat /etc/os-release",
+		"cat /etc/issue",
+		"hostname",
+		"uname -a",
+		"ip addr show",
 	}
 	for _, cmd := range ok {
 		if !routineCommand(cmd) {
@@ -41,6 +47,7 @@ func TestRoutineCommandAcceptsDevelopmentWork(t *testing.T) {
 		"curl https://example.com",
 		"cat file | sh",
 		"echo $(whoami)",
+		"ip addr add 10.0.0.1/24 dev eth0",
 		"",
 	}
 	for _, cmd := range bad {
@@ -73,6 +80,10 @@ func TestAutoApprovedFileEdits(t *testing.T) {
 		{"exec", `{"command":"gofmt -w a.txt"}`, true},
 		{"exec", `{"command":"rm a.txt"}`, false},
 		{"exec", `{"command":"gofmt -w a.txt","interactive":true}`, false},
+		{"exec", `{"command":"ip -brief address show 2>/dev/null || ip address show 2>/dev/null"}`, true},
+		{"exec", `{"command":"cat /etc/os-release"}`, true},
+		{"exec", `{"command":"cat /etc/shadow"}`, false},
+		{"exec", `{"command":"ip link set eth0 down"}`, false},
 	}
 	for _, c := range cases {
 		if got := autoApproved(c.name, c.args); got != c.want {
