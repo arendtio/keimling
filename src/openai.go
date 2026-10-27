@@ -19,14 +19,15 @@ import (
 )
 
 type Client struct {
-	APIKey         string
-	BaseURL        string
-	HTTP           *http.Client
-	InputTokens    int64
-	OutputTokens   int64
-	LastMainUsage  MainUsage
-	StreamText     func(string)
-	StreamProgress func(int, time.Duration)
+	APIKey        string
+	BaseURL       string
+	HTTP          *http.Client
+	InputTokens   int64
+	OutputTokens  int64
+	LastMainUsage MainUsage
+	StreamText    func(string)
+	// StreamProgress reports streamed rune counts by kind: thinking | text | tool.
+	StreamProgress func(deltaChars int, elapsed time.Duration, kind string)
 }
 
 func NewClient(key string) *Client {
@@ -236,20 +237,28 @@ func (c *Client) readResponseStream(ctx context.Context, r io.Reader) (Response,
 		}
 		eventName = ""
 		switch typ {
-		case "response.function_call_arguments.delta", "response.reasoning_summary_text.delta":
-			chars += len([]rune(e.Delta))
-			if c.StreamProgress != nil {
-				c.StreamProgress(chars, time.Since(start))
+		case "response.function_call_arguments.delta":
+			n := len([]rune(e.Delta))
+			chars += n
+			if n > 0 && c.StreamProgress != nil {
+				c.StreamProgress(n, time.Since(start), "tool")
+			}
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			n := len([]rune(e.Delta))
+			chars += n
+			if n > 0 && c.StreamProgress != nil {
+				c.StreamProgress(n, time.Since(start), "thinking")
 			}
 		case "response.output_text.delta":
 			if e.Delta != "" {
 				visible = true
-				chars += len([]rune(e.Delta))
+				n := len([]rune(e.Delta))
+				chars += n
 				if c.StreamText != nil {
 					c.StreamText(e.Delta)
 				}
-				if c.StreamProgress != nil {
-					c.StreamProgress(chars, time.Since(start))
+				if n > 0 && c.StreamProgress != nil {
+					c.StreamProgress(n, time.Since(start), "text")
 				}
 			}
 		case "response.completed", "response.failed", "response.incomplete":

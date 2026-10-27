@@ -54,6 +54,12 @@ func newAppServer(opts appServerOpts) *appServer {
 			switch kind {
 			case "status":
 				s.hub.Broadcast("status", map[string]string{"state": text})
+			case "progress":
+				var payload map[string]any
+				if json.Unmarshal([]byte(text), &payload) == nil {
+					s.hub.Broadcast("progress", payload)
+					return
+				}
 			case "approval":
 				var payload map[string]any
 				if json.Unmarshal([]byte(text), &payload) == nil {

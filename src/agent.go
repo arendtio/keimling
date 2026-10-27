@@ -202,20 +202,79 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			return err
 		}
 		started := time.Now()
-		var receivedChars atomic.Int64
+		var thinkingChars, textChars, toolChars atomic.Int64
 		var streamingStarted atomic.Bool
+		var streamPhase atomic.Value
+		var phaseStarted atomic.Value
+		streamPhase.Store("waiting")
+		phaseStarted.Store(started)
 		var streamedText strings.Builder
+		emitProgress := func() {
+			phase, _ := streamPhase.Load().(string)
+			if phase == "" {
+				phase = "waiting"
+			}
+			var count int64
+			switch phase {
+			case "thinking":
+				count = thinkingChars.Load()
+			case "text":
+				count = textChars.Load()
+			case "tool":
+				count = toolChars.Load()
+			default:
+				count = thinkingChars.Load() + textChars.Load() + toolChars.Load()
+			}
+			ps, _ := phaseStarted.Load().(time.Time)
+			if ps.IsZero() {
+				ps = started
+			}
+			phaseElapsed := time.Since(ps).Seconds()
+			rate := 0.0
+			if phaseElapsed > 0 && count > 0 {
+				rate = float64(count) / 4 / phaseElapsed
+			}
+			a.emitJSON("progress", map[string]any{
+				"phase":          phase,
+				"elapsed_sec":    int(time.Since(started).Seconds()),
+				"chars":          count,
+				"approx_tokens":  count / 4,
+				"tok_per_s":      rate,
+				"thinking_chars": thinkingChars.Load(),
+				"text_chars":     textChars.Load(),
+				"tool_chars":     toolChars.Load(),
+			})
+		}
 		// Buffer streamed markdown; print a formatted block when the turn finishes
 		// so **bold**/code fences are not left as raw markers in the terminal.
 		a.Client.StreamText = func(delta string) {
 			streamingStarted.Store(true)
 			streamedText.WriteString(delta)
 		}
-		a.Client.StreamProgress = func(chars int, elapsed time.Duration) { receivedChars.Store(int64(chars)) }
+		a.Client.StreamProgress = func(deltaChars int, elapsed time.Duration, kind string) {
+			switch kind {
+			case "thinking":
+				thinkingChars.Add(int64(deltaChars))
+			case "tool":
+				toolChars.Add(int64(deltaChars))
+			default:
+				textChars.Add(int64(deltaChars))
+				kind = "text"
+			}
+			prev, _ := streamPhase.Load().(string)
+			if prev != kind {
+				phaseStarted.Store(time.Now())
+			}
+			streamPhase.Store(kind)
+			if prev != kind {
+				emitProgress()
+			}
+		}
 		finished := make(chan struct{})
 		var statusWG sync.WaitGroup
 		statusWG.Add(1)
 		a.print("\r\033[2K\033[36m◌\033[0m Working… 0s")
+		emitProgress()
 		go func() {
 			defer statusWG.Done()
 			tick := time.NewTicker(time.Second)
@@ -225,16 +284,34 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				case <-finished:
 					return
 				case <-tick.C:
-					if !streamingStarted.Load() {
-						count := receivedChars.Load()
-						if count > 0 {
-							elapsed := time.Since(started).Seconds()
-							rate := float64(count) / 4 / elapsed
-							a.printf("\r\033[2K\033[36m◌\033[0m Working… %s · ~%.1f tok/s", time.Since(started).Truncate(time.Second), rate)
-						} else {
-							a.printf("\r\033[2K\033[36m◌\033[0m Working… %s", time.Since(started).Truncate(time.Second))
-						}
+					phase, _ := streamPhase.Load().(string)
+					var count int64
+					label := "Working"
+					switch phase {
+					case "thinking":
+						count = thinkingChars.Load()
+						label = "Thinking"
+					case "text":
+						count = textChars.Load()
+						label = "Generating"
+					case "tool":
+						count = toolChars.Load()
+						label = "Tool args"
+					default:
+						count = thinkingChars.Load() + textChars.Load() + toolChars.Load()
 					}
+					ps, _ := phaseStarted.Load().(time.Time)
+					if ps.IsZero() {
+						ps = started
+					}
+					phaseElapsed := time.Since(ps).Seconds()
+					if count > 0 && phaseElapsed > 0 {
+						rate := float64(count) / 4 / phaseElapsed
+						a.printf("\r\033[2K\033[36m◌\033[0m %s… %s · ~%.1f tok/s", label, time.Since(started).Truncate(time.Second), rate)
+					} else {
+						a.printf("\r\033[2K\033[36m◌\033[0m %s… %s", label, time.Since(started).Truncate(time.Second))
+					}
+					emitProgress()
 				}
 			}
 		}()
@@ -243,6 +320,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		statusWG.Wait()
 		a.Client.StreamText = nil
 		a.Client.StreamProgress = nil
+		a.emitJSON("progress", map[string]any{"clear": true})
 		a.print("\r\033[2K")
 		if streamingStarted.Load() {
 			formatted := formatTerminal(streamedText.String())
@@ -252,10 +330,10 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			}
 			duration := time.Since(started).Seconds()
 			if duration > 0 {
-				estimated := receivedChars.Load() / 4
+				estimated := textChars.Load() / 4
 				if resp.Usage.OutputTokens > 0 {
 					a.printf("[Generated: %d output tokens · %.1f tok/s over %.1fs]\n", resp.Usage.OutputTokens, float64(resp.Usage.OutputTokens)/duration, duration)
-				} else {
+				} else if estimated > 0 {
 					a.printf("[Streaming: ~%d visible tokens · ~%.1f tok/s over %.1fs]\n", estimated, float64(estimated)/duration, duration)
 				}
 			}

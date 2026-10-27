@@ -48,6 +48,7 @@
   var liveOut = document.getElementById("live-out");
   var stateEl = document.getElementById("state");
   var agentStatus = document.getElementById("agent-status");
+  var progressDetail = document.getElementById("progress-detail");
   var modelEl = document.getElementById("model");
   var modeEl = document.getElementById("mode");
   var msg = document.getElementById("msg");
@@ -296,6 +297,40 @@
     msg.focus();
   }
 
+  function clearProgress() {
+    if (!progressDetail) return;
+    progressDetail.hidden = true;
+    progressDetail.textContent = "";
+    progressDetail.className = "progress-detail";
+  }
+
+  function updateProgress(p) {
+    if (!progressDetail) return;
+    p = p || {};
+    if (p.clear) {
+      clearProgress();
+      return;
+    }
+    var phase = p.phase || "waiting";
+    var label =
+      phase === "thinking" ? "thinking" :
+      phase === "text" ? "generating" :
+      phase === "tool" ? "tool args" :
+      "working";
+    var parts = [label, (p.elapsed_sec || 0) + "s"];
+    var rate = Number(p.tok_per_s) || 0;
+    var approx = Number(p.approx_tokens) || 0;
+    if (rate > 0) parts.push("~" + rate.toFixed(1) + " tok/s");
+    if (approx > 0) parts.push("~" + approx + " tok");
+    // While waiting with no stream yet, still show a heartbeat so a dead link is obvious.
+    if (phase === "waiting" && approx === 0) {
+      parts = ["waiting for model", (p.elapsed_sec || 0) + "s"];
+    }
+    progressDetail.hidden = false;
+    progressDetail.className = "progress-detail" + (phase === "thinking" ? " thinking" : "");
+    progressDetail.textContent = parts.join(" · ");
+  }
+
   function setState(s) {
     agentState = s || "idle";
     stateEl.textContent = agentState;
@@ -306,6 +341,7 @@
       agentStatus.hidden = !show;
       agentStatus.className = "agent-status" + (show ? " " + agentState : "");
     }
+    if (agentState !== "running") clearProgress();
     var waiting = agentState === "awaiting_approval";
     approve.disabled = !waiting;
     deny.disabled = !waiting;
@@ -715,6 +751,7 @@
               try { payload = JSON.parse(data); } catch (e) {}
               if (ev === "line" && payload.text) appendLive(payload.text);
               if (ev === "approval") showApproval(payload);
+              if (ev === "progress") updateProgress(payload);
               if (ev === "status" && payload.state) {
                 setState(payload.state);
                 if (payload.state === "idle") loadSession().catch(function () {});
