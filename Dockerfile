@@ -9,9 +9,12 @@
 #     keimling
 #
 # Persist at /data (uid 65532). Named volumes inherit image ownership; bind mounts
-# must be writable by 65532 (or chown). Do not mount over /home/nonroot.
+# must be writable by 65532 (or chown).
 # Secrets: OPENAI_API_KEY[_FILE], KEIMLING_SECRET[_FILE] (also KEIMLING_ACCESS_SECRET / ACCESS_SECRET).
 # Override listen / flags after the image name; ENTRYPOINT is the binary.
+#
+# Runtime is Debian slim (not distroless): the agent exec tool needs /bin/bash and
+# basic Unix utilities inside the container.
 
 # ---- build (static, server-only) ----
 FROM golang:1.26-bookworm AS build
@@ -23,20 +26,35 @@ RUN go mod download
 COPY src/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -tags nogui -o /out/keimling .
 
-# Empty state dir owned by distroless nonroot (65532) so named volumes stay writable.
-RUN mkdir -p /data && chown 65532:65532 /data
-
 # ---- runtime ----
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM debian:bookworm-slim
 
 LABEL org.opencontainers.image.title="keimling" \
       org.opencontainers.image.description="Keimling HTTP agent server (nogui)"
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      coreutils \
+      curl \
+      findutils \
+      gawk \
+      git \
+      grep \
+      procps \
+      sed \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 65532 nonroot \
+ && useradd --uid 65532 --gid 65532 --home-dir /data --no-create-home --shell /bin/bash nonroot \
+ && mkdir -p /data \
+ && chown 65532:65532 /data
+
 COPY --from=build /out/keimling /keimling
-COPY --from=build --chown=65532:65532 /data /data
 
 # Sessions / index under $HOME; mount a volume on /data for persistence.
 ENV HOME=/data
+USER nonroot:nonroot
 
 EXPOSE 7420
 
