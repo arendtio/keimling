@@ -45,6 +45,7 @@
   var liveWrap = document.getElementById("live-wrap");
   var liveOut = document.getElementById("live-out");
   var stateEl = document.getElementById("state");
+  var agentStatus = document.getElementById("agent-status");
   var modelEl = document.getElementById("model");
   var modeEl = document.getElementById("mode");
   var msg = document.getElementById("msg");
@@ -287,6 +288,12 @@
     agentState = s || "idle";
     stateEl.textContent = agentState;
     stateEl.className = "state " + agentState;
+    // Keep the indicator next to new output; hide when idle to free vertical space.
+    if (agentStatus) {
+      var show = agentState === "running" || agentState === "awaiting_approval";
+      agentStatus.hidden = !show;
+      agentStatus.className = "agent-status" + (show ? " " + agentState : "");
+    }
     var waiting = agentState === "awaiting_approval";
     approve.disabled = !waiting;
     deny.disabled = !waiting;
@@ -302,6 +309,10 @@
     }
   }
 
+  function setAnsiPre(el, text) {
+    el.innerHTML = window.ansiToHtml(text || "");
+  }
+
   function showApproval(payload) {
     payload = payload || {};
     if (payload.clear) {
@@ -313,10 +324,10 @@
     approvalReason.textContent = payload.reason
       ? payload.reason
       : "Keimling wants to run “" + name + "”.";
-    approvalCmd.textContent = cmd;
+    setAnsiPre(approvalCmd, cmd);
     if (payload.preview) {
       approvalPreview.hidden = false;
-      approvalPreview.textContent = payload.preview;
+      setAnsiPre(approvalPreview, payload.preview);
     } else {
       approvalPreview.hidden = true;
       approvalPreview.textContent = "";
