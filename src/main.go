@@ -18,6 +18,7 @@ import (
 type Config struct {
 	Model, CompactionModel, Mode, Key, SessionPath, VoiceModel, ReviewModel, ApprovalPolicy, Reasoning, BaseURL string
 	DelegateFast, DelegateBalanced, DelegateDeep, PilotModel, PilotReasoning                                    string
+	ConfigPath                                                                                                  string // --config path; used to persist settings
 	Autopilot                                                                                                   bool
 	ExternalClient                                                                                              *Client
 	Web                                                                                                         bool
@@ -59,10 +60,12 @@ type fileConfig struct {
 		BaseURL string `json:"base_url"`
 		Mode    string `json:"mode"`
 		Model   string `json:"model"`
-		KeyFile string `json:"key_file"`
+		Key     string `json:"key,omitempty"`
+		KeyFile string `json:"key_file,omitempty"`
 	} `json:"api"`
 	OpenAI struct {
-		KeyFile string `json:"key_file"`
+		Key     string `json:"key,omitempty"`
+		KeyFile string `json:"key_file,omitempty"`
 	} `json:"openai"`
 	Features struct {
 		WebSearch               *bool `json:"web_search"`
@@ -85,6 +88,31 @@ func readConfiguration(path string) (fileConfig, error) {
 	}
 	e = json.Unmarshal(b, &cfg)
 	return cfg, e
+}
+
+// updateConfiguration read-modify-writes path at mode 0600 (secrets may be stored inline).
+func updateConfiguration(path string, mut func(*fileConfig)) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	cfg, err := readConfiguration(path)
+	if err != nil {
+		return err
+	}
+	mut(&cfg)
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 func readKeyFile(path string) (string, error) {
 	st, e := os.Stat(path)
@@ -219,10 +247,11 @@ func main() {
 	if !changed["model"] && fc.API.Model != "" {
 		*model = fc.API.Model
 	}
-	if !changed["api-key-file"] && fc.API.KeyFile != "" {
+	// Prefer inline config keys over key_file so UI-persisted secrets stick.
+	if !changed["api-key-file"] && fc.API.KeyFile != "" && strings.TrimSpace(fc.API.Key) == "" {
 		*keyFile = fc.API.KeyFile
 	}
-	if !changed["openai-api-key-file"] && fc.OpenAI.KeyFile != "" {
+	if !changed["openai-api-key-file"] && fc.OpenAI.KeyFile != "" && strings.TrimSpace(fc.OpenAI.Key) == "" {
 		*openaiKeyFile = fc.OpenAI.KeyFile
 	}
 	if !changed["mode"] && fc.API.Mode != "" {
@@ -272,6 +301,8 @@ func main() {
 	var err error
 	if *keyFile != "" {
 		key, err = readKeyFile(*keyFile)
+	} else if k := strings.TrimSpace(fc.API.Key); k != "" {
+		key = k
 	} else if !custom {
 		key, err = apiKey()
 	}
@@ -286,6 +317,8 @@ func main() {
 	if !*disableExternal {
 		if *openaiKeyFile != "" {
 			externalKey, err = readKeyFile(*openaiKeyFile)
+		} else if k := strings.TrimSpace(fc.OpenAI.Key); k != "" {
+			externalKey = k
 		} else if !custom && key != "" {
 			externalKey = key
 		} else {
@@ -311,7 +344,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History}
 	a.Client.BaseURL = resolvedURL
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())

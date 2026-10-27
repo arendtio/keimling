@@ -29,7 +29,7 @@
           </button>
           <button type="button" id="choice-remote" class="choice-card" aria-pressed="false">
             Remote agent
-            <span class="choice-desc">Connect this UI to an agent that already listens (e.g. <code>--server --listen …</code>).</span>
+            <span class="choice-desc">Open the agent server URL in this window (same as <code>--connect</code>). Tools run on that host.</span>
           </button>
         </div>
 
@@ -43,13 +43,18 @@
       </div>
 
       <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">Model provider and agent behaviour for the running process. Use the default OpenAI endpoint, point <strong>API base URL</strong> at OpenRouter, a local OpenAI-compatible server, or another Responses API host.</p>
+        <p class="settings-lead">Anyone with the access secret can change these on the server. Values are written to the process config file when you save.</p>
 
         <p class="settings-section-title">Model provider</p>
+        <p class="hint">Chat, tools, and reasoning use this endpoint and key (OpenAI, OpenRouter, local server, …).</p>
         <label>API base URL
           <input id="set-base-url" type="url" placeholder="https://api.openai.com/v1" autocomplete="off">
         </label>
-        <p class="hint">Examples: OpenAI default, <code>https://openrouter.ai/api/v1</code>, or <code>http://127.0.0.1:8080/v1</code> for a local model.</p>
+        <p class="hint">Examples: <code>https://openrouter.ai/api/v1</code>, <code>http://127.0.0.1:8080/v1</code>.</p>
+        <label>Provider API key
+          <input id="set-api-key" type="password" autocomplete="off" placeholder="">
+        </label>
+        <p id="api-key-hint" class="hint">Leave blank to keep the current key.</p>
         <label>Model
           <input id="set-model" type="text" autocomplete="off">
         </label>
@@ -63,6 +68,17 @@
           </select>
         </label>
 
+        <p class="settings-section-title">OpenAI services</p>
+        <p class="hint">Separate key for web search and voice transcription only. Not sent to a custom model provider.</p>
+        <label>OpenAI API key
+          <input id="set-openai-api-key" type="password" autocomplete="off" placeholder="">
+        </label>
+        <p id="openai-key-hint" class="hint">Leave blank to keep the current key.</p>
+        <label class="check"><input id="set-web" type="checkbox"> Web search</label>
+        <label>Voice model
+          <input id="set-voice-model" type="text" autocomplete="off">
+        </label>
+
         <p class="settings-section-title">Behaviour</p>
         <label>Approval mode
           <select id="set-mode">
@@ -71,7 +87,6 @@
             <option value="yolo">yolo</option>
           </select>
         </label>
-        <label class="check"><input id="set-web" type="checkbox"> Web search</label>
         <label class="check"><input id="set-autopilot" type="checkbox"> Autopilot</label>
         <label>Max steps
           <input id="set-max-steps" type="number" min="1" step="1">
@@ -79,10 +94,6 @@
         <label>Context limit
           <input id="set-context-limit" type="number" min="1000" step="1000">
         </label>
-        <label>Voice model
-          <input id="set-voice-model" type="text" autocomplete="off">
-        </label>
-        <p class="hint">Saved for this session (same knobs as CLI flags such as <code>--model</code> / <code>--base-url</code>).</p>
       </div>
 
       <div class="gate-actions">

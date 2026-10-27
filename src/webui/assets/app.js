@@ -25,6 +25,10 @@
   var gateCancelBtn = document.getElementById("gate-cancel");
   var gateManage = false;
   var setBaseURL = document.getElementById("set-base-url");
+  var setAPIKey = document.getElementById("set-api-key");
+  var setOpenAIAPIKey = document.getElementById("set-openai-api-key");
+  var apiKeyHint = document.getElementById("api-key-hint");
+  var openaiKeyHint = document.getElementById("openai-key-hint");
   var setModel = document.getElementById("set-model");
   var setMode = document.getElementById("set-mode");
   var setReasoning = document.getElementById("set-reasoning");
@@ -147,6 +151,16 @@
   function fillAgentSettings(j) {
     if (!j) return;
     setBaseURL.value = j.base_url || "";
+    setAPIKey.value = "";
+    setOpenAIAPIKey.value = "";
+    setAPIKey.placeholder = j.api_key_set ? "Set — leave blank to keep" : "Not set";
+    setOpenAIAPIKey.placeholder = j.openai_api_key_set ? "Set — leave blank to keep" : "Not set";
+    apiKeyHint.textContent = j.api_key_set
+      ? "Provider key is set. Leave blank to keep it, or paste a new key."
+      : "No provider key yet. Required for OpenRouter and most remote APIs.";
+    openaiKeyHint.textContent = j.openai_api_key_set
+      ? "OpenAI key is set. Leave blank to keep it, or paste a new key."
+      : "Optional unless you use web search or voice transcription.";
     setModel.value = j.model || "";
     setMode.value = j.mode || "auto";
     setReasoning.value = j.reasoning || "high";
@@ -185,6 +199,10 @@
       context_limit: parseInt(setContextLimit.value, 10),
       voice_model: setVoiceModel.value.trim(),
     };
+    var providerKey = setAPIKey.value.trim();
+    if (providerKey) body.api_key = providerKey;
+    var openaiKey = setOpenAIAPIKey.value.trim();
+    if (openaiKey) body.openai_api_key = openaiKey;
     saveSettingsBtn.disabled = true;
     fetch(apiURL("/api/settings"), {
       method: "PUT",
@@ -201,7 +219,7 @@
           modeEl.textContent = j.mode || "—";
           gateErr.hidden = false;
           gateErr.style.color = "var(--accent)";
-          gateErr.textContent = "Agent settings saved for this session.";
+          gateErr.textContent = "Agent settings saved to the server config.";
         });
       })
       .catch(function (e) {
@@ -655,16 +673,59 @@
     es = { close: function () { ctrl.abort(); } };
   }
 
+  // Remote attach navigates the WebView to the agent origin (same as --connect).
+  // Cross-origin fetch from a local UI has no CORS and fails as TypeError: Load failed.
+  function remoteUIURL(base, sec) {
+    var u = new URL(base);
+    if (u.protocol !== "http:" && u.protocol !== "https:") {
+      throw new Error("Remote URL must be http or https");
+    }
+    if (!u.pathname) u.pathname = "/";
+    u.searchParams.set("access_secret", sec);
+    return u.toString();
+  }
+
+  function formatConnectError(e) {
+    var s = String(e && e.message ? e.message : e);
+    if (/Load failed|Failed to fetch|NetworkError|NETWORK_ERR/i.test(s)) {
+      return "Could not reach the agent (network, TLS, or blocked request). Check the URL and that the server is reachable from this machine.";
+    }
+    return s;
+  }
+
   function openSession() {
     gateErr.hidden = true;
     if (mode === "remote") {
-      apiBase = connectURLEl.value.trim();
-      if (!apiBase) {
+      var remoteBase = connectURLEl.value.trim();
+      if (!remoteBase) {
         showGate({ error: "Remote URL required.", manage: true, keepApp: !app.hidden });
         return;
       }
       if (!secret()) {
         showGate({ error: "Access secret required for remote agents.", manage: true, keepApp: !app.hidden });
+        return;
+      }
+      var dest;
+      try {
+        dest = remoteUIURL(remoteBase, secret());
+      } catch (e) {
+        showGate({ error: formatConnectError(e), manage: true, keepApp: !app.hidden });
+        return;
+      }
+      try {
+        var destOrigin = new URL(dest).origin;
+        if (destOrigin === location.origin) {
+          // Already on the agent host — drop remote mode and continue same-origin.
+          apiBase = "";
+          history.replaceState(null, "", dest);
+        } else {
+          storePrefs();
+          connectBtn.disabled = true;
+          location.assign(dest);
+          return;
+        }
+      } catch (e) {
+        showGate({ error: formatConnectError(e), manage: true, keepApp: !app.hidden });
         return;
       }
     } else {
@@ -698,7 +759,7 @@
       .catch(function (e) {
         connected = false;
         setState(agentState);
-        showGate({ error: String(e), manage: true, keepApp: false });
+        showGate({ error: formatConnectError(e), manage: true, keepApp: false });
       })
       .finally(function () {
         connectBtn.disabled = false;

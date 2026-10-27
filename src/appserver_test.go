@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -234,5 +235,84 @@ func TestAppServerNewChatAndSettings(t *testing.T) {
 	}
 	if len(a.History) != 0 {
 		t.Fatalf("history not cleared: %d", len(a.History))
+	}
+}
+
+func TestAppServerSettingsAPIKeysPersist(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	session := filepath.Join(dir, "s.jsonl")
+	j, err := OpenJournal(session, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg: Config{
+			Model: "m1", Mode: "auto", Reasoning: "high", Web: true, MaxSteps: 50, ContextLimit: 64000,
+			SessionPath: session, VoiceModel: "gpt-transcribe", BaseURL: "https://api.openai.com/v1",
+			ConfigPath: cfgPath,
+		},
+		Client:  &Client{BaseURL: "https://api.openai.com/v1"},
+		Journal: j,
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	h := srv.Handler()
+
+	body := `{"base_url":"https://openrouter.ai/api/v1","model":"or-model","mode":"ask","reasoning":"medium","web":true,"api_key":"sk-or-test","openai_api_key":"sk-openai-test"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "sk-or-test") || strings.Contains(rec.Body.String(), "sk-openai-test") {
+		t.Fatalf("response leaked secrets: %s", rec.Body.String())
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if snap["api_key_set"] != true || snap["openai_api_key_set"] != true {
+		t.Fatalf("key flags: %#v", snap)
+	}
+	if a.Client.APIKey != "sk-or-test" || a.Cfg.Key != "sk-or-test" {
+		t.Fatalf("provider key not applied: client=%q cfg=%q", a.Client.APIKey, a.Cfg.Key)
+	}
+	if a.Cfg.ExternalClient == nil || a.Cfg.ExternalClient.APIKey != "sk-openai-test" {
+		t.Fatalf("openai key not applied: %#v", a.Cfg.ExternalClient)
+	}
+
+	fc, err := readConfiguration(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fc.API.Key != "sk-or-test" || fc.OpenAI.Key != "sk-openai-test" {
+		t.Fatalf("config keys: api=%q openai=%q", fc.API.Key, fc.OpenAI.Key)
+	}
+	if fc.API.BaseURL != "https://openrouter.ai/api/v1" || fc.API.Model != "or-model" {
+		t.Fatalf("config api: %#v", fc.API)
+	}
+	st, err := os.Stat(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm()&0077 != 0 {
+		t.Fatalf("config perms too open: %o", st.Mode().Perm())
+	}
+
+	// Omit keys → leave unchanged.
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"model":"or-model-2","mode":"ask","reasoning":"low"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings2: %d %s", rec.Code, rec.Body.String())
+	}
+	if a.Client.APIKey != "sk-or-test" || a.Cfg.ExternalClient.APIKey != "sk-openai-test" {
+		t.Fatal("keys changed when omitted")
 	}
 }

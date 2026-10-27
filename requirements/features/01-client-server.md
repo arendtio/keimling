@@ -33,3 +33,5 @@ Presentation is selected with **normal flags** (and config keys), not subcommand
 Transport is **HTTP** (WebSocket over HTTP). No in-process HTTPS; TLS via external proxy if needed. Localhost embedded use is plaintext by design.
 
 Clients (CLI or GUI) may use a **local** embedded agent or **connect** to a remote agent server. Tools always execute on the machine that runs the agent server. All CLI options are also expressible in the config file.
+
+**Trust:** anyone with the agent access secret may change server-side settings and credentials (model provider key and separate OpenAI key for web/transcription). Details: `requirements/technical/04-auth-and-settings.md`.

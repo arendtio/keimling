@@ -99,13 +99,13 @@ During a task, type a message to steer the next step. Key bindings: `Ctrl+G` tog
 
 ```json
 {
-  "api": { "base_url": "http://localhost:8080/v1", "model": "local-model", "mode": "ask", "key_file": "/path/to/key" },
-  "openai": { "key_file": "/path/to/openai-key" },
+  "api": { "base_url": "https://openrouter.ai/api/v1", "model": "…", "mode": "ask", "key": "sk-or-…" },
+  "openai": { "key": "sk-…" },
   "features": { "web_search": true, "disable_external_services": false }
 }
 ```
 
-For custom providers, `openai.key_file` holds the separate OpenAI credentials used for web search and transcription; the model provider never receives that key.
+`api.key` is the model-provider credential (OpenRouter, local server, …). `openai.key` is only for web search and transcription and is never sent to a custom provider. You can use `key_file` instead of inline `key`. The UI Settings → Agent form can write these fields (mode `0600`); anyone with the access secret may change them.
 
 ## File editing
 

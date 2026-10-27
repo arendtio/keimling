@@ -163,15 +163,19 @@ func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
 }
 
 type agentSettings struct {
-	BaseURL      string `json:"base_url,omitempty"`
-	Model        string `json:"model"`
-	Mode         string `json:"mode"`
-	Reasoning    string `json:"reasoning"`
-	Web          *bool  `json:"web,omitempty"`
-	Autopilot    *bool  `json:"autopilot,omitempty"`
-	MaxSteps     *int   `json:"max_steps,omitempty"`
-	ContextLimit *int   `json:"context_limit,omitempty"`
-	VoiceModel   string `json:"voice_model,omitempty"`
+	BaseURL      string  `json:"base_url,omitempty"`
+	Model        string  `json:"model"`
+	Mode         string  `json:"mode"`
+	Reasoning    string  `json:"reasoning"`
+	Web          *bool   `json:"web,omitempty"`
+	Autopilot    *bool   `json:"autopilot,omitempty"`
+	MaxSteps     *int    `json:"max_steps,omitempty"`
+	ContextLimit *int    `json:"context_limit,omitempty"`
+	VoiceModel   string  `json:"voice_model,omitempty"`
+	APIKey       *string `json:"api_key,omitempty"`        // write-only
+	OpenAIAPIKey *string `json:"openai_api_key,omitempty"` // write-only
+	APIKeySet    bool    `json:"api_key_set"`              // GET only
+	OpenAIKeySet bool    `json:"openai_api_key_set"`       // GET only
 }
 
 func (s *appServer) settingsSnapshot() agentSettings {
@@ -180,6 +184,14 @@ func (s *appServer) settingsSnapshot() agentSettings {
 	base := s.agent.Cfg.BaseURL
 	if s.agent.Client != nil && strings.TrimSpace(s.agent.Client.BaseURL) != "" {
 		base = s.agent.Client.BaseURL
+	}
+	providerKey := strings.TrimSpace(s.agent.Cfg.Key)
+	if s.agent.Client != nil && strings.TrimSpace(s.agent.Client.APIKey) != "" {
+		providerKey = strings.TrimSpace(s.agent.Client.APIKey)
+	}
+	openaiSet := false
+	if s.agent.Cfg.ExternalClient != nil {
+		openaiSet = strings.TrimSpace(s.agent.Cfg.ExternalClient.APIKey) != ""
 	}
 	return agentSettings{
 		BaseURL:      base,
@@ -191,6 +203,8 @@ func (s *appServer) settingsSnapshot() agentSettings {
 		MaxSteps:     &steps,
 		ContextLimit: &limit,
 		VoiceModel:   s.agent.Cfg.VoiceModel,
+		APIKeySet:    providerKey != "",
+		OpenAIKeySet: openaiSet,
 	}
 }
 
@@ -277,7 +291,59 @@ func (s *appServer) applySettings(body agentSettings) error {
 	if v := strings.TrimSpace(body.VoiceModel); v != "" {
 		cfg.VoiceModel = v
 	}
+	writeProviderKey := body.APIKey != nil
+	writeOpenAIKey := body.OpenAIAPIKey != nil
+	if writeProviderKey {
+		k := strings.TrimSpace(*body.APIKey)
+		cfg.Key = k
+		if s.agent.Client == nil {
+			s.agent.Client = NewClient(k)
+			s.agent.Client.BaseURL = cfg.BaseURL
+		} else {
+			s.agent.Client.APIKey = k
+		}
+	}
+	if writeOpenAIKey {
+		k := strings.TrimSpace(*body.OpenAIAPIKey)
+		if k == "" {
+			cfg.ExternalClient = nil
+		} else if cfg.ExternalClient == nil {
+			cfg.ExternalClient = NewClient(k)
+		} else {
+			cfg.ExternalClient.APIKey = k
+		}
+	}
+	if err := s.persistAgentConfig(writeProviderKey, writeOpenAIKey); err != nil {
+		return fmt.Errorf("persist config: %w", err)
+	}
 	return nil
+}
+
+func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) error {
+	path := strings.TrimSpace(s.agent.Cfg.ConfigPath)
+	if path == "" {
+		return nil
+	}
+	cfg := &s.agent.Cfg
+	return updateConfiguration(path, func(fc *fileConfig) {
+		fc.API.BaseURL = cfg.BaseURL
+		fc.API.Model = cfg.Model
+		fc.API.Mode = cfg.Mode
+		web := cfg.Web
+		fc.Features.WebSearch = &web
+		if writeProviderKey {
+			fc.API.Key = cfg.Key
+			fc.API.KeyFile = ""
+		}
+		if writeOpenAIKey {
+			k := ""
+			if cfg.ExternalClient != nil {
+				k = strings.TrimSpace(cfg.ExternalClient.APIKey)
+			}
+			fc.OpenAI.Key = k
+			fc.OpenAI.KeyFile = ""
+		}
+	})
 }
 
 func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {

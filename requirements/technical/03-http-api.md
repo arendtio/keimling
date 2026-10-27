@@ -27,7 +27,7 @@
 | `GET` | `/api/session` | yes | Session view: `messages`, `chapters` (task-level history index), `working_state`, legacy `lines` |
 | `POST` | `/api/message` | yes | Send user instruction `{ "text": "..." }` |
 | `POST` | `/api/newchat` | yes | Archive current journal and start a fresh chat |
-| `GET`/`PUT` | `/api/settings` | yes | Runtime agent knobs (model, mode, reasoning, web, autopilot, max_steps, context_limit, voice_model) |
+| `GET`/`PUT` | `/api/settings` | yes | Runtime agent knobs (model, mode, reasoning, web, autopilot, max_steps, context_limit, voice_model, `base_url`) plus write-only `api_key` / `openai_api_key`; GET exposes only `api_key_set` / `openai_api_key_set`. See `04-auth-and-settings.md`. |
 | `POST` | `/api/transcribe` | yes | Multipart `audio` file → `{ "text": "..." }` (OpenAI transcription) |
 | `GET` | `/events` | yes | SSE stream of agent events |
 
