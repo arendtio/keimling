@@ -715,18 +715,33 @@
     return s;
   }
 
+  // Auth against the *page* agent (URL token). The form secret may be the remote
+  // server's secret — using that against the ephemeral local agent caused 401 and
+  // silently skipped persisting gui-prefs.
+  function pageAccessSecret() {
+    try {
+      var q = new URLSearchParams(window.location.search).get("access_secret");
+      if (q) return q;
+    } catch (e) {}
+    return secret();
+  }
+
   // Persist last desktop connection outside ephemeral-port localStorage.
   function saveGuiPrefs(body) {
+    var h = { "Content-Type": "application/json" };
+    var s = pageAccessSecret();
+    if (s) h["Authorization"] = "Bearer " + s;
     return fetch(apiURL("/api/gui-prefs"), {
       method: "PUT",
-      headers: headers(),
+      headers: h,
       body: JSON.stringify(body || {}),
     }).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
-    }).catch(function () { /* best-effort; still navigate/connect */ });
+    });
   }
 
-  function openSession() {
+  function openSession(opts) {
+    opts = opts || {};
     gateErr.hidden = true;
     if (mode === "remote") {
       var remoteBase = connectURLEl.value.trim();
@@ -754,9 +769,16 @@
         } else {
           storePrefs();
           connectBtn.disabled = true;
-          saveGuiPrefs({ connect: remoteBase, access_secret: secret() }).then(function () {
-            location.assign(dest);
-          });
+          saveGuiPrefs({ connect: remoteBase, access_secret: secret() })
+            .catch(function (e) {
+              showGate({ error: "Could not remember remote connection: " + formatConnectError(e), manage: true, keepApp: !app.hidden });
+              connectBtn.disabled = false;
+              throw e;
+            })
+            .then(function () {
+              location.assign(dest);
+            })
+            .catch(function () {});
           return;
         }
       } catch (e) {
@@ -781,8 +803,10 @@
       }
     }
     connectBtn.disabled = true;
-    var clearRemote = mode !== "remote";
-    (clearRemote ? saveGuiPrefs({ connect: "", access_secret: "" }) : Promise.resolve())
+    // Clear remembered remote only when the user explicitly chooses local on the
+    // desktop agent — not on auto-boot into a remote page (mode "local" there).
+    var clearRemote = !opts.auto && mode !== "remote" && sameOriginLocal();
+    (clearRemote ? saveGuiPrefs({ connect: "", access_secret: "" }).catch(function () {}) : Promise.resolve())
       .then(function () { return loadSession(); })
       .then(function () {
         connected = true;
@@ -1073,6 +1097,19 @@
     }
   });
 
+  function persistWindowGeometry() {
+    if (typeof keimlingSaveGuiGeometry !== "function") return;
+    try {
+      keimlingSaveGuiGeometry(Math.round(window.outerWidth), Math.round(window.outerHeight));
+    } catch (e) {}
+  }
+  var geometryTimer = null;
+  window.addEventListener("resize", function () {
+    if (geometryTimer) clearTimeout(geometryTimer);
+    geometryTimer = setTimeout(persistWindowGeometry, 400);
+  });
+  window.addEventListener("pagehide", persistWindowGeometry);
+
   (function boot() {
     var qSecret = "";
     try {
@@ -1084,7 +1121,7 @@
     if (qSecret) {
       secretEl.value = qSecret;
       setChoice("local");
-      openSession();
+      openSession({ auto: true });
       return;
     }
 
@@ -1092,14 +1129,14 @@
     if (prefs.seen && prefs.secret && !prefs.url) {
       secretEl.value = prefs.secret;
       setChoice("local");
-      openSession();
+      openSession({ auto: true });
       return;
     }
     if (prefs.seen && prefs.secret && prefs.url) {
       secretEl.value = prefs.secret;
       connectURLEl.value = prefs.url;
       setChoice("remote");
-      openSession();
+      openSession({ auto: true });
       return;
     }
 

@@ -34,11 +34,11 @@ func uiURL(base, secret string) string {
 }
 
 // runGUIRemote opens the system webview against an existing agent URL.
-func runGUIRemote(connectURL, secret string) error {
+func runGUIRemote(connectURL, secret, configPath string) error {
 	if _, err := newRemoteClient(connectURL, secret); err != nil {
 		return err
 	}
-	return openWebView(uiURL(connectURL, secret), "Keimling")
+	return openWebView(uiURL(connectURL, secret), "Keimling", configPath)
 }
 
 // runGUILocal serves the agent on an ephemeral localhost port and opens WebView.
@@ -71,7 +71,11 @@ func runGUILocal(agent *Agent, secret string) error {
 	}()
 
 	page := uiURL("http://"+addr+"/", secret)
-	guiErr := openWebView(page, "Keimling")
+	configPath := ""
+	if agent != nil {
+		configPath = agent.Cfg.ConfigPath
+	}
+	guiErr := openWebView(page, "Keimling", configPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

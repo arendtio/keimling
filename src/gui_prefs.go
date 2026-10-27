@@ -8,11 +8,18 @@ import (
 	"strings"
 )
 
-// guiPrefs remembers the last desktop UI connection target across ephemeral
-// localhost ports (localStorage cannot — each launch uses a new origin).
+const (
+	defaultWindowWidth  = 1248 // ~30% larger than prior 960
+	defaultWindowHeight = 936  // ~30% larger than prior 720
+)
+
+// guiPrefs remembers desktop UI state across ephemeral localhost ports
+// (localStorage cannot — each launch uses a new origin).
 type guiPrefs struct {
 	Connect      string `json:"connect,omitempty"`
 	AccessSecret string `json:"access_secret,omitempty"`
+	WindowWidth  int    `json:"window_width,omitempty"`
+	WindowHeight int    `json:"window_height,omitempty"`
 }
 
 func guiPrefsPath(configPath string) string {
@@ -61,10 +68,46 @@ func writeGuiPrefs(configPath string, p guiPrefs) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	return os.Rename(tmp, path)
+}
+
+func updateGuiPrefs(configPath string, mut func(*guiPrefs)) error {
+	p, err := readGuiPrefs(configPath)
+	if err != nil {
 		return err
 	}
-	return nil
+	mut(&p)
+	return writeGuiPrefs(configPath, p)
+}
+
+// mergeGuiPrefsConnect updates only connection fields; window size is preserved.
+func mergeGuiPrefsConnect(configPath, connect, secret string) error {
+	return updateGuiPrefs(configPath, func(p *guiPrefs) {
+		p.Connect = strings.TrimSpace(connect)
+		if p.Connect == "" {
+			p.AccessSecret = ""
+		} else {
+			p.AccessSecret = strings.TrimSpace(secret)
+		}
+	})
+}
+
+func saveGuiWindowSize(configPath string, width, height int) error {
+	if width < 400 || height < 300 || width > 10000 || height > 10000 {
+		return nil
+	}
+	return updateGuiPrefs(configPath, func(p *guiPrefs) {
+		p.WindowWidth = width
+		p.WindowHeight = height
+	})
+}
+
+func windowSizeFromPrefs(p guiPrefs) (width, height int) {
+	width, height = p.WindowWidth, p.WindowHeight
+	if width < 400 || height < 300 {
+		return defaultWindowWidth, defaultWindowHeight
+	}
+	return width, height
 }
 
 func applyGuiPrefsConnect(configPath string, connectURL, accessSecret *string, connectFlagSet bool) error {

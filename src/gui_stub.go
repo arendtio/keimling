@@ -2,6 +2,6 @@
 
 package main
 
-func openWebViewImpl(url, title string) error {
+func openWebViewImpl(url, title, configPath string) error {
 	return errGUIUnavailable
 }

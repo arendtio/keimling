@@ -340,12 +340,17 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		if err := writeGuiPrefs(path, body); err != nil {
+		if err := mergeGuiPrefsConnect(path, body.Connect, body.AccessSecret); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		p, err := readGuiPrefs(path)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(body)
+		_ = json.NewEncoder(w).Encode(p)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

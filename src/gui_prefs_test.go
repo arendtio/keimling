@@ -73,6 +73,9 @@ func TestApplyGuiPrefsConnect(t *testing.T) {
 func TestAppServerGuiPrefsAPI(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.json")
+	if err := saveGuiWindowSize(cfg, 1400, 1000); err != nil {
+		t.Fatal(err)
+	}
 	a := &Agent{Cfg: Config{ConfigPath: cfg}}
 	h := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a}).Handler()
 
@@ -91,6 +94,25 @@ func TestAppServerGuiPrefsAPI(t *testing.T) {
 	if got.Connect != "https://r.example" || got.AccessSecret != "remote-tok" {
 		t.Fatalf("%#v", got)
 	}
+	if got.WindowWidth != 1400 || got.WindowHeight != 1000 {
+		t.Fatalf("window size clobbered: %#v", got)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/gui-prefs", strings.NewReader(`{"connect":"","access_secret":""}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear: %d %s", rec.Code, rec.Body.String())
+	}
+	got, err = readGuiPrefs(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Connect != "" || got.WindowWidth != 1400 {
+		t.Fatalf("clear should keep window size: %#v", got)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/gui-prefs", nil)
 	req.Header.Set("Authorization", "Bearer tok")
@@ -103,7 +125,18 @@ func TestAppServerGuiPrefsAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Connect != "https://r.example" {
+	if body.WindowWidth != 1400 {
 		t.Fatalf("%#v", body)
+	}
+}
+
+func TestWindowSizeFromPrefs(t *testing.T) {
+	w, h := windowSizeFromPrefs(guiPrefs{})
+	if w != defaultWindowWidth || h != defaultWindowHeight {
+		t.Fatalf("%d x %d", w, h)
+	}
+	w, h = windowSizeFromPrefs(guiPrefs{WindowWidth: 1600, WindowHeight: 900})
+	if w != 1600 || h != 900 {
+		t.Fatalf("%d x %d", w, h)
 	}
 }
