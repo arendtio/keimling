@@ -45,6 +45,15 @@ cd src && CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -tags webkitgtk_41 -
 | `./keimling --cli` | Force shell REPL (local agent) |
 | `./keimling --compact-parallel=false` | Disable parallel distill/summarize (e.g. single local model) |
 
+## Docker (server / nogui)
+
+| Command | Purpose |
+| --- | --- |
+| `docker build -t keimling .` | Multi-stage image: static `nogui` binary, listens on `0.0.0.0:7420` |
+| `docker run --rm -p 7420:7420 -e OPENAI_API_KEY -v keimling-data:/home/nonroot/.local/state/keimling keimling --access-secret SECRET` | Run HTTP agent (put TLS on your reverse proxy) |
+
+The image `CMD` is `--server --listen 0.0.0.0:7420`. Pass further flags after the image name. No WebKit/GUI in this image.
+
 ## Spike / demos
 
 | Command | Purpose |

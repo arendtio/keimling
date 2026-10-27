@@ -1,0 +1,17 @@
+# Keep the build context small; only `src/` is copied into the builder.
+keimling
+.git
+.gitignore
+.cursor
+docs
+requirements
+commands.md
+README.md
+Makefile
+LICENSE
+**/*~
+**/*.swp
+Dockerfile
+.dockerignore
+docker-compose*.yml
+compose*.yml
