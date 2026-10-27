@@ -1135,6 +1135,21 @@
   });
   window.addEventListener("pagehide", persistWindowGeometry);
 
+  // Desktop WebView: open http(s) links in the system browser so the UI is not replaced
+  // (share_file URLs are often same-origin as the agent).
+  function openLinkExternally(e) {
+    if (typeof keimlingOpenExternal !== "function") return;
+    var a = e.target && e.target.closest && e.target.closest("a[href]");
+    if (!a) return;
+    var href = a.getAttribute("href");
+    if (!href || href.charAt(0) === "#" || href.indexOf("javascript:") === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { keimlingOpenExternal(a.href); } catch (err) {}
+  }
+  document.addEventListener("click", openLinkExternally, true);
+  document.addEventListener("auxclick", openLinkExternally, true);
+
   (function boot() {
     var qSecret = "";
     try {
