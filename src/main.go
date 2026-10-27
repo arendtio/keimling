@@ -359,6 +359,11 @@ func main() {
 	defer journal.Close()
 	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/")}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub()}
+	if ch, chErr := loadCharter(*session); chErr == nil {
+		a.Charter = ch
+	} else {
+		a.Charter = &Charter{Version: charterVersion}
+	}
 	a.Client.BaseURL = resolvedURL
 	if c.PublicURL != "" {
 		a.Shares.SetPublicBase(c.PublicURL)
@@ -585,9 +590,9 @@ func printHelp() {
 	fmt.Println("  /mode auto        Review commands; ask before sensitive changes")
 	fmt.Println("  /mode ask         Confirm changing commands")
 	fmt.Println("  /mode yolo        Run without approvals (unsafe)")
-	fmt.Println("  /compact          Semantic context compaction now")
+	fmt.Println("  /compact          Refresh project charter; shrink recent model tail")
 	fmt.Println("  /compact soft     Deprecated (use /compact)")
-	fmt.Println("  /compact <text>   Hard compaction with extra guidance")
+	fmt.Println("  /compact <text>   Charter refresh with extra guidance")
 	fmt.Println("  /newchat          Archive conversation and start fresh")
 	fmt.Println("  /stop             Cancel current work without exiting")
 	fmt.Println("  /resume           Resume unfinished task without a new user message")
@@ -604,18 +609,13 @@ func printHelp() {
 	fmt.Println("  Arrow keys: move cursor/history | Home/End: line boundaries | Tab: complete slash commands")
 }
 func printStatus(a *Agent) {
-	estimated := a.contextOccupancyEstimate()
-	statusKind := "heuristic"
-	if a.contextUsageCalibrated() {
-		statusKind = "usage-calibrated"
-	}
-	pct := 0.0
-	if a.Cfg.ContextLimit > 0 {
-		pct = 100 * float64(estimated) / float64(a.Cfg.ContextLimit)
-	}
+	b := a.contextBudget()
 	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Review: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", a.Cfg.Model, a.Cfg.ReviewModel, a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
 	fmt.Printf("  Compaction: model %s | endpoint %s\n", a.compactionModel(), a.Client.BaseURL)
-	fmt.Printf("  Context: ~%d / %d tokens (%.1f%%, %s)\n", estimated, a.Cfg.ContextLimit, pct, statusKind)
+	fmt.Printf("  Context budget: used %d / %d (%.1f%%) · remaining %d (%.1f%%) · source %s\n", b.Used, b.Limit, b.UsedPct, b.Remaining, b.RemainingPct, b.Source)
+	if b.Warn {
+		fmt.Println("  Context warning: occupancy ≥70% — prefer terse tools and charter updates")
+	}
 	if u := a.Client.LastMainUsage; u.Available {
 		actualPct := 0.0
 		if a.Cfg.ContextLimit > 0 {
@@ -629,7 +629,8 @@ func printStatus(a *Agent) {
 		fmt.Println("  Last main request: not measured yet (or provider supplied no usage)")
 	}
 	fmt.Printf("  Tokens billed/reported this process: input %d, output %d, total %d\n", a.Client.InputTokens, a.Client.OutputTokens, a.Client.InputTokens+a.Client.OutputTokens)
-	fmt.Printf("  History items: %d | Transcription: %s\n\n", len(a.History), a.Cfg.VoiceModel)
+	c := a.ensureCharter()
+	fmt.Printf("  Recent tail items: %d | Charter findings: %d | Transcription: %s\n\n", len(a.History), len(c.Findings), a.Cfg.VoiceModel)
 }
 
 func setAutopilot(a *Agent, arg string) {

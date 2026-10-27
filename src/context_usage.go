@@ -1,12 +1,18 @@
 package main
 
+// rawModelContextEstimate is the local heuristic for charter + recent tail + budget overhead.
+func (a *Agent) rawModelContextEstimate() int {
+	if a == nil {
+		return budgetBlockOverhead
+	}
+	return contextEstimate(a.modelInputCore()) + budgetBlockOverhead
+}
+
 // contextOccupancyEstimate calibrates the raw JSON-size heuristic against the
 // latest provider-measured main-model input. The baseline includes the provider's
 // effective prompt overhead, while subsequent growth uses only the local delta.
-// A safety margin compensates for estimation drift. Raw estimates remain in use
-// until a valid measurement arrives or after the history is structurally reset.
 func (a *Agent) contextOccupancyEstimate() int {
-	raw := contextEstimate(a.History)
+	raw := a.rawModelContextEstimate()
 	if !a.contextUsageCalibrated() {
 		return raw
 	}
@@ -25,5 +31,6 @@ func (a *Agent) contextUsageCalibrated() bool {
 		return false
 	}
 	u := a.Client.LastMainUsage
-	return u.Available && u.InputTokens > 0 && u.EstimatedBefore > 0 && contextEstimate(a.History) >= u.EstimatedBefore
+	raw := a.rawModelContextEstimate()
+	return u.Available && u.InputTokens > 0 && u.EstimatedBefore > 0 && raw >= u.EstimatedBefore
 }

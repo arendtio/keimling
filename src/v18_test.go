@@ -37,12 +37,19 @@ func TestSnapshotMergeKeepsNewEvents(t *testing.T) {
 		}
 	}
 	a.History = j.History
+	a.Cfg.SessionPath = j.File.Name()
 	oldTail := string(a.History[2])
 	a.Compaction = &compactionJob{end: 2, started: time.Now(), done: make(chan compactionResult, 1)}
-	if e := a.adoptCompaction(a.Compaction, compactionResult{summary: "Old task completed."}); e != nil {
+	if e := a.adoptCompaction(a.Compaction, compactionResult{
+		charter: &Charter{Version: charterVersion, Goal: "done", Findings: []string{"Old task completed."}},
+		end:     2,
+	}); e != nil {
 		t.Fatal(e)
 	}
-	if len(a.History) != 2 || string(a.History[1]) != oldTail {
-		t.Fatal("post-snapshot steering lost")
+	if len(a.History) != 1 || string(a.History[0]) != oldTail {
+		t.Fatalf("post-snapshot steering lost: %d %s", len(a.History), a.History)
+	}
+	if a.Charter == nil || a.Charter.Goal != "done" {
+		t.Fatal("charter not adopted")
 	}
 }

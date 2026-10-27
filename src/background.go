@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
 
 type compactionResult struct {
-	summary                   string
+	charter                   *Charter
+	end                       int
 	err                       error
 	inputTokens, outputTokens int64
 }
@@ -20,13 +22,12 @@ type compactionJob struct {
 	done    chan compactionResult
 }
 
-// A snapshot captures a completed prefix. Its boundary is immutable even as
-// the foreground agent appends events. Results are committed only on the agent goroutine.
+// Background charter refresh snapshots a completed prefix; commit only on the agent goroutine.
 func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 	if a.Compaction != nil || a.Client == nil || a.Cfg.ContextLimit <= 0 || time.Now().Before(a.CompactionRetryAfter) {
 		return false
 	}
-	end := safePrefixEnd(a.History, 12)
+	end := safePrefixEnd(a.History, charterTailKeep)
 	if end == 0 {
 		end = safePrefixEnd(a.History, 2)
 	}
@@ -37,7 +38,6 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 	if len(snapshot) == 0 {
 		return false
 	}
-	// Snapshot is independently compacted in bounded sections.
 	base := a.SessionCtx
 	if base == nil {
 		base = context.Background()
@@ -48,14 +48,39 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 	key := a.Client.APIKey
 	model := a.compactionModel()
 	baseURL := a.Client.BaseURL
+	curJSON, _ := json.MarshalIndent(a.ensureCharter(), "", "  ")
 	go func() {
 		client := NewClient(key)
 		client.BaseURL = baseURL
-		worker := &Agent{Client: client, Cfg: Config{Model: model}}
-		text, err := worker.compactIndexed(jobCtx, snapshot, compactionInstruction(""))
-		job.done <- compactionResult{summary: text, err: err, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
+		var body strings.Builder
+		body.WriteString("Current charter JSON:\n")
+		body.Write(curJSON)
+		body.WriteString("\n\nNew material to fold (truncated JSONL events):\n")
+		for i, raw := range snapshot {
+			if i >= 80 {
+				body.WriteString("…(truncated)\n")
+				break
+			}
+			body.WriteString(truncate(string(raw), 1500))
+			body.WriteByte('\n')
+		}
+		instr := `Update the project charter JSON. Return ONLY valid JSON with keys:
+goal (string), plan (array of {step,status:pending|in_progress|done}), position (1-based int),
+findings (string array), open_questions (string array), constraints (string array), recent (string array).
+Merge durable facts; clear or shrink recent after folding. Do not invent facts. English. No markdown fences.`
+		text, err := client.compactionAsk(jobCtx, model, instr, body.String(), 4096)
+		if err != nil {
+			job.done <- compactionResult{err: err, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
+			return
+		}
+		next, parseErr := parseCharterJSON(text)
+		if parseErr != nil {
+			job.done <- compactionResult{err: parseErr, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
+			return
+		}
+		job.done <- compactionResult{charter: next, end: end, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
 	}()
-	fmt.Println("◌ Background compaction started")
+	fmt.Println("◌ Background charter refresh started")
 	return true
 }
 
@@ -70,45 +95,36 @@ func (a *Agent) adoptCompaction(job *compactionJob, result compactionResult) err
 		a.CompactionFailures++
 		delay := time.Minute * time.Duration(1<<min(a.CompactionFailures-1, 6))
 		a.CompactionRetryAfter = time.Now().Add(delay)
-		fmt.Printf("Background compaction retry paused for %s\n", delay)
-		fmt.Println("Background compaction failed:", result.err)
+		fmt.Printf("Background charter refresh retry paused for %s\n", delay)
+		fmt.Println("Background charter refresh failed:", result.err)
 		return result.err
 	}
-	text := strings.TrimSpace(result.summary)
-	if text == "" {
-		return fmt.Errorf("empty background summary")
+	if result.charter == nil {
+		return fmt.Errorf("empty background charter")
 	}
-	before := contextEstimate(a.History)
-	text, afterSize, passes := a.adaptiveCompaction(jobContext(job), text, before, a.History[job.end:])
-	denserUsed := false
-	if shouldRunDenserPass(before, afterSize, a.Cfg.ContextLimit) {
-		if denser, denserSize, denserErr := a.denserCompaction(jobContext(job), text, before, a.History[job.end:]); denserErr == nil {
-			text, afterSize = denser, denserSize
-			denserUsed = true
-		}
+	before := a.contextOccupancyEstimate()
+	end := result.end
+	if end <= 0 || end > len(a.History) {
+		end = job.end
 	}
-	_ = afterSize
-	next := makeCompactionView(text, a.History[job.end:])
-	if !compactionAcceptable(before, contextEstimate(next)) {
-		a.CompactionFailures++
-		a.CompactionRetryAfter = time.Now().Add(time.Minute * time.Duration(1<<min(a.CompactionFailures-1, 6)))
-		return fmt.Errorf("background compaction saved only %.1f%% (snapshot ~%d, current ~%d, result ~%d tokens; minimum useful %.0f%%); original context preserved", compactionReduction(before, contextEstimate(next)), contextEstimate(a.History[:job.end]), before, contextEstimate(next), compactionMinimumUsefulReduction)
+	if end <= 0 || end > len(a.History) {
+		return fmt.Errorf("stale background snapshot boundary")
 	}
-	fmt.Printf("Background compaction: %s · additional passes: %d", compactionDecision(before, contextEstimate(next)), passes)
-	if denserUsed {
-		fmt.Print(" · denser merge")
-	}
-	fmt.Println()
-	if err := a.checkpoint(next, "semantic-background"); err != nil {
+	a.Charter = result.charter
+	if err := a.persistCharter(); err != nil {
 		return err
 	}
-	_ = a.updateHistoryIndex(text)
+	tail := a.History[end:]
+	if err := a.checkpoint(tail, "charter-background"); err != nil {
+		return err
+	}
+	_ = a.updateHistoryIndex("")
 	a.CompactionFailures = 0
 	a.CompactionRetryAfter = time.Time{}
 	a.Client.InputTokens += result.inputTokens
 	a.Client.OutputTokens += result.outputTokens
-	fmt.Printf("◈ Background compaction applied (%s)\n", time.Since(job.started).Truncate(time.Second))
-	fmt.Print(formatCompactionReport(text, before, contextEstimate(next)))
+	after := a.contextOccupancyEstimate()
+	fmt.Printf("◈ Background charter refresh applied (%s) · ~%d → ~%d tokens\n", time.Since(job.started).Truncate(time.Second), before, after)
 	return nil
 }
 
@@ -137,7 +153,7 @@ func (a *Agent) manageBackgroundCompaction(ctx context.Context) error {
 	if a.Compaction == nil {
 		return a.recoverCompaction(ctx, fmt.Errorf("no safe background snapshot (pending tool call or insufficient completed history)"))
 	}
-	fmt.Println("◌ Context >=90%: waiting for background compaction")
+	fmt.Println("◌ Context >=90%: waiting for background charter refresh")
 	job := a.Compaction
 	select {
 	case <-ctx.Done():
@@ -150,16 +166,14 @@ func (a *Agent) manageBackgroundCompaction(ctx context.Context) error {
 	}
 }
 
-// At critical occupancy attempt one foreground compaction using the latest safe prefix.
-// Never proceed with an unsafe oversized context if recovery also fails.
 func (a *Agent) recoverCompaction(ctx context.Context, original error) error {
-	fmt.Println("◌ Background compaction did not free enough context; attempting foreground recovery")
-	before := contextEstimate(a.History)
+	fmt.Println("◌ Background charter refresh did not free enough context; attempting foreground recovery")
+	before := a.contextOccupancyEstimate()
 	if err := a.compactContext(ctx, "hard", ""); err != nil {
-		return fmt.Errorf("background compaction failed (%v); foreground recovery failed (%w); context unchanged", original, err)
+		return fmt.Errorf("background charter refresh failed (%v); foreground recovery failed (%w); context unchanged", original, err)
 	}
-	if contextEstimate(a.History) >= before {
-		return fmt.Errorf("foreground recovery found no compactable history; context remains >=90%% (pending live tool call or insufficient completed history)")
+	if a.contextOccupancyEstimate() >= before {
+		return fmt.Errorf("foreground recovery found no foldable history; context remains >=90%% (pending live tool call or insufficient completed history)")
 	}
 	return nil
 }

@@ -83,6 +83,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	})
 	s.mux.Handle("/api/health", s.requireSecret(http.HandlerFunc(s.handleHealth)))
 	s.mux.Handle("/api/session", s.requireSecret(http.HandlerFunc(s.handleSession)))
+	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
@@ -134,6 +135,10 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := s.agent.Cfg.SessionPath
+	uiHistory := s.agent.History
+	if events, err := originalEvents(path); err == nil && len(events) > 0 {
+		uiHistory = events
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"model":         s.agent.Cfg.Model,
@@ -144,12 +149,31 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"max_steps":     s.agent.Cfg.MaxSteps,
 		"context_limit": s.agent.Cfg.ContextLimit,
 		"voice_model":   s.agent.Cfg.VoiceModel,
-		"lines":         sessionTranscript(s.agent.History, 200),
-		"messages":      sessionMessages(s.agent.History, 120),
+		"lines":         sessionTranscript(uiHistory, 200),
+		"messages":      sessionMessages(uiHistory, 120),
 		"chapters":      sessionChapters(path),
 		"working_state": sessionWorkingState(path),
 		"busy":          s.isBusy(),
 		"voice":         s.voiceAvailable(),
+	})
+}
+
+func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	c := s.agent.ensureCharter()
+	b := s.agent.contextBudget()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"charter":  c,
+		"markdown": c.RenderMarkdown(),
+		"budget":   b,
 	})
 }
 

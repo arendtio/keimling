@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
-	"time"
 )
 
 // compactionSkipEvent drops non-conversation items (system/developer) from compact input/output.
@@ -128,92 +126,27 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 	return a.manageBackgroundCompaction(ctx)
 }
 
-// compactContext supports explicit soft or semantic compaction without a usage threshold.
+// compactContext refreshes the structured charter and shrinks the recent model tail.
 func (a *Agent) compactContext(ctx context.Context, level, instruction string) error {
 	limit := a.Cfg.ContextLimit
-	if limit <= 0 {
+	if limit <= 0 && level == "auto" {
 		return nil
 	}
-	estimate := contextEstimate(a.History)
+	estimate := a.contextOccupancyEstimate()
 	if level == "soft" {
 		return fmt.Errorf("soft compaction was removed; use /compact")
 	}
-	if level == "auto" && estimate*100 < 70*limit {
+	if level == "auto" && limit > 0 && estimate*100 < 70*limit {
 		return nil
 	}
-	// Preserve the last 12 items, and do not split an active tool call.
-	end := safePrefixEnd(a.History, 12)
-	if end == 0 && level == "hard" && len(a.History) > 2 {
-		end = safePrefixEnd(a.History, 2)
-	}
-	if end == 0 {
-		if level == "hard" {
-			fmt.Println("Context: nothing safe to compact yet")
+	err := a.refreshCharter(ctx, compactionInstruction(instruction))
+	if err != nil {
+		if level == "hard" && strings.Contains(err.Error(), "nothing safe") {
+			fmt.Println("Context: nothing safe to fold into charter yet")
 			return nil
 		}
-		return fmt.Errorf("context almost full; no safe compaction boundary")
-	}
-	compactInput := forCompaction(a.History[:end])
-	if len(compactInput) == 0 {
-		return fmt.Errorf("nothing conversational left to compact (system/developer items excluded)")
-	}
-	// Summarize bounded chunks; never send the full history in one request.
-	summary, err := func() (string, error) {
-		started := time.Now()
-		finished := make(chan struct{})
-		var wg sync.WaitGroup
-		wg.Add(1)
-		fmt.Print("\r\033[2K\033[36m◌\033[0m Compacting context… 0s")
-		go func() {
-			defer wg.Done()
-			tick := time.NewTicker(time.Second)
-			defer tick.Stop()
-			for {
-				select {
-				case <-finished:
-					return
-				case <-tick.C:
-					fmt.Printf("\r\033[2K\033[36m◌\033[0m Compacting context… %s", time.Since(started).Truncate(time.Second))
-				}
-			}
-		}()
-		text, err := a.compactIndexed(ctx, compactInput, compactionInstruction(instruction))
-		close(finished)
-		wg.Wait()
-		fmt.Print("\r\033[2K")
-		return text, err
-	}()
-	if err != nil {
-		return fmt.Errorf("semantic context compaction: %w", err)
-	}
-	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return fmt.Errorf("semantic context compaction returned empty summary")
-	}
-	summary, afterSize, passes := a.adaptiveCompaction(ctx, summary, estimate, a.History[end:])
-	denserUsed := false
-	if shouldRunDenserPass(estimate, afterSize, a.Cfg.ContextLimit) {
-		if denser, denserSize, denserErr := a.denserCompaction(ctx, summary, estimate, a.History[end:]); denserErr == nil {
-			summary, afterSize = denser, denserSize
-			denserUsed = true
-		} else {
-			fmt.Println("Denser compaction skipped:", denserErr)
-		}
-	}
-	next := makeCompactionView(summary, a.History[end:])
-	if !compactionAcceptable(estimate, contextEstimate(next)) {
-		return fmt.Errorf("semantic compaction did not produce a useful reduction (estimated %d → %d tokens, %.1f%%; minimum %.0f%%); original context preserved", estimate, contextEstimate(next), compactionReduction(estimate, contextEstimate(next)), compactionMinimumUsefulReduction)
-	}
-	fmt.Printf("Compaction: %s · additional passes: %d", compactionDecision(estimate, contextEstimate(next)), passes)
-	if denserUsed {
-		fmt.Print(" · denser merge")
-	}
-	fmt.Println()
-	if err := a.checkpoint(next, "semantic"); err != nil {
 		return err
 	}
-	_ = a.updateHistoryIndex(summary)
-	fmt.Print(formatCompactionReport(summary, estimate, contextEstimate(next)))
 	return nil
 }
 func (a *Agent) checkpoint(next []json.RawMessage, level string) error {

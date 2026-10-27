@@ -166,5 +166,8 @@ func sessionChapters(sessionPath string) []sessionChapter {
 }
 
 func sessionWorkingState(sessionPath string) string {
+	if c, err := loadCharter(sessionPath); err == nil && c != nil && !c.Empty() {
+		return c.RenderMarkdown()
+	}
 	return strings.TrimSpace(loadHistoryIndex(sessionPath).WorkingState)
 }

@@ -25,7 +25,7 @@
         <div class="choice-stack" role="radiogroup" aria-label="UI mode">
           <button type="button" id="choice-local" class="choice-card active" aria-pressed="true">
             This window
-            <span class="choice-desc">UI and agent run together locally — typical desktop use. No remote server URL.</span>
+            <span class="choice-desc">Local desktop agent on this machine. If you are currently viewing a remote agent, Continue switches back (or relaunches local).</span>
           </button>
           <button type="button" id="choice-remote" class="choice-card" aria-pressed="false">
             Remote agent
@@ -122,10 +122,32 @@
         </details>
 
         <div class="sidebar-foot">
+          <button type="button" id="open-context" class="ghost wide">Context</button>
           <button type="button" id="new-chat" class="ghost wide">New chat</button>
           <button type="button" id="open-connection" class="ghost wide">Settings</button>
         </div>
       </aside>
+
+      <dialog id="context-dialog" class="context-dialog">
+        <form method="dialog" class="context-panel">
+          <header class="context-head">
+            <h2>Context</h2>
+            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
+          </header>
+          <div class="budget-bar-wrap" aria-label="Context budget">
+            <div class="budget-meta"><span id="budget-label">—</span></div>
+            <div class="budget-track"><div id="budget-fill" class="budget-fill"></div></div>
+          </div>
+          <div class="context-panes">
+            <section><h3>Goal</h3><pre id="ctx-goal" class="context-body"></pre></section>
+            <section><h3>Plan</h3><pre id="ctx-plan" class="context-body"></pre></section>
+            <section><h3>Findings</h3><pre id="ctx-findings" class="context-body"></pre></section>
+            <section><h3>Open questions</h3><pre id="ctx-questions" class="context-body"></pre></section>
+            <section><h3>Constraints</h3><pre id="ctx-constraints" class="context-body"></pre></section>
+            <section><h3>Recent</h3><pre id="ctx-recent" class="context-body"></pre></section>
+          </div>
+        </form>
+      </dialog>
 
       <main class="main">
         <div class="column">

@@ -17,6 +17,7 @@ type Agent struct {
 	Client               *Client
 	Journal              *Journal
 	History              []json.RawMessage
+	Charter              *Charter
 	TaskActive           bool
 	TaskDone             bool
 	TaskBlocked          bool
@@ -135,6 +136,10 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		if err := a.add(map[string]any{"role": "user", "content": message}); err != nil {
 			return err
 		}
+		if c := a.ensureCharter(); strings.TrimSpace(c.Goal) == "" {
+			c.Goal = truncate(strings.TrimSpace(message), 400)
+			_ = a.persistCharter()
+		}
 	} else {
 		message = a.LastTaskMessage
 		if err := a.repairInterruptedCalls(); err != nil {
@@ -166,7 +171,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			}
 			pilotCycles++
 			a.printf("\n◌ Autopilot reviewing %d-round limit (supervision %d/200)…\n", a.Cfg.MaxSteps, pilotCycles)
-			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, "Worker reached its API-round limit without completing the active task. Review progress and decide whether to continue for another block of rounds.", a.History)
+			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, "Worker reached its API-round limit without completing the active task. Review progress and decide whether to continue for another block of rounds.", a.modelInput())
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot round-limit review: %w", pilotErr)
 			}
@@ -233,7 +238,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				}
 			}
 		}()
-		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.History, a.Cfg.Web)
+		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web)
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil
@@ -386,6 +391,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						} else {
 							a.Plan = p.Steps
 							a.TaskActive = true
+							a.ensureCharter().SyncPlan(p.Steps)
+							_ = a.persistCharter()
 							result = "plan updated"
 							a.print(renderPlan(a.Plan))
 						}
@@ -503,6 +510,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				if err := a.add(outItem); err != nil {
 					return err
 				}
+				if allowed {
+					a.retainToolFinding(ctx, item.Name, item.Arguments, result)
+				}
 			}
 		}
 		a.PendingSteering = false
@@ -523,7 +533,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			}
 			pilotCycles++
 			a.println("\033[36m◌\033[0m Autopilot reviewing outcome…")
-			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, report, a.History)
+			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, report, a.modelInput())
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot review: %w", pilotErr)
 			}
@@ -580,10 +590,12 @@ func (a *Agent) NewChat() error {
 	}
 	a.History = nil
 	a.Plan = nil
+	a.Charter = &Charter{Version: charterVersion}
 	a.TaskActive = false
 	a.LastTaskMessage = ""
 	a.ResumeAvailable = false
 	_ = os.Remove(indexPath(a.Cfg.SessionPath))
+	_ = os.Remove(charterPath(a.Cfg.SessionPath))
 	if a.Shares != nil {
 		a.Shares.Clear()
 	}

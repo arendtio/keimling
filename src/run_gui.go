@@ -75,7 +75,7 @@ func runGUILocal(agent *Agent, secret string) error {
 	if agent != nil {
 		configPath = agent.Cfg.ConfigPath
 	}
-	guiErr := openWebView(page, "Keimling", configPath)
+	guiErr := openWebViewLocal(page, "Keimling", configPath, page)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

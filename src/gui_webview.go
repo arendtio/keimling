@@ -9,6 +9,13 @@ import (
 )
 
 func openWebViewImpl(url, title, configPath string) error {
+	return openWebViewWithHomeImpl(url, title, configPath, "")
+}
+
+// openWebViewWithHomeImpl opens the WebView. When localHome is non-empty (desktop
+// embedded agent), "switch to local" navigates back there; otherwise it clears
+// gui-prefs and relaunches a local process (pure --connect session).
+func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 	if title == "" {
 		title = "Keimling"
 	}
@@ -35,6 +42,22 @@ func openWebViewImpl(url, title, configPath string) error {
 	})
 	_ = w.Bind("keimlingOpenExternal", func(href string) {
 		_ = openExternalURL(href)
+	})
+	_ = w.Bind("keimlingLocalHomeURL", func() string {
+		return localHome
+	})
+	_ = w.Bind("keimlingUseLocalAgent", func() string {
+		_ = mergeGuiPrefsConnect(configPath, "", "")
+		if localHome != "" {
+			return localHome
+		}
+		scheduleRelaunchLocal(configPath, func() {
+			w.Dispatch(func() { w.Terminate() })
+		})
+		return "relaunch"
+	})
+	_ = w.Bind("keimlingRememberRemote", func(connect, secret string) {
+		_ = mergeGuiPrefsConnect(configPath, connect, secret)
 	})
 	// Ensure clicks never navigate the embedded UI away before app.js binds handlers.
 	_ = w.Init(`document.addEventListener("click",function(e){

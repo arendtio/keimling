@@ -17,6 +17,8 @@
   var choiceLocal = document.getElementById("choice-local");
   var choiceRemote = document.getElementById("choice-remote");
   var openConnection = document.getElementById("open-connection");
+  var openContextBtn = document.getElementById("open-context");
+  var contextDialog = document.getElementById("context-dialog");
   var newChatBtn = document.getElementById("new-chat");
   var settingsTabs = document.getElementById("settings-tabs");
   var paneConnection = document.getElementById("pane-connection");
@@ -243,11 +245,21 @@
       : first
         ? "First pick how this UI reaches an agent. Model provider options live under Settings → Agent after you connect."
         : "Resume or pick how to reach the agent.";
-    if (prefs.url) {
+    if (prefs.url && !connectURLEl.value.trim()) {
       connectURLEl.value = prefs.url;
-      setChoice("remote");
-    } else {
-      setChoice("local");
+    }
+    // Do not reset the user's Connection choice while Settings is open.
+    if (!opts.manage) {
+      if (!sameOriginLocal()) {
+        setChoice("remote");
+        if (!connectURLEl.value.trim()) {
+          try { connectURLEl.value = location.origin + "/"; } catch (e) {}
+        }
+      } else if (prefs.url) {
+        setChoice("remote");
+      } else {
+        setChoice("local");
+      }
     }
     if (opts.prefillSecret) secretEl.value = opts.prefillSecret;
     else if (prefs.secret && !secretEl.value) secretEl.value = prefs.secret;
@@ -765,6 +777,43 @@
     });
   }
 
+  function rememberRemote(connect, sec) {
+    if (typeof keimlingRememberRemote === "function") {
+      try { keimlingRememberRemote(connect, sec); } catch (e) {}
+    }
+    return saveGuiPrefs({ connect: connect, access_secret: sec }).catch(function () {});
+  }
+
+  function switchAwayFromRemotePage() {
+    connectBtn.disabled = true;
+    try {
+      localStorage.removeItem(STORAGE_URL);
+    } catch (e) {}
+    if (typeof keimlingUseLocalAgent !== "function") {
+      showGate({
+        error: "This page is the remote agent. Close Keimling and start it again without a remote URL (or clear connect in ~/.config/keimling/gui-prefs.json).",
+        manage: true,
+        keepApp: !app.hidden,
+      });
+      connectBtn.disabled = false;
+      return;
+    }
+    Promise.resolve(keimlingUseLocalAgent())
+      .then(function (home) {
+        if (home && home !== "relaunch") {
+          location.assign(home);
+          return;
+        }
+        // Relaunch path: native side starts a local process and closes this window.
+        gateErr.hidden = false;
+        gateErr.textContent = "Switching to local agent…";
+      })
+      .catch(function (e) {
+        showGate({ error: formatConnectError(e), manage: true, keepApp: !app.hidden });
+        connectBtn.disabled = false;
+      });
+  }
+
   function openSession(opts) {
     opts = opts || {};
     gateErr.hidden = true;
@@ -794,16 +843,14 @@
         } else {
           storePrefs();
           connectBtn.disabled = true;
-          saveGuiPrefs({ connect: remoteBase, access_secret: secret() })
-            .catch(function (e) {
-              showGate({ error: "Could not remember remote connection: " + formatConnectError(e), manage: true, keepApp: !app.hidden });
-              connectBtn.disabled = false;
-              throw e;
-            })
+          rememberRemote(remoteBase, secret())
             .then(function () {
               location.assign(dest);
             })
-            .catch(function () {});
+            .catch(function (e) {
+              showGate({ error: "Could not remember remote connection: " + formatConnectError(e), manage: true, keepApp: !app.hidden });
+              connectBtn.disabled = false;
+            });
           return;
         }
       } catch (e) {
@@ -811,13 +858,13 @@
         return;
       }
     } else {
-      apiBase = "";
-      // Same-origin server always needs a secret unless Go injected one into the URL / field.
-      if (!sameOriginLocal() && !secret()) {
-        showGate({ error: "Access secret required.", manage: true, keepApp: !app.hidden });
+      // "This window" while still on a remote origin must leave that host.
+      if (!sameOriginLocal()) {
+        switchAwayFromRemotePage();
         return;
       }
-      if (sameOriginLocal() && !secret()) {
+      apiBase = "";
+      if (!secret()) {
         // Embedded local UI should pass ?access_secret=; without it we cannot call the API.
         showGate({
           error: "No local access secret. Restart with the desktop UI, or paste the secret.",
@@ -865,6 +912,55 @@
     showGate({ manage: true, keepApp: true, tab: "connection" });
     app.hidden = false;
   });
+
+  function listBlock(items) {
+    if (!items || !items.length) return "—";
+    return items.map(function (x) { return "• " + x; }).join("\n");
+  }
+  function renderContextDialog(data) {
+    var c = (data && data.charter) || {};
+    var b = (data && data.budget) || {};
+    document.getElementById("ctx-goal").textContent = c.goal || "—";
+    var planLines = [];
+    (c.plan || []).forEach(function (step, i) {
+      var mark = (c.position === i + 1) ? "→ " : "- ";
+      planLines.push(mark + "[" + (step.status || "?") + "] " + (step.step || ""));
+    });
+    document.getElementById("ctx-plan").textContent = planLines.length ? planLines.join("\n") : "—";
+    document.getElementById("ctx-findings").textContent = listBlock(c.findings);
+    document.getElementById("ctx-questions").textContent = listBlock(c.open_questions);
+    document.getElementById("ctx-constraints").textContent = listBlock(c.constraints);
+    document.getElementById("ctx-recent").textContent = listBlock(c.recent);
+    var pct = typeof b.used_pct === "number" ? b.used_pct : 0;
+    var label = "used " + (b.used || 0) + " / " + (b.limit || 0) +
+      " (" + pct.toFixed(1) + "%) · remaining " + (b.remaining || 0) +
+      " · " + (b.source || "estimate");
+    document.getElementById("budget-label").textContent = label;
+    var fill = document.getElementById("budget-fill");
+    fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
+    fill.classList.toggle("warn", !!b.warn);
+  }
+  function openContextDialog() {
+    if (!connected || !contextDialog) return;
+    fetch(apiURL("/api/context"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
+        renderContextDialog(j);
+        if (typeof contextDialog.showModal === "function") contextDialog.showModal();
+        else contextDialog.setAttribute("open", "");
+      })
+      .catch(function (err) {
+        appendLive("\n[context] " + err + "\n");
+      });
+  }
+  if (openContextBtn) {
+    openContextBtn.addEventListener("click", openContextDialog);
+  }
 
   gateCancelBtn.addEventListener("click", closeGate);
   document.addEventListener("keydown", function (e) {
@@ -1160,7 +1256,12 @@
     // Desktop / resume path: secret in URL → enter session immediately.
     if (qSecret) {
       secretEl.value = qSecret;
-      setChoice("local");
+      if (sameOriginLocal()) {
+        setChoice("local");
+      } else {
+        setChoice("remote");
+        try { connectURLEl.value = location.origin + "/"; } catch (e) {}
+      }
       openSession({ auto: true });
       return;
     }
