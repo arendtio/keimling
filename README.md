@@ -108,12 +108,11 @@ For custom providers, `openai.key_file` holds the separate OpenAI credentials us
 
 ## File editing
 
-Edits happen through two tools: `replace_lines` replaces an exact line range, and
-`apply_patch` applies multi-line or multi-file patches. The patch syntax and the
-matching rules are written for the model, not for humans; see
-[tools-and-editing.md](docs/tools-and-editing.md) for the details. In automatic
+Edits happen through two tools: `edit_file` does exact `old_string` → `new_string`
+replacement (optionally `replace_all`), and `write_file` creates or overwrites a
+whole file. See [tools-and-editing.md](docs/tools-and-editing.md). In automatic
 modes every edit inside the working directory is either approved by the review
-model or shown as a diff before the approval prompt.
+model or shown as a preview before the approval prompt.
 
 ## Documentation
 

@@ -23,43 +23,14 @@ func renderToolCall(name, args string) string {
 			label = "\033[35m⌨ interactive\033[0m"
 		}
 		return "\n" + label + " " + highlightCommand(truncate(cmd, 1600))
-	case "read_file", "replace_lines", "apply_patch":
-		if name == "apply_patch" {
-			var patch string
-			_ = json.Unmarshal(v["patch"], &patch)
-			targets, err := patchTargets(patch)
-			if err != nil {
-				return "\n\033[35m✎ Patch\033[0m " + truncate(firstLine(patch), 260) + " \033[2m(invalid)\033[0m"
-			}
-			labels := make([]string, 0, len(targets))
-			for _, t := range targets {
-				label := t.path
-				switch {
-				case t.create:
-					label += " \033[32m(new)\033[0m"
-				case t.delete:
-					label += " \033[31m(delete)\033[0m"
-				}
-				labels = append(labels, label)
-			}
-			return "\n\033[35m✎ Patch\033[0m " + truncate(strings.Join(labels, ", "), 260)
-		}
+	case "read_file", "edit_file", "write_file":
 		var path string
 		_ = json.Unmarshal(v["path"], &path)
-		icons := map[string]string{"read_file": "◉ Read", "replace_lines": "✎ Replace", "apply_patch": "✎ Patch"}
+		icons := map[string]string{"read_file": "◉ Read", "edit_file": "✎ Edit", "write_file": "✎ Write"}
 		return "\n\033[35m" + icons[name] + "\033[0m " + truncate(path, 260)
 	default:
 		return "\n\033[35m⚙ " + name + "\033[0m"
 	}
-}
-
-// firstLine keeps an approval preview short when the argument is a multi-line patch.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return strings.TrimSpace(s[:i]) + " …"
-	}
-	return s
 }
 
 // approvalPreviewLines caps how much of a pending change is shown before approval.
@@ -70,78 +41,65 @@ const approvalPreviewLines = 80
 // arguments already speak for themselves.
 func renderApprovalPreview(name, args string) string {
 	switch name {
-	case "apply_patch":
+	case "edit_file":
 		var x struct {
-			Patch string `json:"patch"`
+			Path       string `json:"path"`
+			OldString  string `json:"old_string"`
+			NewString  string `json:"new_string"`
+			ReplaceAll bool   `json:"replace_all"`
 		}
-		if json.Unmarshal([]byte(args), &x) != nil || strings.TrimSpace(x.Patch) == "" {
+		if json.Unmarshal([]byte(args), &x) != nil || x.OldString == "" {
 			return ""
 		}
-		return renderPatchPreview(x.Patch)
-	case "replace_lines":
+		return renderEditPreview(x.Path, x.OldString, x.NewString, x.ReplaceAll)
+	case "write_file":
 		var x struct {
-			Path      string `json:"path"`
-			StartLine int    `json:"start_line"`
-			EndLine   int    `json:"end_line"`
-			Content   string `json:"content"`
+			Path    string `json:"path"`
+			Content string `json:"content"`
 		}
-		if json.Unmarshal([]byte(args), &x) != nil || x.Content == "" {
+		if json.Unmarshal([]byte(args), &x) != nil {
 			return ""
 		}
-		return renderReplacementPreview(x.Path, x.StartLine, x.EndLine, x.Content)
+		return renderWritePreview(x.Path, x.Content)
 	}
 	return ""
 }
 
-func renderPatchPreview(patch string) string {
-	lines := strings.Split(strings.TrimRight(patch, "\n"), "\n")
-	added, removed := 0, 0
-	for _, line := range lines {
-		if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(line, "+"):
-			added++
-		case strings.HasPrefix(line, "-"):
-			removed++
-		}
-	}
+func renderEditPreview(path, oldString, newString string, replaceAll bool) string {
 	var b strings.Builder
-	for i, line := range lines {
-		if i >= approvalPreviewLines || b.Len() > 8000 {
-			fmt.Fprintf(&b, "  \033[2m… %d more line(s)\033[0m\n", len(lines)-i)
-			break
-		}
-		switch {
-		case strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "), strings.HasPrefix(line, "diff --git "), strings.HasPrefix(line, "index "):
-			fmt.Fprintf(&b, "  \033[1m%s\033[0m\n", line)
-		case strings.HasPrefix(line, "@@"):
-			fmt.Fprintf(&b, "  \033[36m%s\033[0m\n", line)
-		case strings.HasPrefix(line, "+"):
-			fmt.Fprintf(&b, "  \033[32m%s\033[0m\n", line)
-		case strings.HasPrefix(line, "-"):
-			fmt.Fprintf(&b, "  \033[31m%s\033[0m\n", line)
-		default:
-			fmt.Fprintf(&b, "  \033[2m%s\033[0m\n", line)
-		}
+	scope := "one match"
+	if replaceAll {
+		scope = "all matches"
 	}
-	fmt.Fprintf(&b, "  \033[2m%d addition(s), %d removal(s)\033[0m\n", added, removed)
+	fmt.Fprintf(&b, "  \033[1m%s\033[0m \033[2m(%s)\033[0m\n", path, scope)
+	appendPreviewLines(&b, oldString, '-')
+	appendPreviewLines(&b, newString, '+')
 	return b.String()
 }
 
-func renderReplacementPreview(path string, start, end int, content string) string {
+func renderWritePreview(path, content string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "  \033[1m%s\033[0m \033[2mlines %d-%d\033[0m\n", path, start, end)
-	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	fmt.Fprintf(&b, "  \033[1m%s\033[0m \033[2m(write)\033[0m\n", path)
+	appendPreviewLines(&b, content, '+')
+	return b.String()
+}
+
+func appendPreviewLines(b *strings.Builder, text string, mark rune) {
+	if text == "" {
+		return
+	}
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	for i, line := range lines {
 		if i >= approvalPreviewLines || b.Len() > 8000 {
-			fmt.Fprintf(&b, "  \033[2m… %d more line(s)\033[0m\n", len(lines)-i)
+			fmt.Fprintf(b, "  \033[2m… %d more line(s)\033[0m\n", len(lines)-i)
 			break
 		}
-		fmt.Fprintf(&b, "  \033[32m+%s\033[0m\n", line)
+		color := "\033[32m"
+		if mark == '-' {
+			color = "\033[31m"
+		}
+		fmt.Fprintf(b, "  %s%c%s\033[0m\n", color, mark, line)
 	}
-	return b.String()
 }
 
 func renderPlan(plan []PlanStep) string {
@@ -165,6 +123,7 @@ func renderPlan(plan []PlanStep) string {
 	}
 	return b.String()
 }
+
 func renderFinish(status, summary string) string {
 	if status == "done" {
 		return "\n\033[32m✓ Task complete\033[0m\n" + renderMarkdown(strings.TrimSpace(summary))

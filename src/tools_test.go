@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,20 +9,29 @@ import (
 )
 
 func TestFileTools(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.txt")
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	path := "test.txt"
 	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	got := executeTool(context.Background(), "read_file", `{"path":"`+path+`","start_line":2,"end_line":2}`)
+	got := executeTool(context.Background(), "read_file", `{"path":"test.txt","start_line":2,"end_line":2}`)
 	hash := hashBytes([]byte("beta\n"))
 	if !strings.Contains(got, hash) || !strings.HasSuffix(got, "beta\n") {
 		t.Fatal(got)
 	}
-	args := fmt.Sprintf(`{"path":%q,"start_line":2,"end_line":2,"expected_hash":%q,"content":"delta\n"}`, path, hash)
-	if got = executeTool(context.Background(), "replace_lines", args); got != "replaced successfully" {
+	args := `{"path":"test.txt","old_string":"beta\n","new_string":"delta\n","replace_all":false}`
+	if got = executeTool(context.Background(), "edit_file", args); got != "edited successfully" {
 		t.Fatal(got)
 	}
-	if got = executeTool(context.Background(), "replace_lines", args); !strings.Contains(got, "hash mismatch") {
+	if got = executeTool(context.Background(), "edit_file", args); !strings.Contains(got, "old_string not found") {
 		t.Fatal(got)
 	}
 	b, _ := os.ReadFile(path)

@@ -37,30 +37,7 @@ func forceApproval(name, args string) (bool, string) {
 		}
 		return false, ""
 	}
-	if name == "replace_lines" || name == "apply_patch" {
-		if name == "apply_patch" {
-			var a struct {
-				Patch string `json:"patch"`
-			}
-			if json.Unmarshal([]byte(args), &a) != nil {
-				return true, "invalid arguments"
-			}
-			targets, err := patchTargets(a.Patch)
-			if err != nil {
-				return true, "invalid patch arguments"
-			}
-			if len(targets) == 0 {
-				return true, "empty patch"
-			}
-			names, deletes, err := patchScope(targets)
-			if err != nil {
-				return true, err.Error()
-			}
-			if deletes {
-				return true, "patch deletes files: " + strings.Join(names, ", ")
-			}
-			return true, "patch modifies files: " + strings.Join(names, ", ")
-		}
+	if name == "edit_file" || name == "write_file" {
 		var a struct {
 			Path string `json:"path"`
 		}
@@ -71,12 +48,15 @@ func forceApproval(name, args string) (bool, string) {
 		if e != nil {
 			return true, "invalid path"
 		}
+		if privatePath(a.Path) {
+			return true, "protected path"
+		}
 		cwd, _ := os.Getwd()
 		rel, err := filepath.Rel(cwd, p)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			return true, "write outside working directory"
 		}
-		if name == "replace_lines" {
+		if name == "edit_file" {
 			return true, "modifying existing file"
 		}
 		if _, e := os.Lstat(p); e == nil {
@@ -101,33 +81,6 @@ func forceApproval(name, args string) (bool, string) {
 		return false, ""
 	}
 	return true, "unknown tool"
-}
-
-// patchScope validates patch targets against the working directory and
-// protected paths, returning their names and whether any is a deletion.
-func patchScope(targets []patchTarget) ([]string, bool, error) {
-	cwd, _ := os.Getwd()
-	names := make([]string, 0, len(targets))
-	deletes := false
-	for _, target := range targets {
-		p, err := filepath.Abs(target.path)
-		if err != nil {
-			return nil, false, fmt.Errorf("invalid path")
-		}
-		rel, err := filepath.Rel(cwd, p)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return nil, false, fmt.Errorf("write outside working directory")
-		}
-		if privatePath(target.path) {
-			return nil, false, fmt.Errorf("protected path")
-		}
-		names = append(names, target.path)
-		deletes = deletes || target.delete
-		if _, err := os.Lstat(p); err != nil && !target.create {
-			return nil, false, fmt.Errorf("patch target does not exist: %s", target.path)
-		}
-	}
-	return names, deletes, nil
 }
 
 // routinePrograms are formatters, linters, build and test runners whose normal
@@ -238,7 +191,7 @@ func autoApproved(name, args string) bool {
 			return false
 		}
 		return insideWorkingDir(a.Path)
-	case "replace_lines":
+	case "edit_file":
 		var a struct {
 			Path string `json:"path"`
 		}
@@ -250,19 +203,14 @@ func autoApproved(name, args string) bool {
 		}
 		_, err := os.Lstat(a.Path)
 		return err == nil
-	case "apply_patch":
+	case "write_file":
 		var a struct {
-			Patch string `json:"patch"`
+			Path string `json:"path"`
 		}
-		if json.Unmarshal([]byte(args), &a) != nil {
+		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
 			return false
 		}
-		targets, err := patchTargets(a.Patch)
-		if err != nil || len(targets) == 0 {
-			return false
-		}
-		_, deletes, err := patchScope(targets)
-		return err == nil && !deletes
+		return insideWorkingDir(a.Path) && !privatePath(a.Path)
 	case "exec":
 		var a struct {
 			Command     string `json:"command"`

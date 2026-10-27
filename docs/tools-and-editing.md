@@ -3,7 +3,7 @@
 ## Tool surface
 
 Keimling deliberately ships few, language-agnostic tools: `exec`, `read_file`,
-`replace_lines`, `apply_patch`, `update_plan`, `finish_task`, `search_history`,
+`edit_file`, `write_file`, `update_plan`, `finish_task`, `search_history`,
 `read_history`, `delegate`, and optionally `web_search`.
 
 `exec` runs shell commands. The agent is expected to state the specific question
@@ -20,77 +20,32 @@ Failed tools are rendered as errors (red `✗`), never as a green checkmark.
 `read_file` reads a whole file (`start_line` and `end_line` both `0`) or an
 **inclusive** line range such as 50–75, and returns a SHA-256 hash of the exact,
 unmodified bytes of that range. Limits: 8 MiB per file, 64 KiB per selected
-range, UTF-8 only. The hash is the `expected_hash` for `replace_lines`.
+range, UTF-8 only.
 
-## Replacing lines
+## Editing files
 
-`replace_lines` replaces a line range only when the hash of the current range
-matches `expected_hash`; on mismatch the file stays untouched and must be
-re-read. An optional `expected_file_hash` adds whole-file concurrency protection.
-The write is atomic (temporary file in the same directory, then rename) and keeps
-existing permissions.
+`edit_file` performs exact string replacement (Claude Code / Cursor style):
 
-## Patching files
+- `path` — existing file inside the working directory
+- `old_string` — exact bytes to find (including whitespace)
+- `new_string` — replacement (must differ from `old_string`)
+- `replace_all` — if false, require exactly one match; if true, replace every match
 
-`apply_patch` complements `replace_lines` for models that produce diffs better
-than line ranges. It is meant for multi-line and multi-file changes.
+On zero or (when not `replace_all`) multiple matches the file is left untouched
+and the model should re-read with more context. Writes are atomic (temp file +
+rename) and keep permissions.
 
-### Format
+## Writing files
 
-```text
---- a/src/main.go
-+++ b/src/main.go
-@@ ~120
- context line (leading space)
--removed line
-+added line
-```
+`write_file` creates or overwrites an entire file with `content`. Parent
+directories are created when needed. Prefer `edit_file` for targeted changes.
+Deletes go through `exec`.
 
-- A file section is a `--- ` line immediately followed by a `+++ ` line. The old
-  path uses the `a/` prefix, the new path the `b/` prefix; both may be
-  `/dev/null`.
-- Each hunk starts with `@@ ~N`, `@@ -N,M +N,M @@`, or a bare `@@`.
-- Lines inside a hunk start with a space (context), `-` (removal), or `+`
-  (addition). A `\ No newline at end of file` marker applies to the previous line.
-- Several file sections and several hunks per file are allowed in one patch.
-
-### Line hints
-
-`@@ ~200` marks an approximate target line and searches within a radius of 50
-lines. Traditional unified-diff counts are accepted; they help parse empty
-context lines but are not validated strictly, because models often get them
-wrong. A bare `@@` searches forward from the previous hunk and takes the first
-match.
-
-### Matching rules
-
-- The nearest context match wins. Only equally close matches are rejected as
-  ambiguous, with the number of candidates in the error.
-- Exact context wins; trailing-whitespace and indentation relaxations are
-  fallbacks that are reported back to the model.
-- When several matches exist and the nearest one is patched, the result says so.
-- Context lines are copied from the file, so indentation and line endings are
-  preserved. Added lines use the file's own line ending (LF or CRLF).
-- A failed match reports the actual file lines around the hint, the closest
-  partial match, and how to re-read the range.
-
-### Creating and deleting
-
-- `--- /dev/null` with `+++ b/path` creates a file. Creation accepts only added
-  lines and fails with `file already exists` when the target is present.
-- `--- a/path` with `+++ /dev/null` deletes a file. The removed lines must match
-  the file exactly; no relaxed matching is applied.
-- Pasted `git diff` preambles (`diff --git`, `index …`, `new file mode`, rename
-  and binary markers) are skipped.
-
-### Safety properties
+## Safety properties
 
 - Paths must stay inside the working directory and may not touch protected
   locations such as `~/.ssh` or credentials files.
-- Every target is validated before anything is written; failures roll back files
-  that were already written or deleted, including their permissions.
-- Multi-file writes are per-file atomic. They are not a filesystem-wide
-  transaction, and the implementation says so instead of pretending otherwise.
+- Failed edits never partially apply.
 
 ## Plans and completion
 
@@ -104,9 +59,10 @@ answer.
 No `code_symbols`, `get_symbol`, or `replace_symbol` tools and no embedded
 Tree-sitter parser: an experimental branch grew the binary roughly sevenfold.
 Where language-aware analysis is missing, the agent uses `rg`/`grep` patterns.
-Such capabilities may later live in an optional external MCP server. There is no
-backward-compatibility requirement for obsolete editing tools such as
-`edit_file`/`write_file`.
+Such capabilities may later live in an optional external MCP server. Unified-diff
+`apply_patch` and hash-gated `replace_lines` were removed in favour of the
+industry-standard edit/write surface; there is no backward-compatibility
+requirement for those names.
 
 ## Skills and project instructions (planned)
 

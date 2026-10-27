@@ -156,68 +156,34 @@ func executeTool(ctx context.Context, name, args string) string {
 			return "selected range exceeds 64 KiB; select fewer lines"
 		}
 		return fmt.Sprintf("%s:%d-%d\nhash: %s\n%s", x.Path, x.StartLine, x.EndLine, hashBytes(raw), string(raw))
-	case "replace_lines":
+	case "edit_file":
 		var x struct {
-			Path             string `json:"path"`
-			StartLine        int    `json:"start_line"`
-			EndLine          int    `json:"end_line"`
-			ExpectedHash     string `json:"expected_hash"`
-			ExpectedFileHash string `json:"expected_file_hash"`
-			Content          string `json:"content"`
+			Path       string `json:"path"`
+			OldString  string `json:"old_string"`
+			NewString  string `json:"new_string"`
+			ReplaceAll bool   `json:"replace_all"`
 		}
 		if err := decodeArgs(args, &x); err != nil {
 			return err.Error()
 		}
-		if privatePath(x.Path) {
-			return "access denied: protected path"
-		}
-		data, err := os.ReadFile(x.Path)
+		msg, err := editFile(x.Path, x.OldString, x.NewString, x.ReplaceAll)
 		if err != nil {
 			return err.Error()
 		}
-		if len(data) > 8<<20 {
-			return "file too large"
-		}
-		lines := fileLines(data)
-		if x.StartLine < 1 || x.EndLine < x.StartLine || x.EndLine > len(lines) {
-			return "invalid line range; read again"
-		}
-		if x.ExpectedFileHash != "" && x.ExpectedFileHash != hashBytes(data) {
-			return "file hash mismatch; read again"
-		}
-		old := bytes.Join(lines[x.StartLine-1:x.EndLine], nil)
-		if x.ExpectedHash == "" || x.ExpectedHash != hashBytes(old) {
-			return "hash mismatch; read the current lines again"
-		}
-		start := len(bytes.Join(lines[:x.StartLine-1], nil))
-		end := start + len(old)
-		if len(x.Content) > 1<<20 {
-			return "replacement too large"
-		}
-		replacement := []byte(x.Content)
-		if end < len(data) && len(replacement) > 0 && replacement[len(replacement)-1] != '\n' {
-			return "replacement must end with newline when more lines follow"
-		}
-		next := append(append(append([]byte{}, data[:start]...), replacement...), data[end:]...)
-		if err := atomicWrite(x.Path, next); err != nil {
-			return err.Error()
-		}
-		return "replaced successfully"
-	case "apply_patch":
+		return msg
+	case "write_file":
 		var x struct {
-			Patch string `json:"patch"`
+			Path    string `json:"path"`
+			Content string `json:"content"`
 		}
 		if err := decodeArgs(args, &x); err != nil {
 			return err.Error()
 		}
-		notes, err := applyPatchText(x.Patch)
+		msg, err := writeFile(x.Path, x.Content)
 		if err != nil {
-			return "patch failed: " + err.Error()
+			return err.Error()
 		}
-		if notes != "" {
-			return "patch applied successfully\nnotes:\n" + notes
-		}
-		return "patch applied successfully"
+		return msg
 	}
 	return "unknown tool"
 }

@@ -11,7 +11,7 @@ was previously called *tinyagent*.
 | --- | --- |
 | [concept.md](concept.md) | Product vision, guiding principles, platform, provider integration, reliability |
 | [agent-loop.md](agent-loop.md) | Terminal REPL, slash commands, approval modes, autopilot |
-| [tools-and-editing.md](tools-and-editing.md) | Tool surface, file reading, `replace_lines`, `apply_patch` |
+| [tools-and-editing.md](tools-and-editing.md) | Tool surface, file reading, `edit_file`, `write_file` |
 | [context-and-history.md](context-and-history.md) | JSONL journal, model switching, semantic compaction, context estimation |
 | [security-and-quality.md](security-and-quality.md) | Safety rules, deferred work, acceptance criteria |
 

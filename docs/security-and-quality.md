@@ -6,13 +6,12 @@
   to the configured approval rules. Neither autopilot nor skills may bypass them.
 - Non-idempotent operations with uncertain execution state are not restarted.
 - Static and model-generated input is structurally validated before writes. On
-  hash, patch, or history conflicts, rejection wins over silent corruption.
+  match failures or history conflicts, rejection wins over silent corruption.
 - The original JSONL journal is preserved; checkpoints are written only after
   complete, successful validation.
-- Terminal errors look like errors. A failed patch never shows a green checkmark.
-- `apply_patch` confines targets to the working directory, rejects protected
-  paths, validates every target before writing, and rolls back partial writes and
-  deletions, including file permissions.
+- Terminal errors look like errors. A failed edit never shows a green checkmark.
+- `edit_file` / `write_file` confine targets to the working directory, reject
+  protected paths, and write atomically (temp file + rename), keeping permissions.
 
 ## Observability
 

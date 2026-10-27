@@ -11,8 +11,8 @@ func TestApprovalFloors(t *testing.T) {
 		{"exec", `{"command":"sudo pacman -S foo","interactive":false}`, true},
 		{"exec", `{"command":"git reset --hard HEAD~1","interactive":false}`, true},
 		{"exec", `{"command":"scp file remote:/tmp","interactive":true}`, true},
-		{"replace_lines", `{"path":"local-new.txt"}`, true},
-		{"apply_patch", `{"path":"local-new.txt"}`, true},
+		{"edit_file", `{"path":"local-new.txt"}`, true},
+		{"write_file", `{"path":"local-new.txt"}`, false},
 	}
 	for _, c := range cases {
 		got, _ := forceApproval(c.name, c.args)

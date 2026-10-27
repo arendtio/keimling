@@ -55,7 +55,7 @@ reasoning content stay intact.
 
 In `auto` mode these run without asking, as long as they stay inside the
 working directory and are not critical commands: reads, ordinary file edits
-(`replace_lines`, non-deleting patches), and formatters, linters, build, vet and
+(`edit_file`, `write_file`), and formatters, linters, build, vet and
 test runs such as `gofmt -w .`, `go vet ./...`, `go test ./...`, `golangci-lint run`,
 `prettier --write .` or `git diff`. Redirections other than to `/dev/null`,
 command substitution, pipes into shells, `cd ..`, deletions, `git commit`,
@@ -63,10 +63,9 @@ command substitution, pipes into shells, `cd ..`, deletions, `git commit`,
 `forceApproval` still applies to every call before anything is auto-approved.
 
 Before any approval question, Keimling prints what would happen: the tool line
-names the affected files (with `(new)` and `(delete)` markers for patches), and
-file edits show the actual diff or replacement lines above the `Approve? [Y/n]`
-prompt. Approval reasons are specific, for example `patch deletes files: a.txt`
-or `write outside working directory`, instead of a generic label.
+names the affected path, and file edits show the old/new preview above the
+`Approve? [Y/n]` prompt. Approval reasons are specific, for example
+`modifying existing file` or `write outside working directory`.
 
 ## Autopilot
 
