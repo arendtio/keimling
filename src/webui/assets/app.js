@@ -24,6 +24,7 @@
   var saveSettingsBtn = document.getElementById("save-settings");
   var gateCancelBtn = document.getElementById("gate-cancel");
   var gateManage = false;
+  var setBaseURL = document.getElementById("set-base-url");
   var setModel = document.getElementById("set-model");
   var setMode = document.getElementById("set-mode");
   var setReasoning = document.getElementById("set-reasoning");
@@ -118,6 +119,8 @@
     mode = next;
     choiceLocal.classList.toggle("active", mode === "local");
     choiceRemote.classList.toggle("active", mode === "remote");
+    choiceLocal.setAttribute("aria-pressed", mode === "local" ? "true" : "false");
+    choiceRemote.setAttribute("aria-pressed", mode === "remote" ? "true" : "false");
     urlField.hidden = mode !== "remote";
     if (mode === "local" && sameOriginLocal() && !secret()) {
       secretField.hidden = true;
@@ -131,7 +134,9 @@
   function setSettingsTab(tab) {
     var agent = tab === "agent";
     settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {
-      btn.classList.toggle("active", btn.getAttribute("data-tab") === tab);
+      var on = btn.getAttribute("data-tab") === tab;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
     });
     paneConnection.hidden = agent;
     paneAgent.hidden = !agent;
@@ -141,6 +146,7 @@
 
   function fillAgentSettings(j) {
     if (!j) return;
+    setBaseURL.value = j.base_url || "";
     setModel.value = j.model || "";
     setMode.value = j.mode || "auto";
     setReasoning.value = j.reasoning || "high";
@@ -169,6 +175,7 @@
   function saveAgentSettings() {
     gateErr.hidden = true;
     var body = {
+      base_url: setBaseURL.value.trim(),
       model: setModel.value.trim(),
       mode: setMode.value,
       reasoning: setReasoning.value,
@@ -213,9 +220,9 @@
     var first = !prefs.seen && !opts.manage;
     gateTitle.textContent = opts.manage ? "Settings" : first ? "Welcome" : "Connect";
     gateCopy.textContent = opts.manage
-      ? "Connection and agent options (CLI equivalents)."
+      ? "Two layers: Connection (UI ↔ agent process) and Agent (model provider & behaviour)."
       : first
-        ? "Choose where this UI should talk to an agent. Later you can change this under Settings."
+        ? "First pick how this UI reaches an agent. Model provider options live under Settings → Agent after you connect."
         : "Resume or pick how to reach the agent.";
     if (prefs.url) {
       connectURLEl.value = prefs.url;
@@ -470,11 +477,23 @@
     });
     wrap.appendChild(head);
 
+    if (ch.intro) {
+      var intro = document.createElement("p");
+      intro.className = "chapter-overview-intro";
+      intro.textContent = ch.intro;
+      wrap.appendChild(intro);
+    }
     if (ch.summary) {
       var sum = document.createElement("p");
       sum.className = "chapter-overview-summary";
       sum.textContent = ch.summary;
       wrap.appendChild(sum);
+    }
+    if (ch.conclusion) {
+      var concl = document.createElement("p");
+      concl.className = "chapter-overview-conclusion";
+      concl.textContent = ch.conclusion;
+      wrap.appendChild(concl);
     }
 
     if (!items.length) {

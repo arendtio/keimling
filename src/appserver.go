@@ -163,6 +163,7 @@ func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
 }
 
 type agentSettings struct {
+	BaseURL      string `json:"base_url,omitempty"`
 	Model        string `json:"model"`
 	Mode         string `json:"mode"`
 	Reasoning    string `json:"reasoning"`
@@ -176,7 +177,12 @@ type agentSettings struct {
 func (s *appServer) settingsSnapshot() agentSettings {
 	web, auto := s.agent.Cfg.Web, s.agent.Cfg.Autopilot
 	steps, limit := s.agent.Cfg.MaxSteps, s.agent.Cfg.ContextLimit
+	base := s.agent.Cfg.BaseURL
+	if s.agent.Client != nil && strings.TrimSpace(s.agent.Client.BaseURL) != "" {
+		base = s.agent.Client.BaseURL
+	}
 	return agentSettings{
+		BaseURL:      base,
 		Model:        s.agent.Cfg.Model,
 		Mode:         s.agent.Cfg.Mode,
 		Reasoning:    s.agent.Cfg.Reasoning,
@@ -223,6 +229,16 @@ func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *appServer) applySettings(body agentSettings) error {
 	cfg := &s.agent.Cfg
+	if raw := strings.TrimSpace(body.BaseURL); raw != "" {
+		resolved, err := normalizeBaseURL(raw)
+		if err != nil {
+			return err
+		}
+		cfg.BaseURL = resolved
+		if s.agent.Client != nil {
+			s.agent.Client.BaseURL = resolved
+		}
+	}
 	if m := strings.TrimSpace(body.Mode); m != "" {
 		if m != "ask" && m != "auto" && m != "yolo" {
 			return fmt.Errorf("mode must be ask, auto, or yolo")

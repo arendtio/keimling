@@ -14,18 +14,26 @@
       <p id="gate-title" class="gate-copy">Welcome</p>
       <p id="gate-copy" class="gate-copy muted"></p>
 
-      <div class="settings-tabs" id="settings-tabs" hidden>
-        <button type="button" class="settings-tab active" data-tab="connection">Connection</button>
-        <button type="button" class="settings-tab" data-tab="agent">Agent</button>
+      <div class="settings-tabs" id="settings-tabs" hidden role="tablist" aria-label="Settings sections">
+        <button type="button" class="settings-tab active" data-tab="connection" role="tab" aria-selected="true">Connection</button>
+        <button type="button" class="settings-tab" data-tab="agent" role="tab" aria-selected="false">Agent</button>
       </div>
 
-      <div id="pane-connection" class="settings-pane">
-        <div class="choice-row">
-          <button type="button" id="choice-local" class="choice active">This agent</button>
-          <button type="button" id="choice-remote" class="choice">Remote URL</button>
+      <div id="pane-connection" class="settings-pane" role="tabpanel">
+        <p class="settings-lead">How this UI talks to a Keimling process: embedded in the same window, or a separate agent server (CLI <code>--server</code> / remote attach).</p>
+        <p class="settings-section-title">UI mode</p>
+        <div class="choice-stack" role="radiogroup" aria-label="UI mode">
+          <button type="button" id="choice-local" class="choice-card active" aria-pressed="true">
+            This window
+            <span class="choice-desc">UI and agent run together locally — typical desktop use. No remote server URL.</span>
+          </button>
+          <button type="button" id="choice-remote" class="choice-card" aria-pressed="false">
+            Remote agent
+            <span class="choice-desc">Connect this UI to an agent that already listens (e.g. <code>--server --listen …</code>).</span>
+          </button>
         </div>
 
-        <label id="url-field" hidden>Server URL
+        <label id="url-field" hidden>Agent server URL
           <input id="connect-url" type="url" placeholder="http://host:7420" autocomplete="off">
         </label>
         <label id="secret-field">Access secret
@@ -34,16 +42,16 @@
         <p id="local-hint" class="hint" hidden>Local embedded agents do not need a secret — continue to resume.</p>
       </div>
 
-      <div id="pane-agent" class="settings-pane" hidden>
+      <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">Model provider and agent behaviour for the running process. Use the default OpenAI endpoint, point <strong>API base URL</strong> at OpenRouter, a local OpenAI-compatible server, or another Responses API host.</p>
+
+        <p class="settings-section-title">Model provider</p>
+        <label>API base URL
+          <input id="set-base-url" type="url" placeholder="https://api.openai.com/v1" autocomplete="off">
+        </label>
+        <p class="hint">Examples: OpenAI default, <code>https://openrouter.ai/api/v1</code>, or <code>http://127.0.0.1:8080/v1</code> for a local model.</p>
         <label>Model
           <input id="set-model" type="text" autocomplete="off">
-        </label>
-        <label>Approval mode
-          <select id="set-mode">
-            <option value="ask">ask</option>
-            <option value="auto">auto</option>
-            <option value="yolo">yolo</option>
-          </select>
         </label>
         <label>Reasoning
           <select id="set-reasoning">
@@ -52,6 +60,15 @@
             <option value="high">high</option>
             <option value="xhigh">xhigh</option>
             <option value="max">max</option>
+          </select>
+        </label>
+
+        <p class="settings-section-title">Behaviour</p>
+        <label>Approval mode
+          <select id="set-mode">
+            <option value="ask">ask</option>
+            <option value="auto">auto</option>
+            <option value="yolo">yolo</option>
           </select>
         </label>
         <label class="check"><input id="set-web" type="checkbox"> Web search</label>
@@ -65,7 +82,7 @@
         <label>Voice model
           <input id="set-voice-model" type="text" autocomplete="off">
         </label>
-        <p class="hint">Applies to the running agent for this session (same knobs as CLI flags).</p>
+        <p class="hint">Saved for this session (same knobs as CLI flags such as <code>--model</code> / <code>--base-url</code>).</p>
       </div>
 
       <div class="gate-actions">

@@ -209,7 +209,8 @@ func TestAppServerNewChatAndSettings(t *testing.T) {
 	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
 	h := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"mode":"ask","model":"m2","reasoning":"low","web":false,"max_steps":12}`))
+	a.Client = &Client{BaseURL: "https://api.openai.com/v1"}
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"base_url":"http://127.0.0.1:8080/v1","mode":"ask","model":"m2","reasoning":"low","web":false,"max_steps":12}`))
 	req.Header.Set("Authorization", "Bearer tok")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -219,6 +220,9 @@ func TestAppServerNewChatAndSettings(t *testing.T) {
 	}
 	if a.Cfg.Mode != "ask" || a.Cfg.Model != "m2" || a.Cfg.Reasoning != "low" || a.Cfg.Web || a.Cfg.MaxSteps != 12 {
 		t.Fatalf("cfg %#v", a.Cfg)
+	}
+	if a.Cfg.BaseURL != "http://127.0.0.1:8080/v1" || a.Client.BaseURL != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("base url cfg=%q client=%q", a.Cfg.BaseURL, a.Client.BaseURL)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/newchat", nil)
