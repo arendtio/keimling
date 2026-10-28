@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -213,53 +214,28 @@ func httpGetLimited(urlStr string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(res.Body, limit))
 }
 
-// InstallSkillFromURL fetches a SKILL.md (GitHub-oriented) and installs a minimal skill dir.
-// For directory installs from tree URLs it fetches SKILL.md only in MVP, then tries sibling
-// references listed one level deep are NOT auto-fetched — full tree clone is best-effort via raw SKILL.md.
+// InstallSkillFromURL fetches a full skill bundle (SKILL.md + referenced/tree files) and installs it.
 func InstallSkillFromURL(rawURL string, scope SkillScope, cwd string) (*SkillMeta, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return nil, fmt.Errorf("empty url")
 	}
-	skillURL := rawURL
-	if isGitHubSkillURL(rawURL) {
-		if mapped, _, err := githubRawSkillURL(rawURL); err == nil {
-			skillURL = mapped
-		}
-	}
-	data, err := httpGetLimited(skillURL, 1<<20)
-	if err != nil {
-		return nil, fmt.Errorf("download SKILL.md: %w", err)
-	}
-	sk, err := parseSkillMarkdown(string(data), "", "", string(scope), true)
-	if err != nil {
-		return nil, fmt.Errorf("invalid remote SKILL.md: %w", err)
-	}
-	name := sk.Name
-	destRoot, err := skillsInstallDir(scope, cwd)
+	tmpParent, err := os.MkdirTemp("", "keimling-skill-fetch-*")
 	if err != nil {
 		return nil, err
 	}
-	dest := filepath.Join(destRoot, name)
-	tmpParent := filepath.Join(destRoot, ".tmp-"+name)
-	tmp := filepath.Join(tmpParent, name)
-	_ = os.RemoveAll(tmpParent)
-	if err := os.MkdirAll(tmp, 0700); err != nil {
+	defer os.RemoveAll(tmpParent)
+	sk, _, err := fetchSkillBundle(context.Background(), rawURL, tmpParent)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "SKILL.md"), data, 0600); err != nil {
-		_ = os.RemoveAll(tmpParent)
+	installed, err := InstallSkillFromPath(filepath.Join(tmpParent, sk.Name), scope, cwd)
+	if err != nil {
 		return nil, err
 	}
-	if _, err := loadSkillDir(tmp, string(scope), true); err != nil {
-		_ = os.RemoveAll(tmpParent)
-		return nil, err
+	if err := writeSkillOrigin(installed.Root, rawURL); err != nil {
+		return installed, fmt.Errorf("installed but origin metadata failed: %w", err)
 	}
-	_ = os.RemoveAll(dest)
-	if err := os.Rename(tmp, dest); err != nil {
-		_ = os.RemoveAll(tmpParent)
-		return nil, err
-	}
-	_ = os.RemoveAll(tmpParent)
-	return loadSkillDir(dest, string(scope), true)
+	attachSkillOrigin(installed)
+	return installed, nil
 }

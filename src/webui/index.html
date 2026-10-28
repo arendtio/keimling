@@ -137,30 +137,43 @@
             <h2>Skills</h2>
             <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
           </header>
-          <p class="hint">Agent Skills (agentskills.io). Catalog is injected into the model; full bodies load via activate_skill.</p>
+          <p class="hint">Agent Skills (agentskills.io). Search online, preview the full folder (all linked files), optionally AI-review, then install.</p>
           <section>
             <h3>Installed</h3>
             <ul id="skills-list" class="skills-list"></ul>
           </section>
           <section>
-            <h3>Add from path</h3>
-            <div class="skills-row">
-              <input id="skills-path" type="text" placeholder="/path/to/skill-dir or SKILL.md" autocomplete="off">
-              <select id="skills-scope" aria-label="Install scope">
-                <option value="user">user</option>
-                <option value="project">project</option>
-              </select>
-              <button type="button" id="skills-add-btn">Add</button>
-            </div>
-          </section>
-          <section>
-            <h3>Search</h3>
+            <h3>Search &amp; add</h3>
             <div class="skills-row">
               <input id="skills-query" type="text" placeholder="Search public skills…" autocomplete="off">
               <button type="button" id="skills-search-btn">Search</button>
             </div>
             <ul id="skills-results" class="skills-list"></ul>
           </section>
+          <section id="skills-preview-section" hidden>
+            <h3>Preview</h3>
+            <p id="skills-preview-meta" class="hint"></p>
+            <div class="skills-row">
+              <select id="skills-scope" aria-label="Install scope">
+                <option value="user">user</option>
+                <option value="project">project</option>
+              </select>
+              <button type="button" id="skills-review-btn" class="ghost">AI review</button>
+              <button type="button" id="skills-install-preview-btn">Install</button>
+            </div>
+            <pre id="skills-review-out" class="context-body" hidden></pre>
+            <div class="skills-preview-grid">
+              <ul id="skills-preview-files" class="skills-list"></ul>
+              <pre id="skills-preview-content" class="context-body mono"></pre>
+            </div>
+          </section>
+          <details class="skills-manual">
+            <summary>Add from local path</summary>
+            <div class="skills-row">
+              <input id="skills-path" type="text" placeholder="/path/to/skill-dir or SKILL.md" autocomplete="off">
+              <button type="button" id="skills-add-btn">Add path</button>
+            </div>
+          </details>
           <p id="skills-err" class="gate-err" hidden></p>
         </form>
       </dialog>

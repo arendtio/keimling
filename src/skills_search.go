@@ -78,7 +78,7 @@ func extractSkillCandidates(text string) []SkillCandidate {
 			Title:       truncate(title, 120),
 			Description: truncate(strings.TrimSpace(desc), 240),
 			SourceURL:   rawURL,
-			InstallHint: "Installs SKILL.md into ~/.config/keimling/skills/",
+			InstallHint: "Preview downloads the full skill folder, then install after review",
 		})
 	}
 

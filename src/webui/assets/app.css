@@ -915,6 +915,37 @@ button.wide { width: 100%; max-width: 100%; }
 .skills-row select {
   flex: 0 0 auto;
 }
+.skills-manual {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.skills-manual summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.45rem;
+}
+.skills-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr);
+  gap: 0.65rem;
+  margin-top: 0.55rem;
+  align-items: start;
+}
+.skills-preview-grid .skills-list {
+  max-height: 16rem;
+  overflow: auto;
+}
+.skills-preview-grid .context-body {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  font-size: 0.78rem;
+}
+#skills-review-out {
+  margin-top: 0.5rem;
+  white-space: pre-wrap;
+}
 
 .artifact-backdrop {
   position: fixed;

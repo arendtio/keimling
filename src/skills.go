@@ -35,6 +35,8 @@ type SkillMeta struct {
 	Root          string            `json:"root" yaml:"-"`
 	Source        string            `json:"source" yaml:"-"` // project|user|cursor-project|cursor-user
 	Writable      bool              `json:"writable" yaml:"-"`
+	OriginURL     string            `json:"origin_url,omitempty" yaml:"-"`
+	ContentHash   string            `json:"content_hash,omitempty" yaml:"-"`
 }
 
 type SkillRegistry struct {
@@ -145,7 +147,12 @@ func loadSkillDir(root, source string, writable bool) (*SkillMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseSkillMarkdown(string(b), dirName, root, source, writable)
+	sk, err := parseSkillMarkdown(string(b), dirName, root, source, writable)
+	if err != nil {
+		return nil, err
+	}
+	attachSkillOrigin(sk)
+	return sk, nil
 }
 
 func scanSkillsRoot(root, source string, writable bool) []*SkillMeta {

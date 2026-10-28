@@ -35,14 +35,16 @@ type appServer struct {
 	busy            bool
 	cancel          context.CancelFunc
 	skillCandidates []SkillCandidate
+	skillPreviews   *skillPreviewHub
 }
 
 func newAppServer(opts appServerOpts) *appServer {
 	s := &appServer{
-		secret: opts.AccessSecret,
-		agent:  opts.Agent,
-		hub:    newEventHub(),
-		mux:    http.NewServeMux(),
+		secret:        opts.AccessSecret,
+		agent:         opts.Agent,
+		hub:           newEventHub(),
+		mux:           http.NewServeMux(),
+		skillPreviews: newSkillPreviewHub(),
 	}
 	if s.agent != nil {
 		if s.agent.Shares == nil {
@@ -101,7 +103,13 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
 	s.mux.Handle("/api/skills/add", s.requireSecret(http.HandlerFunc(s.handleSkillsAdd)))
 	s.mux.Handle("/api/skills/search", s.requireSecret(http.HandlerFunc(s.handleSkillsSearch)))
+	s.mux.Handle("/api/skills/preview", s.requireSecret(http.HandlerFunc(s.handleSkillsPreview)))
+	s.mux.Handle("/api/skills/preview/file", s.requireSecret(http.HandlerFunc(s.handleSkillsPreviewFile)))
+	s.mux.Handle("/api/skills/review", s.requireSecret(http.HandlerFunc(s.handleSkillsReview)))
 	s.mux.Handle("/api/skills/install", s.requireSecret(http.HandlerFunc(s.handleSkillsInstall)))
+	s.mux.Handle("/api/skills/remove", s.requireSecret(http.HandlerFunc(s.handleSkillsRemove)))
+	s.mux.Handle("/api/skills/check-update", s.requireSecret(http.HandlerFunc(s.handleSkillsCheckUpdate)))
+	s.mux.Handle("/api/skills/update", s.requireSecret(http.HandlerFunc(s.handleSkillsUpdate)))
 	s.mux.Handle("/api/mcp", s.requireSecret(http.HandlerFunc(s.handleMCP)))
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
@@ -388,6 +396,112 @@ func (s *appServer) handleSkillsSearch(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"candidates": cands, "raw": raw})
 }
 
+func (s *appServer) resolveSkillCandidateURL(candidateID, fallbackURL string) string {
+	installURL := strings.TrimSpace(fallbackURL)
+	if installURL == "" && candidateID != "" {
+		s.mu.Lock()
+		cands := s.skillCandidates
+		s.mu.Unlock()
+		for _, c := range cands {
+			if c.ID == candidateID {
+				return c.SourceURL
+			}
+		}
+	}
+	return installURL
+}
+
+func (s *appServer) handleSkillsPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		URL         string `json:"url"`
+		CandidateID string `json:"candidate_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	sourceURL := s.resolveSkillCandidateURL(body.CandidateID, body.URL)
+	if sourceURL == "" {
+		http.Error(w, "url or candidate_id required", http.StatusBadRequest)
+		return
+	}
+	prev, err := StageSkillPreview(r.Context(), s.skillPreviews, sourceURL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"preview": prev})
+}
+
+func (s *appServer) handleSkillsPreviewFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	prev := s.skillPreviews.Get(id)
+	if prev == nil {
+		http.Error(w, "preview not found", http.StatusNotFound)
+		return
+	}
+	text, err := ReadSkillPreviewFile(prev, path, skillFileCap)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"path": path, "content": text})
+}
+
+func (s *appServer) handleSkillsReview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		PreviewID string `json:"preview_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	prev := s.skillPreviews.Get(body.PreviewID)
+	if prev == nil {
+		http.Error(w, "preview not found", http.StatusNotFound)
+		return
+	}
+	client := s.agent.Client
+	if client == nil {
+		http.Error(w, "model client unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	model := strings.TrimSpace(s.agent.Cfg.ReviewModel)
+	if model == "" {
+		model = s.agent.Cfg.Model
+	}
+	review, err := ReviewSkillPreview(r.Context(), client, model, prev)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"review": review, "preview": prev})
+}
+
 func (s *appServer) handleSkillsInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -400,6 +514,7 @@ func (s *appServer) handleSkillsInstall(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		URL         string `json:"url"`
 		CandidateID string `json:"candidate_id"`
+		PreviewID   string `json:"preview_id"`
 		Scope       string `json:"scope"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
@@ -410,24 +525,24 @@ func (s *appServer) handleSkillsInstall(w http.ResponseWriter, r *http.Request) 
 	if body.Scope == "project" {
 		scope = SkillScopeProject
 	}
-	installURL := strings.TrimSpace(body.URL)
-	if installURL == "" && body.CandidateID != "" {
-		s.mu.Lock()
-		cands := s.skillCandidates
-		s.mu.Unlock()
-		for _, c := range cands {
-			if c.ID == body.CandidateID {
-				installURL = c.SourceURL
-				break
-			}
-		}
-	}
-	if installURL == "" {
-		http.Error(w, "url or candidate_id required", http.StatusBadRequest)
-		return
-	}
 	cwd, _ := os.Getwd()
-	sk, err := InstallSkillFromURL(installURL, scope, cwd)
+	var sk *SkillMeta
+	var err error
+	if pid := strings.TrimSpace(body.PreviewID); pid != "" {
+		prev := s.skillPreviews.Get(pid)
+		if prev == nil {
+			http.Error(w, "preview not found", http.StatusNotFound)
+			return
+		}
+		sk, err = InstallSkillFromPreview(prev, scope, cwd)
+	} else {
+		installURL := s.resolveSkillCandidateURL(body.CandidateID, body.URL)
+		if installURL == "" {
+			http.Error(w, "preview_id, url, or candidate_id required", http.StatusBadRequest)
+			return
+		}
+		sk, err = InstallSkillFromURL(installURL, scope, cwd)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -435,6 +550,85 @@ func (s *appServer) handleSkillsInstall(w http.ResponseWriter, r *http.Request) 
 	s.agent.refreshSkills()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "skill": sk})
+}
+
+func (s *appServer) handleSkillsRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	cwd, _ := os.Getwd()
+	if err := DeleteSkill(body.Name, cwd); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.agent.refreshSkills()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "skills": s.agent.ensureSkills().List()})
+}
+
+func (s *appServer) handleSkillsCheckUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	cwd, _ := os.Getwd()
+	st, err := CheckSkillUpdate(r.Context(), body.Name, cwd)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"check": st})
+}
+
+func (s *appServer) handleSkillsUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	cwd, _ := os.Getwd()
+	sk, st, err := UpdateSkill(r.Context(), body.Name, cwd)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.agent.refreshSkills()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "skill": sk, "check": st, "skills": s.agent.ensureSkills().List()})
 }
 
 func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
