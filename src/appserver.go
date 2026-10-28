@@ -98,6 +98,9 @@ func newAppServer(opts appServerOpts) *appServer {
 		if s.agent.ApprovalCh == nil {
 			s.agent.ApprovalCh = make(chan bool, 1)
 		}
+		if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+			go s.agentWakeLoop()
+		}
 	}
 	ui, err := fs.Sub(webuiFS, "webui")
 	if err != nil {
@@ -137,6 +140,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
 	s.mux.Handle("/api/artifacts", s.requireSecret(http.HandlerFunc(s.handleArtifacts)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
+	s.mux.Handle("/api/stop", s.requireSecret(http.HandlerFunc(s.handleStop)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
 	s.mux.Handle("/api/gui-prefs", s.requireSecret(http.HandlerFunc(s.handleGuiPrefs)))
@@ -193,24 +197,25 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"model":          s.agent.Cfg.Model,
-		"mode":           s.agent.Cfg.Mode,
-		"reasoning":      s.agent.Cfg.Reasoning,
-		"web":            s.agent.Cfg.Web,
-		"autopilot":      s.agent.Cfg.Autopilot,
-		"max_steps":      s.agent.Cfg.MaxSteps,
-		"context_limit":  s.agent.Cfg.ContextLimit,
-		"voice_model":    s.agent.Cfg.VoiceModel,
-		"workspace_id":   s.agent.Cfg.WorkspaceID,
-		"workspace_root": s.agent.Cfg.WorkspaceRoot,
-		"thread_id":      s.agent.Cfg.ThreadID,
-		"lines":          sessionTranscript(uiHistory, 200),
-		"messages":       sessionMessages(uiHistory, 120),
-		"chapters":       sessionChapters(path),
-		"working_state":  sessionWorkingState(path),
-		"busy":           s.isBusy(),
-		"voice":          s.voiceAvailable(),
-		"state":          s.agentState(),
+		"model":             s.agent.Cfg.Model,
+		"mode":              s.agent.Cfg.Mode,
+		"reasoning":         s.agent.Cfg.Reasoning,
+		"web":               s.agent.Cfg.Web,
+		"autopilot":         s.agent.Cfg.Autopilot,
+		"max_steps":         s.agent.Cfg.MaxSteps,
+		"context_limit":     s.agent.Cfg.ContextLimit,
+		"voice_model":       s.agent.Cfg.VoiceModel,
+		"workspace_id":      s.agent.Cfg.WorkspaceID,
+		"workspace_root":    s.agent.Cfg.WorkspaceRoot,
+		"thread_id":         s.agent.Cfg.ThreadID,
+		"agent_instance_id": s.agent.Cfg.AgentInstanceID,
+		"lines":             sessionTranscript(uiHistory, 200),
+		"messages":          sessionMessages(uiHistory, 120),
+		"chapters":          sessionChapters(path),
+		"working_state":     sessionWorkingState(path),
+		"busy":              s.isBusy(),
+		"voice":             s.voiceAvailable(),
+		"state":             s.agentState(),
 	})
 }
 
@@ -305,6 +310,10 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no workspace", http.StatusServiceUnavailable)
 		return
 	}
+	if aid := strings.TrimSpace(s.agent.Cfg.AgentInstanceID); aid != "" {
+		s.handleAgentInstanceThreads(w, r, aid)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -365,6 +374,40 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *appServer) handleAgentInstanceThreads(w http.ResponseWriter, r *http.Request, instanceID string) {
+	switch r.Method {
+	case http.MethodGet:
+		state := "idle"
+		s.mu.Lock()
+		if s.busy {
+			state = "running"
+		}
+		s.mu.Unlock()
+		title := "Main"
+		if m, err := readAgentInstanceMeta(instanceID); err == nil && strings.TrimSpace(m.Name) != "" {
+			title = m.Name
+		}
+		list := []ThreadMeta{{
+			ID:     "main",
+			Title:  title,
+			Active: true,
+		}}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"workspace_id":      s.agent.Cfg.WorkspaceID,
+			"agent_instance_id": instanceID,
+			"current":           "main",
+			"state":             state,
+			"query":             "",
+			"threads":           list,
+		})
+	case http.MethodPost:
+		http.Error(w, "agent instances use a fixed main thread", http.StatusBadRequest)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -372,6 +415,10 @@ func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.agent == nil {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+		http.Error(w, "agent instances use a fixed main thread", http.StatusBadRequest)
 		return
 	}
 	var body struct {
@@ -403,6 +450,10 @@ func (s *appServer) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.agent == nil {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+		http.Error(w, "delete the agent instance instead", http.StatusBadRequest)
 		return
 	}
 	var body struct {
@@ -1198,6 +1249,20 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) er
 	})
 }
 
+func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.Lock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
 func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1219,15 +1284,48 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text required", http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	if s.busy {
-		s.mu.Unlock()
-		http.Error(w, "agent busy", http.StatusConflict)
+	queued, err := s.acceptAgentText(text, "user", "message")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": queued})
+}
+
+func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false, fmt.Errorf("text required")
+	}
+	inst := ""
+	if s.agent != nil {
+		inst = strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
+	}
+	if s.startAgentRun(text) {
+		return false, nil
+	}
+	// Busy or raced with the wake loop — never drop the message.
+	if inst == "" {
+		return false, fmt.Errorf("agent busy")
+	}
+	if err := enqueueAgentMessage(inst, text, from, kind); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *appServer) startAgentRun(text string) bool {
+	s.mu.Lock()
+	if s.busy || s.agent == nil {
+		s.mu.Unlock()
+		return false
 	}
 	s.busy = true
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
+	agent := s.agent
 	s.mu.Unlock()
 
 	s.hub.Broadcast("line", map[string]string{"text": "\n› " + text + "\n"})
@@ -1240,16 +1338,55 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 			s.cancel = nil
 			s.mu.Unlock()
 			s.hub.Broadcast("status", map[string]string{"state": "idle"})
+			s.pumpAgentWakes()
 		}()
-		err := s.agent.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
+		err := agent.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
 		if err != nil && ctx.Err() == nil {
 			s.hub.Broadcast("line", map[string]string{"text": "\nError: " + err.Error() + "\n"})
 		}
 	}()
+	return true
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true})
+func (s *appServer) agentWakeLoop() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.pumpAgentWakes()
+	}
+}
+
+func (s *appServer) pumpAgentWakes() {
+	if s.agent == nil {
+		return
+	}
+	inst := strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
+	if inst == "" {
+		return
+	}
+	s.mu.Lock()
+	busy := s.busy
+	s.mu.Unlock()
+	if busy {
+		return
+	}
+	if due, err := dueAgentAlarms(inst, time.Now()); err == nil {
+		for _, al := range due {
+			_ = enqueueAgentMessage(inst, al.Message, "alarm", "alarm")
+		}
+	}
+	items, err := dequeueAgentMessages(inst)
+	if err != nil || len(items) == 0 {
+		return
+	}
+	first := items[0]
+	for _, it := range items[1:] {
+		_ = enqueueAgentMessage(inst, it.Text, it.From, it.Kind)
+	}
+	if !s.startAgentRun(formatQueueWake(first)) {
+		// Still busy (race) — put the head back so nothing is lost.
+		_ = enqueueAgentMessage(inst, first.Text, first.From, first.Kind)
+	}
 }
 
 func (s *appServer) voiceAvailable() bool {

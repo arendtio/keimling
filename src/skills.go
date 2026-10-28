@@ -338,5 +338,14 @@ func (a *Agent) refreshSkills() {
 }
 
 func (a *Agent) skillsCatalogBlock() string {
-	return a.ensureSkills().CatalogBlock()
+	cat := a.ensureSkills().CatalogBlock()
+	instr := strings.TrimSpace(a.Cfg.AgentInstructions)
+	if instr == "" {
+		return cat
+	}
+	block := "Agent definition instructions:\n" + instr
+	if cat == "" {
+		return block
+	}
+	return block + "\n\n" + cat
 }

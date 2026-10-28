@@ -94,7 +94,7 @@ func softSuspicion(name, args string) (SoftSuspicion, bool) {
 // forceApproval is the non-bypassable floor. Soft regex hits are NOT returned here;
 // they go through the review model instead.
 func forceApproval(name, args string) (bool, string) {
-	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" {
+	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "set_alarm" || name == "list_alarms" || name == "cancel_alarm" || name == "list_agents" || name == "allow_peer" || name == "message_agent" {
 		return false, ""
 	}
 	if isMCPTool(name) {

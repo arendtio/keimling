@@ -155,19 +155,90 @@
           <p class="meta workspace-meta"><span id="workspace-root" title="">—</span></p>
         </div>
 
-        <div class="threads-block">
-          <div class="threads-head">
-            <span class="settings-section-title">Threads</span>
-            <button type="button" id="new-chat" class="ghost threads-new" title="New thread">New</button>
+        <div class="sidebar-main">
+          <div class="threads-block">
+            <div class="threads-head">
+              <span class="settings-section-title">Threads</span>
+              <button type="button" id="new-chat" class="ghost threads-new" title="New thread">New</button>
+            </div>
+            <input id="thread-search" type="search" placeholder="Search titles & content…" autocomplete="off" aria-label="Search threads">
+            <nav id="thread-list" class="thread-list" aria-label="Threads"></nav>
           </div>
-          <input id="thread-search" type="search" placeholder="Search titles & content…" autocomplete="off" aria-label="Search threads">
-          <nav id="thread-list" class="thread-list" aria-label="Threads"></nav>
+
+          <div class="agents-block">
+            <div class="threads-head">
+              <span class="settings-section-title">Agents</span>
+              <button type="button" id="new-agent" class="ghost threads-new" title="New agent instance">New</button>
+            </div>
+            <nav id="agent-list" class="thread-list agent-list" aria-label="Agents"></nav>
+          </div>
         </div>
 
         <div class="sidebar-foot">
           <button type="button" id="open-connection" class="ghost wide">Settings</button>
         </div>
       </aside>
+
+      <dialog id="agent-def-dialog" class="context-dialog">
+        <form method="dialog" class="context-panel" id="agent-def-form">
+          <header class="context-head">
+            <h2 id="agent-def-title">New agent</h2>
+            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
+          </header>
+          <div id="agent-def-pick" class="agent-def-pane">
+            <p class="hint">Choose a definition, or create one, then name the instance for this workspace.</p>
+            <ul id="agent-def-list" class="skills-list" aria-label="Definitions"></ul>
+            <button type="button" id="agent-def-new-btn" class="ghost wide">New definition…</button>
+            <section class="agent-teams-section">
+              <h3 class="settings-section-title">Teams</h3>
+              <p class="hint">A team is a set of definitions; spawn creates one instance each (with peer ACL).</p>
+              <ul id="agent-team-list" class="skills-list" aria-label="Teams"></ul>
+              <button type="button" id="agent-team-new-btn" class="ghost wide">New team from selected definitions…</button>
+            </section>
+          </div>
+          <div id="agent-def-create" class="agent-def-pane" hidden>
+            <label class="agent-def-field">
+              <span>Definition name</span>
+              <input id="agent-def-name" type="text" autocomplete="off" placeholder="e.g. Code reviewer">
+            </label>
+            <label class="agent-def-field">
+              <span>Instructions</span>
+              <textarea id="agent-def-instructions" rows="6" placeholder="What should this agent do?"></textarea>
+            </label>
+            <div class="skills-row">
+              <button type="button" id="agent-def-create-back" class="ghost">Back</button>
+              <button type="button" id="agent-def-create-save">Save definition</button>
+            </div>
+          </div>
+          <div id="agent-def-edit" class="agent-def-pane" hidden>
+            <label class="agent-def-field">
+              <span>Definition name</span>
+              <input id="agent-def-edit-name" type="text" autocomplete="off">
+            </label>
+            <label class="agent-def-field">
+              <span>Instructions</span>
+              <textarea id="agent-def-edit-instructions" rows="6"></textarea>
+            </label>
+            <div class="skills-row">
+              <button type="button" id="agent-def-edit-back" class="ghost">Back</button>
+              <button type="button" id="agent-def-edit-save">Save</button>
+              <button type="button" id="agent-def-edit-delete" class="ghost danger">Delete</button>
+            </div>
+          </div>
+          <div id="agent-def-instance" class="agent-def-pane" hidden>
+            <p id="agent-def-selected" class="hint"></p>
+            <label class="agent-def-field">
+              <span>Instance name</span>
+              <input id="agent-instance-name" type="text" autocomplete="off" placeholder="Name for this run">
+            </label>
+            <div class="skills-row">
+              <button type="button" id="agent-def-instance-back" class="ghost">Back</button>
+              <button type="button" id="agent-def-instance-create">Create instance</button>
+            </div>
+          </div>
+          <p id="agent-def-err" class="gate-err" hidden></p>
+        </form>
+      </dialog>
 
       <dialog id="skills-dialog" class="context-dialog">
         <form method="dialog" class="context-panel" id="skills-form">

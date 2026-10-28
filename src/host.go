@@ -25,22 +25,28 @@ func isWorkerRole() bool {
 }
 
 type hostWorker struct {
-	ID     string
+	Key    string // ws:<id> or agent:<id>
+	Kind   string // workspace | agent
+	Ref    string // bare workspace or instance id
 	Root   string
 	Addr   string // host:port
 	Secret string
 	Cmd    *exec.Cmd
 }
 
+func workspaceWorkerKey(id string) string { return "ws:" + strings.TrimSpace(id) }
+func agentWorkerKey(id string) string     { return "agent:" + strings.TrimSpace(id) }
+
 // Host supervises workspace worker processes and proxies the UI to the attached one.
 type Host struct {
-	mu       sync.Mutex
-	secret   string
-	config   string
-	exe      string
-	workers  map[string]*hostWorker
-	attached string
-	client   *http.Client
+	mu             sync.Mutex
+	secret         string
+	config         string
+	exe            string
+	workers        map[string]*hostWorker
+	attached       string
+	focusWorkspace string // sidebar workspace; kept when an agent instance is attached
+	client         *http.Client
 }
 
 func newHost(secret, configPath string) (*Host, error) {
@@ -91,22 +97,22 @@ func (h *Host) EnsureWorker(ctx context.Context, workspaceID string) (*hostWorke
 	if err != nil {
 		return nil, err
 	}
+	key := workspaceWorkerKey(workspaceID)
 
 	h.mu.Lock()
-	if w := h.workers[workspaceID]; w != nil && w.Cmd != nil && w.Cmd.Process != nil {
+	if w := h.workers[key]; w != nil && w.Cmd != nil && w.Cmd.Process != nil {
 		alive := w.Cmd.ProcessState == nil || !w.Cmd.ProcessState.Exited()
 		if alive {
 			addr, secret := w.Addr, w.Secret
 			h.mu.Unlock()
 			if err := h.waitHealthy(ctx, addr, secret); err == nil {
 				h.mu.Lock()
-				w := h.workers[workspaceID]
+				w := h.workers[key]
 				h.mu.Unlock()
 				return w, nil
 			}
-			// Fall through and respawn.
 			h.mu.Lock()
-			h.dropWorkerLocked(workspaceID)
+			h.dropWorkerLocked(key)
 		}
 	}
 	h.mu.Unlock()
@@ -133,16 +139,84 @@ func (h *Host) EnsureWorker(ctx context.Context, workspaceID string) (*hostWorke
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	w := &hostWorker{ID: workspaceID, Root: meta.Root, Addr: addr, Secret: h.secret, Cmd: cmd}
+	w := &hostWorker{Key: key, Kind: "workspace", Ref: workspaceID, Root: meta.Root, Addr: addr, Secret: h.secret, Cmd: cmd}
 	h.mu.Lock()
-	h.workers[workspaceID] = w
+	h.workers[key] = w
 	h.mu.Unlock()
 
 	if err := h.waitHealthy(ctx, addr, h.secret); err != nil {
-		h.StopWorker(workspaceID)
+		h.StopWorker(key)
 		return nil, fmt.Errorf("workspace %s worker: %w", workspaceID, err)
 	}
-	go h.reap(workspaceID, cmd)
+	go h.reap(key, cmd)
+	return w, nil
+}
+
+func (h *Host) EnsureAgentWorker(ctx context.Context, instanceID string) (*hostWorker, error) {
+	instanceID = strings.TrimSpace(instanceID)
+	if instanceID == "" {
+		return nil, fmt.Errorf("agent instance id required")
+	}
+	meta, err := readAgentInstanceMeta(instanceID)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := readWorkspaceMeta(meta.CurrentWorkspace)
+	if err != nil {
+		return nil, fmt.Errorf("agent workspace: %w", err)
+	}
+	key := agentWorkerKey(instanceID)
+
+	h.mu.Lock()
+	if w := h.workers[key]; w != nil && w.Cmd != nil && w.Cmd.Process != nil {
+		alive := w.Cmd.ProcessState == nil || !w.Cmd.ProcessState.Exited()
+		if alive {
+			addr, secret := w.Addr, w.Secret
+			h.mu.Unlock()
+			if err := h.waitHealthy(ctx, addr, secret); err == nil {
+				h.mu.Lock()
+				w := h.workers[key]
+				h.mu.Unlock()
+				return w, nil
+			}
+			h.mu.Lock()
+			h.dropWorkerLocked(key)
+		}
+	}
+	h.mu.Unlock()
+
+	addr, err := reserveLoopbackAddr()
+	if err != nil {
+		return nil, err
+	}
+	args := []string{
+		"--server",
+		"--listen", addr,
+		"--agent-instance", instanceID,
+		"--access-secret", h.secret,
+		"--check-model=false",
+	}
+	if strings.TrimSpace(h.config) != "" {
+		args = append(args, "--config", h.config)
+	}
+	cmd := exec.Command(h.exe, args...)
+	cmd.Env = append(os.Environ(), keimlingRoleEnv+"=worker")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Dir = ws.Root
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	w := &hostWorker{Key: key, Kind: "agent", Ref: instanceID, Root: ws.Root, Addr: addr, Secret: h.secret, Cmd: cmd}
+	h.mu.Lock()
+	h.workers[key] = w
+	h.mu.Unlock()
+
+	if err := h.waitHealthy(ctx, addr, h.secret); err != nil {
+		h.StopWorker(key)
+		return nil, fmt.Errorf("agent %s worker: %w", instanceID, err)
+	}
+	go h.reap(key, cmd)
 	return w, nil
 }
 
@@ -188,10 +262,130 @@ func (h *Host) Attach(ctx context.Context, workspaceID string) error {
 		return err
 	}
 	h.mu.Lock()
-	h.attached = w.ID
+	h.attached = w.Key
+	h.focusWorkspace = w.Ref
 	h.mu.Unlock()
-	_ = mergeGuiPrefsWorkspace(h.config, w.ID)
+	_ = mergeGuiPrefsWorkspace(h.config, w.Ref)
 	return nil
+}
+
+func (h *Host) AttachAgent(ctx context.Context, instanceID string) error {
+	meta, err := readAgentInstanceMeta(instanceID)
+	if err != nil {
+		return err
+	}
+	w, err := h.EnsureAgentWorker(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	h.mu.Lock()
+	h.attached = w.Key
+	if ws := strings.TrimSpace(meta.CurrentWorkspace); ws != "" {
+		h.focusWorkspace = ws
+	}
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *Host) focusWorkspaceID() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.focusWorkspace != "" {
+		return h.focusWorkspace
+	}
+	if strings.HasPrefix(h.attached, "ws:") {
+		return strings.TrimPrefix(h.attached, "ws:")
+	}
+	return ""
+}
+
+func (h *Host) workerBusy(ctx context.Context, w *hostWorker) bool {
+	if w == nil {
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+w.Addr+"/api/health", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+w.Secret)
+	// Short client so sidebar polls stay snappy even if a worker is wedged.
+	client := &http.Client{Timeout: 800 * time.Millisecond}
+	res, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer res.Body.Close()
+	var body struct {
+		State string `json:"state"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&body)
+	return body.State == "running"
+}
+
+func (h *Host) workersBusy(ctx context.Context, workers map[string]*hostWorker) map[string]bool {
+	out := make(map[string]bool, len(workers))
+	if len(workers) == 0 {
+		return out
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for id, w := range workers {
+		wg.Add(1)
+		go func(id string, w *hostWorker) {
+			defer wg.Done()
+			busy := h.workerBusy(ctx, w)
+			mu.Lock()
+			out[id] = busy
+			mu.Unlock()
+		}(id, w)
+	}
+	wg.Wait()
+	return out
+}
+
+// proxyToWorkspace routes a request to the focus workspace worker and attaches it
+// (leaving any agent instance view). Used for human thread create/switch/delete.
+func (h *Host) proxyToWorkspace() http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		wsID := strings.TrimSpace(req.URL.Query().Get("workspace"))
+		if wsID == "" {
+			wsID = h.focusWorkspaceID()
+		}
+		if wsID == "" {
+			http.Error(rw, "no workspace", http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+		defer cancel()
+		if err := h.Attach(ctx, wsID); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w, err := h.EnsureWorker(ctx, wsID)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadGateway)
+			return
+		}
+		target, err := url.Parse("http://" + w.Addr)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.FlushInterval = 50 * time.Millisecond
+		orig := proxy.Director
+		secret := w.Secret
+		proxy.Director = func(r *http.Request) {
+			orig(r)
+			r.Host = target.Host
+			r.Header.Set("Authorization", "Bearer "+secret)
+			r.Header.Del("X-Keimling-Access-Secret")
+		}
+		proxy.ErrorHandler = func(rw http.ResponseWriter, r *http.Request, e error) {
+			http.Error(rw, "worker unavailable: "+e.Error(), http.StatusBadGateway)
+		}
+		proxy.ServeHTTP(rw, req)
+	})
 }
 
 func (h *Host) waitHealthy(ctx context.Context, addr, secret string) error {
@@ -285,6 +479,21 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/workspaces", auth(h.handleWorkspaces))
 	mux.Handle("/api/workspaces/open", auth(h.handleWorkspaceOpen))
 	mux.Handle("/api/workspaces/switch", auth(h.handleWorkspaceSwitch))
+	mux.Handle("/api/agents/recipes", auth(h.handleAgentRecipes))
+	mux.Handle("/api/agents/recipes/update", auth(h.handleAgentRecipeUpdate))
+	mux.Handle("/api/agents/recipes/delete", auth(h.handleAgentRecipeDelete))
+	mux.Handle("/api/agents/instances", auth(h.handleAgentInstances))
+	mux.Handle("/api/agents/instances/attach", auth(h.handleAgentAttach))
+	mux.Handle("/api/agents/instances/stop", auth(h.handleAgentStop))
+	mux.Handle("/api/agents/instances/delete", auth(h.handleAgentDelete))
+	mux.Handle("/api/agents/instances/message", auth(h.handleAgentInstanceMessage))
+	mux.Handle("/api/agents/teams", auth(h.handleAgentTeams))
+	mux.Handle("/api/agents/teams/spawn", auth(h.handleAgentTeamSpawn))
+	mux.Handle("/api/agents/teams/delete", auth(h.handleAgentTeamDelete))
+	// Workspace threads stay host-owned so attaching an agent does not replace the sidebar list.
+	mux.Handle("/api/threads", auth(h.handleHostThreads))
+	mux.Handle("/api/threads/switch", auth(h.proxyToWorkspace().ServeHTTP))
+	mux.Handle("/api/threads/delete", auth(h.proxyToWorkspace().ServeHTTP))
 	mux.Handle("/api/", auth(h.proxy().ServeHTTP))
 	mux.Handle("/events", auth(h.proxy().ServeHTTP))
 	mux.Handle("/files/", h.proxy()) // capability URLs; worker validates token
@@ -323,11 +532,13 @@ func (h *Host) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	cur := h.focusWorkspaceID()
 	h.mu.Lock()
-	cur := h.attached
 	running := map[string]bool{}
-	for id := range h.workers {
-		running[id] = true
+	for key := range h.workers {
+		if strings.HasPrefix(key, "ws:") {
+			running[strings.TrimPrefix(key, "ws:")] = true
+		}
 	}
 	h.mu.Unlock()
 	out := make([]map[string]any, 0, len(list))
@@ -343,6 +554,59 @@ func (h *Host) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"current": cur, "workspaces": out})
+}
+
+func (h *Host) handleHostThreads(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		wsID := strings.TrimSpace(r.URL.Query().Get("workspace"))
+		if wsID == "" {
+			wsID = h.focusWorkspaceID()
+		}
+		if wsID == "" {
+			http.Error(w, "no workspace", http.StatusServiceUnavailable)
+			return
+		}
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		var (
+			list []ThreadMeta
+			err  error
+		)
+		if q != "" {
+			list, err = searchThreads(wsID, q)
+		} else {
+			list, err = listThreads(wsID)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		current := ""
+		h.mu.Lock()
+		attachedAgent := strings.HasPrefix(h.attached, "agent:")
+		h.mu.Unlock()
+		if !attachedAgent {
+			if active, e := readActiveThreadID(wsID); e == nil {
+				current = active
+			}
+		}
+		for i := range list {
+			list[i].Active = current != "" && list[i].ID == current
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"workspace_id": wsID,
+			"current":      current,
+			"state":        "idle",
+			"query":        q,
+			"threads":      list,
+		})
+	case http.MethodPost:
+		// Create thread on the workspace worker (not an attached agent).
+		h.proxyToWorkspace().ServeHTTP(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (h *Host) handleWorkspaceOpen(w http.ResponseWriter, r *http.Request) {

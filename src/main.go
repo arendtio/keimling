@@ -23,6 +23,9 @@ type Config struct {
 	WorkspaceID                                                                                                 string
 	WorkspaceRoot                                                                                               string
 	ThreadID                                                                                                    string
+	AgentInstanceID                                                                                             string
+	AgentInstructions                                                                                           string
+	AllowedWorkspaces                                                                                           []string
 	Autopilot                                                                                                   bool
 	ExternalClient                                                                                              *Client
 	Web                                                                                                         bool
@@ -173,6 +176,7 @@ func main() {
 	steps := flag.Int("max-steps", 200, "Maximum API rounds per user task")
 	session := flag.String("session", "", "Session file (JSONL); default: workspace thread under ~/.local/share/keimling")
 	workspaceFlag := flag.String("workspace", "", "Workspace id (default: resolve from CWD / gui-prefs / global)")
+	agentInstanceFlag := flag.String("agent-instance", "", "Run as worker for this agent instance id")
 	resume := flag.Bool("resume", true, "Resume last session (default: true)")
 	voiceModel := flag.String("voice-model", "gpt-transcribe", "Transcription model")
 	uiMode := flag.Bool("ui", false, "Force native WebView UI (fail if unavailable)")
@@ -388,11 +392,45 @@ func main() {
 	externalClient := NewClient(externalKey)
 
 	var (
-		ws       WorkspaceMeta
-		threadID string
-		sessPath string
+		ws                WorkspaceMeta
+		threadID          string
+		sessPath          string
+		agentInstanceID   string
+		agentInstructions string
+		allowedWorkspaces []string
 	)
-	if wsIDPref != "" {
+	if id := strings.TrimSpace(*agentInstanceFlag); id != "" {
+		inst, e := readAgentInstanceMeta(id)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "agent-instance:", e)
+			os.Exit(1)
+		}
+		recipe, e := readAgentRecipe(inst.RecipeID)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "agent recipe:", e)
+			os.Exit(1)
+		}
+		m, e := readWorkspaceMeta(inst.CurrentWorkspace)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "agent workspace:", e)
+			os.Exit(1)
+		}
+		if e := os.Chdir(m.Root); e != nil {
+			fmt.Fprintln(os.Stderr, "chdir workspace:", e)
+			os.Exit(1)
+		}
+		ws = m
+		threadID = "main"
+		sessPath = agentInstanceSessionPath(inst.ID)
+		agentInstanceID = inst.ID
+		agentInstructions = recipe.Instructions
+		allowedWorkspaces = append([]string{}, inst.Workspaces...)
+		if recipe.Model != "" && !changed["model"] {
+			*model = recipe.Model
+		}
+		inst.Status = agentStatusIdle
+		_ = writeAgentInstanceMeta(inst)
+	} else if wsIDPref != "" {
 		m, e := readWorkspaceMeta(wsIDPref)
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "workspace:", e)
@@ -418,7 +456,9 @@ func main() {
 		}
 		ws, threadID, sessPath = m, tid, sp
 	}
-	_ = mergeGuiPrefsWorkspace(*configPath, ws.ID)
+	if agentInstanceID == "" {
+		_ = mergeGuiPrefsWorkspace(*configPath, ws.ID)
+	}
 	if *session == "" {
 		*session = sessPath
 	}
@@ -429,7 +469,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager()}
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch

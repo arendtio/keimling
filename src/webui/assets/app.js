@@ -107,8 +107,33 @@
   var threadsShowAll = false;
   var threadsSearchTimer = null;
   var threadsSearchActive = false;
+  var agentsCache = [];
+  var definitionsCache = [];
+  var teamsCache = [];
+  var teamSelectIDs = {};
   var currentWorkspaceID = "";
   var currentThreadID = "";
+  var currentAgentInstanceID = "";
+  var selectedDefinitionID = "";
+  var editingDefinitionID = "";
+  var agentsPollTimer = null;
+  var agentsPollInFlight = false;
+  var agentListEl = document.getElementById("agent-list");
+  var newAgentBtn = document.getElementById("new-agent");
+  var agentDefDialog = document.getElementById("agent-def-dialog");
+  var agentDefPick = document.getElementById("agent-def-pick");
+  var agentDefCreate = document.getElementById("agent-def-create");
+  var agentDefEdit = document.getElementById("agent-def-edit");
+  var agentDefInstance = document.getElementById("agent-def-instance");
+  var agentDefList = document.getElementById("agent-def-list");
+  var agentTeamList = document.getElementById("agent-team-list");
+  var agentDefErr = document.getElementById("agent-def-err");
+  var agentDefName = document.getElementById("agent-def-name");
+  var agentDefInstructions = document.getElementById("agent-def-instructions");
+  var agentDefEditName = document.getElementById("agent-def-edit-name");
+  var agentDefEditInstructions = document.getElementById("agent-def-edit-instructions");
+  var agentInstanceName = document.getElementById("agent-instance-name");
+  var agentDefSelected = document.getElementById("agent-def-selected");
   var THREAD_RECENT_LIMIT = 5;
   var setBaseURL = document.getElementById("set-base-url");
   var setAPIKey = document.getElementById("set-api-key");
@@ -507,6 +532,16 @@
     newChatBtn.disabled = !connected || busyish;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
     if (!waiting) hideApproval();
+    if (currentAgentInstanceID && agentsCache.length) {
+      var busyNow = agentState === "running" || agentState === "compacting";
+      for (var ai = 0; ai < agentsCache.length; ai++) {
+        if (agentsCache[ai].id === currentAgentInstanceID) {
+          agentsCache[ai].busy = busyNow;
+          agentsCache[ai].running = busyNow;
+        }
+      }
+      renderAgentList();
+    }
     if (agentState === "running" || agentState === "compacting" || waiting) {
       liveWrap.hidden = false;
       liveWrap.open = true;
@@ -716,15 +751,35 @@
     return loadSession()
       .then(function () {
         connectEvents();
-        return Promise.all([loadWorkspaces(), loadThreads()]);
+        return Promise.all([loadWorkspaces(), loadThreads(), loadAgents()]);
       })
       .then(function () {
         if (msg) msg.focus();
       });
   }
 
-  function switchWorkspace(id) {
-    if (!id || id === currentWorkspaceID) {
+  function afterAgentAttach() {
+    if (es && typeof es.close === "function") {
+      try { es.close(); } catch (e) {}
+      es = null;
+    }
+    messages = [];
+    chapters = [];
+    activeChapter = null;
+    clearLive();
+    hideApproval();
+    return loadSession()
+      .then(function () {
+        connectEvents();
+        return Promise.all([loadWorkspaces(), loadThreads(), loadAgents()]);
+      })
+      .then(function () {
+        if (msg) msg.focus();
+      });
+  }
+
+  function switchWorkspace(id, force) {
+    if (!id || (!force && id === currentWorkspaceID && !currentAgentInstanceID)) {
       setWorkspaceMenuOpen(false);
       return;
     }
@@ -734,7 +789,10 @@
       body: JSON.stringify({ id: id }),
     })
       .then(readAPIResult)
-      .then(afterWorkspaceAttach)
+      .then(function (j) {
+        currentAgentInstanceID = "";
+        return afterWorkspaceAttach(j);
+      })
       .catch(function (err) {
         appendLive("\n[workspace] " + err + "\n");
       });
@@ -799,14 +857,15 @@
     }
     threads.forEach(function (th) {
       var row = document.createElement("div");
-      row.className = "thread-item" + (th.id === currentThreadID || th.active ? " active" : "");
+      var isActive = !currentAgentInstanceID && (th.id === currentThreadID || th.active);
+      row.className = "thread-item" + (isActive ? " active" : "");
       row.title = th.id;
 
       var open = document.createElement("button");
       open.type = "button";
       open.className = "thread-open";
       var st = document.createElement("span");
-      st.className = "thread-status" + (th.id === currentThreadID || th.active ? " " + state : "");
+      st.className = "thread-status" + (isActive ? " " + state : "");
       var title = document.createElement("span");
       title.className = "thread-title";
       title.textContent = th.title || th.id;
@@ -872,11 +931,19 @@
       ? (threadSearchEl ? String(threadSearchEl.value || "").trim() : "")
       : String(query || "").trim();
     var url = apiURL("/api/threads");
-    if (q) url += "?q=" + encodeURIComponent(q);
+    var params = [];
+    if (currentWorkspaceID) params.push("workspace=" + encodeURIComponent(currentWorkspaceID));
+    if (q) params.push("q=" + encodeURIComponent(q));
+    if (params.length) url += "?" + params.join("&");
     return fetch(url, { headers: headers() })
       .then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok) throw new Error((j && j.error) || r.status);
+          // While an agent is open, keep workspace threads listed but none marked active.
+          if (currentAgentInstanceID && j && j.threads) {
+            j.current = "";
+            j.threads.forEach(function (th) { th.active = false; });
+          }
           renderThreadList(j);
         });
       })
@@ -906,7 +973,8 @@
   }
 
   function switchThread(id) {
-    if (!id || id === currentThreadID) return;
+    if (!id) return;
+    if (!currentAgentInstanceID && id === currentThreadID) return;
     if (agentState === "running" || agentState === "compacting") return;
     fetch(apiURL("/api/threads/switch"), {
       method: "POST",
@@ -919,10 +987,21 @@
         });
       })
       .then(function () {
+        currentAgentInstanceID = "";
+        if (es && typeof es.close === "function") {
+          try { es.close(); } catch (e) {}
+          es = null;
+        }
+        messages = [];
+        chapters = [];
+        activeChapter = null;
+        clearLive();
+        hideApproval();
         return loadSession();
       })
       .then(function () {
-        return loadThreads();
+        connectEvents();
+        return Promise.all([loadThreads(), loadAgents()]);
       })
       .catch(function (err) {
         appendLive("\n[threads] " + err + "\n");
@@ -943,14 +1022,489 @@
     })
       .then(readAPIResult)
       .then(function (j) {
+        currentAgentInstanceID = "";
         currentThreadID = j.thread_id || currentThreadID;
+        if (es && typeof es.close === "function") {
+          try { es.close(); } catch (e) {}
+          es = null;
+        }
         return loadSession();
       })
       .then(function () {
-        return loadThreads();
+        connectEvents();
+        return Promise.all([loadThreads(), loadAgents()]);
       })
       .catch(function (err) {
         appendLive("\n[threads] " + err + "\n");
+      });
+  }
+
+  function renderAgentList() {
+    if (!agentListEl) return;
+    agentListEl.innerHTML = "";
+    if (!agentsCache.length) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "No agents for this workspace";
+      agentListEl.appendChild(empty);
+      return;
+    }
+    agentsCache.forEach(function (ag) {
+      var row = document.createElement("div");
+      row.className = "thread-item" + (ag.id === currentAgentInstanceID || ag.attached ? " active" : "");
+      row.title = ag.id;
+
+      var open = document.createElement("button");
+      open.type = "button";
+      open.className = "thread-open";
+      var st = document.createElement("span");
+      var busy = !!(ag.busy || ag.running);
+      st.className = "thread-status" + (busy ? " running" : "");
+      var title = document.createElement("span");
+      title.className = "thread-title";
+      title.textContent = ag.name || ag.id;
+      open.appendChild(st);
+      open.appendChild(title);
+      open.addEventListener("click", function () {
+        attachAgent(ag.id);
+      });
+
+      var actions = document.createElement("div");
+      actions.className = "agent-actions";
+      var stop = document.createElement("button");
+      stop.type = "button";
+      stop.textContent = "Stop";
+      stop.title = "Stop current run";
+      stop.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stopAgent(ag.id);
+      });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "danger";
+      del.textContent = "Delete";
+      del.title = "Delete agent instance";
+      del.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteAgent(ag.id, ag.name || ag.id);
+      });
+      actions.appendChild(stop);
+      actions.appendChild(del);
+
+      row.appendChild(open);
+      row.appendChild(actions);
+      agentListEl.appendChild(row);
+    });
+  }
+
+  function loadAgents(opts) {
+    opts = opts || {};
+    if (!connected) return Promise.resolve();
+    if (opts.poll && agentsPollInFlight) return Promise.resolve();
+    if (opts.poll) agentsPollInFlight = true;
+    var url = apiURL("/api/agents/instances");
+    if (currentWorkspaceID) url += "?workspace=" + encodeURIComponent(currentWorkspaceID);
+    return fetch(url, { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          agentsCache = j.instances || [];
+          if (j.attached) currentAgentInstanceID = j.attached;
+          else if (!j.attached && currentAgentInstanceID) {
+            // Host reports no agent attached (e.g. after thread switch).
+            currentAgentInstanceID = "";
+          }
+          renderAgentList();
+        });
+      })
+      .catch(function (err) {
+        if (opts.poll) return; // quiet background refresh
+        if (String(err).indexOf("404") >= 0 || String(err).indexOf("Not Found") >= 0) return;
+        appendLive("\n[agents] " + err + "\n");
+      })
+      .finally(function () {
+        if (opts.poll) agentsPollInFlight = false;
+      });
+  }
+
+  function startAgentsPoll() {
+    stopAgentsPoll();
+    agentsPollTimer = setInterval(function () {
+      if (!connected) return;
+      loadAgents({ poll: true });
+    }, 2000);
+  }
+
+  function stopAgentsPoll() {
+    if (agentsPollTimer) {
+      clearInterval(agentsPollTimer);
+      agentsPollTimer = null;
+    }
+  }
+
+  function attachAgent(id) {
+    if (!id || id === currentAgentInstanceID) return;
+    if (agentState === "running" || agentState === "compacting") return;
+    fetch(apiURL("/api/agents/instances/attach"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        currentAgentInstanceID = id;
+        return afterAgentAttach();
+      })
+      .catch(function (err) {
+        appendLive("\n[agents] " + err + "\n");
+      });
+  }
+
+  function stopAgent(id) {
+    if (!id) return;
+    fetch(apiURL("/api/agents/instances/stop"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        return loadAgents();
+      })
+      .catch(function (err) {
+        appendLive("\n[agents] " + err + "\n");
+      });
+  }
+
+  function deleteAgent(id, label) {
+    if (!id) return;
+    var name = label || id;
+    if (!window.confirm("Delete agent “" + name + "” permanently?\n\nThis removes the instance and its main thread. The definition stays.")) {
+      return;
+    }
+    fetch(apiURL("/api/agents/instances/delete"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        if (currentAgentInstanceID === id) {
+          currentAgentInstanceID = "";
+          if (currentWorkspaceID) return switchWorkspace(currentWorkspaceID, true);
+        }
+        return loadAgents();
+      })
+      .catch(function (err) {
+        appendLive("\n[agents] " + err + "\n");
+      });
+  }
+
+  function showAgentDefErr(msg) {
+    if (!agentDefErr) return;
+    if (!msg) {
+      agentDefErr.hidden = true;
+      agentDefErr.textContent = "";
+      return;
+    }
+    agentDefErr.hidden = false;
+    agentDefErr.textContent = msg;
+  }
+
+  function setAgentDefPane(name) {
+    if (agentDefPick) agentDefPick.hidden = name !== "pick";
+    if (agentDefCreate) agentDefCreate.hidden = name !== "create";
+    if (agentDefEdit) agentDefEdit.hidden = name !== "edit";
+    if (agentDefInstance) agentDefInstance.hidden = name !== "instance";
+    showAgentDefErr("");
+  }
+
+  function renderDefinitionList() {
+    if (!agentDefList) return;
+    agentDefList.innerHTML = "";
+    if (!definitionsCache.length) {
+      var empty = document.createElement("li");
+      empty.className = "hint";
+      empty.textContent = "No definitions yet — create one.";
+      agentDefList.appendChild(empty);
+      return;
+    }
+    definitionsCache.forEach(function (def) {
+      var li = document.createElement("li");
+      var row = document.createElement("div");
+      row.className = "agent-def-row";
+      var check = document.createElement("input");
+      check.type = "checkbox";
+      check.title = "Select for team";
+      check.checked = !!teamSelectIDs[def.id];
+      check.addEventListener("change", function () {
+        if (check.checked) teamSelectIDs[def.id] = true;
+        else delete teamSelectIDs[def.id];
+      });
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "agent-def-pick-btn" + (def.id === selectedDefinitionID ? " selected" : "");
+      btn.textContent = def.name || def.id;
+      btn.addEventListener("click", function () {
+        selectedDefinitionID = def.id;
+        if (agentDefSelected) {
+          agentDefSelected.textContent = "Definition: " + (def.name || def.id);
+        }
+        if (agentInstanceName) {
+          agentInstanceName.value = def.name || "Agent";
+        }
+        setAgentDefPane("instance");
+      });
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost agent-def-edit-btn";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () {
+        openEditDefinition(def);
+      });
+      row.appendChild(check);
+      row.appendChild(btn);
+      row.appendChild(edit);
+      li.appendChild(row);
+      agentDefList.appendChild(li);
+    });
+  }
+
+  function renderTeamList() {
+    if (!agentTeamList) return;
+    agentTeamList.innerHTML = "";
+    if (!teamsCache.length) {
+      var empty = document.createElement("li");
+      empty.className = "hint";
+      empty.textContent = "No teams yet";
+      agentTeamList.appendChild(empty);
+      return;
+    }
+    teamsCache.forEach(function (team) {
+      var li = document.createElement("li");
+      var row = document.createElement("div");
+      row.className = "agent-def-row";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "agent-def-pick-btn";
+      btn.textContent = (team.name || team.id) + " (" + (team.definition_ids || []).length + ")";
+      btn.addEventListener("click", function () {
+        spawnTeam(team.id);
+      });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "ghost agent-def-edit-btn danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", function () {
+        if (!window.confirm("Delete team “" + (team.name || team.id) + "”?")) return;
+        fetch(apiURL("/api/agents/teams/delete"), {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ id: team.id }),
+        })
+          .then(readAPIResult)
+          .then(function () { return loadTeams(); })
+          .catch(function (err) { showAgentDefErr(String(err)); });
+      });
+      row.appendChild(btn);
+      row.appendChild(del);
+      li.appendChild(row);
+      agentTeamList.appendChild(li);
+    });
+  }
+
+  function loadDefinitions() {
+    return fetch(apiURL("/api/agents/recipes"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          definitionsCache = j.recipes || [];
+          renderDefinitionList();
+        });
+      });
+  }
+
+  function loadTeams() {
+    return fetch(apiURL("/api/agents/teams"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          teamsCache = j.teams || [];
+          renderTeamList();
+        });
+      });
+  }
+
+  function openAgentDialog() {
+    if (!connected || !currentWorkspaceID) return;
+    if (agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval") return;
+    selectedDefinitionID = "";
+    editingDefinitionID = "";
+    teamSelectIDs = {};
+    setAgentDefPane("pick");
+    if (agentDefDialog && typeof agentDefDialog.showModal === "function") {
+      agentDefDialog.showModal();
+    }
+    Promise.all([loadDefinitions(), loadTeams()]).catch(function (err) {
+      showAgentDefErr(String(err));
+    });
+  }
+
+  function createAgent() {
+    openAgentDialog();
+  }
+
+  function openEditDefinition(def) {
+    editingDefinitionID = def.id;
+    if (agentDefEditName) agentDefEditName.value = def.name || "";
+    if (agentDefEditInstructions) agentDefEditInstructions.value = def.instructions || "";
+    setAgentDefPane("edit");
+  }
+
+  function saveNewDefinition() {
+    var name = agentDefName ? String(agentDefName.value || "").trim() : "";
+    var instructions = agentDefInstructions ? String(agentDefInstructions.value || "").trim() : "";
+    if (!name) {
+      showAgentDefErr("Definition name required");
+      return;
+    }
+    fetch(apiURL("/api/agents/recipes"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: name, instructions: instructions }),
+    })
+      .then(readAPIResult)
+      .then(function (def) {
+        selectedDefinitionID = def.id;
+        if (agentDefSelected) agentDefSelected.textContent = "Definition: " + (def.name || def.id);
+        if (agentInstanceName) agentInstanceName.value = def.name || name;
+        if (agentDefName) agentDefName.value = "";
+        if (agentDefInstructions) agentDefInstructions.value = "";
+        return loadDefinitions();
+      })
+      .then(function () {
+        setAgentDefPane("instance");
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err));
+      });
+  }
+
+  function saveEditDefinition() {
+    if (!editingDefinitionID) return;
+    var name = agentDefEditName ? String(agentDefEditName.value || "").trim() : "";
+    var instructions = agentDefEditInstructions ? String(agentDefEditInstructions.value || "") : "";
+    fetch(apiURL("/api/agents/recipes/update"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: editingDefinitionID, name: name, instructions: instructions }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        editingDefinitionID = "";
+        setAgentDefPane("pick");
+        return loadDefinitions();
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err));
+      });
+  }
+
+  function deleteEditDefinition() {
+    if (!editingDefinitionID) return;
+    if (!window.confirm("Delete this definition? Instances using it must be deleted first.")) return;
+    fetch(apiURL("/api/agents/recipes/delete"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: editingDefinitionID }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        editingDefinitionID = "";
+        setAgentDefPane("pick");
+        return loadDefinitions();
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err));
+      });
+  }
+
+  function createInstanceFromDefinition() {
+    if (!selectedDefinitionID || !currentWorkspaceID) {
+      showAgentDefErr("Pick a definition first");
+      return;
+    }
+    var name = agentInstanceName ? String(agentInstanceName.value || "").trim() : "";
+    if (!name) {
+      showAgentDefErr("Instance name required");
+      return;
+    }
+    fetch(apiURL("/api/agents/instances"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        recipe_id: selectedDefinitionID,
+        name: name,
+        workspace_id: currentWorkspaceID,
+      }),
+    })
+      .then(readAPIResult)
+      .then(function (j) {
+        if (agentDefDialog && agentDefDialog.open) agentDefDialog.close();
+        currentAgentInstanceID = (j.instance && j.instance.id) || "";
+        return afterAgentAttach();
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err));
+      });
+  }
+
+  function createTeamFromSelection() {
+    var ids = Object.keys(teamSelectIDs);
+    if (!ids.length) {
+      showAgentDefErr("Select at least one definition (checkboxes)");
+      return;
+    }
+    var name = window.prompt("Team name", "Team");
+    if (name == null) return;
+    name = String(name).trim() || "Team";
+    fetch(apiURL("/api/agents/teams"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: name, definition_ids: ids }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        teamSelectIDs = {};
+        return loadTeams();
+      })
+      .then(function () {
+        return loadDefinitions();
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err));
+      });
+  }
+
+  function spawnTeam(id) {
+    if (!id || !currentWorkspaceID) return;
+    if (!window.confirm("Spawn team instances in this workspace?")) return;
+    fetch(apiURL("/api/agents/teams/spawn"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id, workspace_id: currentWorkspaceID }),
+    })
+      .then(readAPIResult)
+      .then(function (j) {
+        if (agentDefDialog && agentDefDialog.open) agentDefDialog.close();
+        var first = (j.instances && j.instances[0]) || null;
+        currentAgentInstanceID = first ? first.id : "";
+        return afterAgentAttach();
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err));
       });
   }
 
@@ -1197,6 +1751,9 @@
     voiceBtn.hidden = !voiceOK;
     if (j.workspace_id) currentWorkspaceID = j.workspace_id;
     if (j.thread_id) currentThreadID = j.thread_id;
+    // Prefer host attach state; session still reveals agent worker identity.
+    if (j.agent_instance_id) currentAgentInstanceID = j.agent_instance_id;
+    else if (!j.agent_instance_id) currentAgentInstanceID = "";
     if (workspaceLabel && j.workspace_id) {
       // refined when loadWorkspaces returns
       if (!workspaceLabel.textContent || workspaceLabel.textContent === "Workspace") {
@@ -1443,10 +2000,13 @@
         loadThemeFromGuiPrefs();
         loadWorkspaces();
         loadThreads();
+        loadAgents();
+        startAgentsPoll();
         msg.focus();
       })
       .catch(function (e) {
         connected = false;
+        stopAgentsPoll();
         setState(agentState);
         showGate({ error: formatConnectError(e), manage: true, keepApp: false });
       })
@@ -2419,6 +2979,71 @@
   });
   saveSettingsBtn.addEventListener("click", saveAgentSettings);
 
+  if (newAgentBtn) {
+    newAgentBtn.addEventListener("click", function () {
+      createAgent();
+    });
+  }
+  var agentDefNewBtn = document.getElementById("agent-def-new-btn");
+  var agentDefCreateBack = document.getElementById("agent-def-create-back");
+  var agentDefCreateSave = document.getElementById("agent-def-create-save");
+  var agentDefEditBack = document.getElementById("agent-def-edit-back");
+  var agentDefEditSave = document.getElementById("agent-def-edit-save");
+  var agentDefEditDelete = document.getElementById("agent-def-edit-delete");
+  var agentDefInstanceBack = document.getElementById("agent-def-instance-back");
+  var agentDefInstanceCreate = document.getElementById("agent-def-instance-create");
+  var agentTeamNewBtn = document.getElementById("agent-team-new-btn");
+  if (agentDefNewBtn) {
+    agentDefNewBtn.addEventListener("click", function () {
+      setAgentDefPane("create");
+      if (agentDefName) agentDefName.focus();
+    });
+  }
+  if (agentDefCreateBack) {
+    agentDefCreateBack.addEventListener("click", function () {
+      setAgentDefPane("pick");
+      loadDefinitions().catch(function () {});
+    });
+  }
+  if (agentDefCreateSave) {
+    agentDefCreateSave.addEventListener("click", function () {
+      saveNewDefinition();
+    });
+  }
+  if (agentDefEditBack) {
+    agentDefEditBack.addEventListener("click", function () {
+      editingDefinitionID = "";
+      setAgentDefPane("pick");
+    });
+  }
+  if (agentDefEditSave) {
+    agentDefEditSave.addEventListener("click", function () {
+      saveEditDefinition();
+    });
+  }
+  if (agentDefEditDelete) {
+    agentDefEditDelete.addEventListener("click", function () {
+      deleteEditDefinition();
+    });
+  }
+  if (agentDefInstanceBack) {
+    agentDefInstanceBack.addEventListener("click", function () {
+      selectedDefinitionID = "";
+      setAgentDefPane("pick");
+      renderDefinitionList();
+    });
+  }
+  if (agentDefInstanceCreate) {
+    agentDefInstanceCreate.addEventListener("click", function () {
+      createInstanceFromDefinition();
+    });
+  }
+  if (agentTeamNewBtn) {
+    agentTeamNewBtn.addEventListener("click", function () {
+      createTeamFromSelection();
+    });
+  }
+
   newChatBtn.addEventListener("click", function () {
     if (!connected || agentState === "running" || agentState === "awaiting_approval" || agentState === "compacting") return;
     if (!window.confirm("Start a new thread in this workspace?")) return;
@@ -2431,16 +3056,25 @@
         });
       })
       .then(function () {
+        currentAgentInstanceID = "";
+        if (es && typeof es.close === "function") {
+          try { es.close(); } catch (e) {}
+          es = null;
+        }
         messages = [];
         chapters = [];
         activeChapter = null;
         clearLive();
         liveWrap.hidden = true;
         hideApproval();
+        return loadSession();
+      })
+      .then(function () {
+        connectEvents();
         renderChapters();
         renderThread();
         setState("idle");
-        return loadThreads();
+        return Promise.all([loadThreads(), loadAgents()]);
       })
       .then(function () {
         msg.focus();
@@ -2466,11 +3100,22 @@
       body: JSON.stringify({ text: text }),
     })
       .then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.status); });
+        return r.text().then(function (t) {
+          var j = {};
+          try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+          if (!r.ok) throw new Error(j.error || j.message || t || r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
         msg.value = "";
         messages.push({ role: "user", text: text });
         renderThread();
-        setState("running");
+        if (j && j.queued) {
+          appendLive("\n[queued — will run when the agent is idle]\n");
+        } else {
+          setState("running");
+        }
       })
       .catch(function (err) {
         appendLive("\n[send] " + err + "\n");

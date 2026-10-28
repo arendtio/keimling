@@ -29,11 +29,23 @@
 | `GET` | `/api/workspaces` | yes | Host: list workspaces + `current` (attached) + `running` |
 | `POST` | `/api/workspaces/open` | yes | Host: register folder, ensure worker, attach `{ "path" }` → `{ "relaunch": false }` |
 | `POST` | `/api/workspaces/switch` | yes | Host: ensure worker + attach `{ "id" }` → `{ "relaunch": false }` |
-| `GET`/`POST` | `/api/threads` | yes | List threads / create thread in current workspace |
-| `POST` | `/api/threads/switch` | yes | In-process thread switch `{ "id" }` |
-| `POST` | `/api/threads/delete` | yes | Permanently delete thread `{ "id" }` (irreversible) |
+| `GET`/`POST` | `/api/threads` | yes | Host: list workspace threads (`?workspace=`); create on workspace worker (reattaches workspace if an agent was open) |
+| `POST` | `/api/threads/switch` | yes | Host→workspace worker thread switch `{ "id" }` (leaves agent view) |
+| `POST` | `/api/threads/delete` | yes | Host→workspace worker delete `{ "id" }` |
 | `POST` | `/api/message` | yes | Send user instruction `{ "text": "..." }` |
+| `POST` | `/api/stop` | yes | Cancel in-flight agent run (worker) |
 | `POST` | `/api/newchat` | yes | New thread in workspace (or legacy archive when no workspace) |
+| `GET`/`POST` | `/api/agents/recipes` | yes | Host: list / create definitions |
+| `POST` | `/api/agents/recipes/update` | yes | Host: update definition |
+| `POST` | `/api/agents/recipes/delete` | yes | Host: delete definition (no remaining instances) |
+| `GET`/`POST` | `/api/agents/instances` | yes | Host: list (`?workspace=`) / create instance + attach |
+| `POST` | `/api/agents/instances/attach` | yes | Host: attach UI to agent worker `{ "id" }` |
+| `POST` | `/api/agents/instances/stop` | yes | Host: stop run on instance `{ "id" }` |
+| `POST` | `/api/agents/instances/delete` | yes | Host: delete instance `{ "id" }` |
+| `POST` | `/api/agents/instances/message` | yes | Host: enqueue wake `{ id, text }` |
+| `GET`/`POST` | `/api/agents/teams` | yes | Host: list / create teams |
+| `POST` | `/api/agents/teams/spawn` | yes | Host: spawn team instances |
+| `POST` | `/api/agents/teams/delete` | yes | Host: delete team |
 | `GET`/`PUT` | `/api/settings` | yes | Runtime agent knobs (model, mode, reasoning, web, autopilot, max_steps, context_limit, voice_model, `base_url`) plus write-only `api_key` / `openai_api_key`; GET exposes only `api_key_set` / `openai_api_key_set`. See `04-auth-and-settings.md`. |
 | `POST` | `/api/transcribe` | yes | Multipart `audio` file → `{ "text": "..." }` (OpenAI transcription) |
 | `GET` | `/events` | yes | SSE stream of agent events |

@@ -5,9 +5,14 @@
 **The agent server is the source of truth and the UI host.**  
 Whatever you see in the WebView is the same HTML/CSS/JS the server would serve to a browser. The WebView does not ship a second UI copy for remote sessions.
 
-## Workspaces
+## Workspaces and agents
 
-A **host** process serves the UI and proxies to **worker** OS processes (one per workspace, CWD = root). Switching workspace **reattaches** the UI; other workers keep running until the host exits. See `requirements/features/02-workspaces-and-threads.md`.
+A **host** process serves the UI and proxies to **worker** OS processes:
+
+- **Workspace worker** — one per workspace (human threads); CWD = workspace root.
+- **Agent-instance worker** — one per agent instance; CWD switches among ACL workspaces via `change_workspace`.
+
+Switching (workspace or agent) **reattaches** the UI; other workers keep running until the host exits. See `requirements/features/02-workspaces-and-threads.md` and `requirements/features/03-agents.md`.
 
 ## Recommended topology
 

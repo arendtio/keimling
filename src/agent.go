@@ -60,7 +60,13 @@ func (a *Agent) emitJSON(kind string, v any) {
 }
 
 func (a *Agent) emitLine(text string) {
-	if strings.Contains(text, "\r") {
+	// Skip terminal status redraws ("\r\033[2K…"); keep real content and normalize CRs.
+	if strings.Contains(text, "\r") && strings.Contains(text, "\033[2K") {
+		return
+	}
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	if text == "" {
 		return
 	}
 	a.emit("line", text)
@@ -137,7 +143,8 @@ func (a *Agent) repairInterruptedCalls() error {
 
 func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) error {
 	defer func() { _ = a.updateHistoryIndex("") }()
-	if a.Cfg.WorkspaceID != "" && a.Cfg.ThreadID != "" {
+	// Agent instances own a fixed main thread under their data dir — don't rename workspace threads.
+	if a.Cfg.WorkspaceID != "" && a.Cfg.ThreadID != "" && strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		titleCtx := ctx
 		if a.SessionCtx != nil {
 			titleCtx = a.SessionCtx
@@ -327,7 +334,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				}
 			}
 		}()
-		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock(), a.mcpToolDefs())
+		extraTools := append(a.mcpToolDefs(), a.agentExtraTools()...)
+		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock(), extraTools)
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil
@@ -402,7 +410,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				if item.Name != "finish_task" && item.Name != "update_plan" {
 					a.println(renderToolCall(item.Name, item.Arguments))
 				}
-				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate"
+				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate" || item.Name == "change_workspace" || item.Name == "set_alarm" || item.Name == "list_alarms" || item.Name == "cancel_alarm" || item.Name == "list_agents" || item.Name == "allow_peer" || item.Name == "message_agent"
 				reason := ""
 				if a.Cfg.Mode == "auto" && !allowed {
 					if forced, why := forceApproval(item.Name, item.Arguments); forced {
@@ -529,6 +537,20 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					} else if item.Name == "share_file" {
 						result = a.shareFile(item.Arguments)
 						a.println("\033[35m📎 Share\033[0m " + truncate(result, 240))
+					} else if item.Name == "change_workspace" {
+						result = a.changeWorkspace(item.Arguments)
+					} else if item.Name == "set_alarm" {
+						result = a.setAlarm(item.Arguments)
+					} else if item.Name == "list_alarms" {
+						result = a.listAlarmsTool(item.Arguments)
+					} else if item.Name == "cancel_alarm" {
+						result = a.cancelAlarm(item.Arguments)
+					} else if item.Name == "list_agents" {
+						result = a.listAgentsTool(item.Arguments)
+					} else if item.Name == "allow_peer" {
+						result = a.allowPeer(item.Arguments)
+					} else if item.Name == "message_agent" {
+						result = a.messageAgent(item.Arguments)
 					} else if item.Name == "show_artifact" {
 						result = a.showArtifact(item.Arguments)
 					} else if item.Name == "search_history" {
