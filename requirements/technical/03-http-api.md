@@ -47,7 +47,8 @@
 | `POST` | `/api/agents/teams/spawn` | yes | Host: spawn team instances |
 | `POST` | `/api/agents/teams/delete` | yes | Host: delete team |
 | `GET`/`PUT` | `/api/settings` | yes | Runtime knobs (mode, web, autopilot, max_steps, context_limit, voice_model) plus `model_providers` / `active_model_provider_id` (mirrored to legacy `base_url` / `model` / `api_key`); write-only keys; GET exposes `api_key_set` / `openai_api_key_set` and per-provider `api_key_set`. See `04-auth-and-settings.md`. |
-| `GET`/`PUT` | `/api/gui-prefs` | yes | Desktop UI prefs including `connections[]` + `active_connection_id` (and legacy `connect` / `access_secret`). |
+| `GET`/`PUT` | `/api/gui-prefs` | yes | Desktop UI prefs + **server** `connections[]` / `active_connection_id` (legacy `connect` / `access_secret`). |
+| `GET`/`PUT` | `/api/client-connections` | yes | **Machine** connection book (`connections.json` next to config). Prefer native bridge when the UI origin is a remote agent. |
 | `POST` | `/api/transcribe` | yes | Multipart `audio` file → `{ "text": "..." }` (OpenAI transcription) |
 | `GET` | `/events` | yes | SSE stream of agent events |
 

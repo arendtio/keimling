@@ -3,7 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	webview "github.com/samcharles93/webview_go"
 )
@@ -57,7 +59,58 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 		return "relaunch"
 	})
 	_ = w.Bind("keimlingRememberRemote", func(connect, secret string) {
+		_ = upsertClientRemote(configPath, "", connect, secret)
 		_ = mergeGuiPrefsConnect(configPath, connect, secret)
+	})
+	_ = w.Bind("keimlingGetClientConnections", func() string {
+		f, err := readClientConnections(configPath)
+		if err != nil {
+			return `{"connections":[],"active_id":""}`
+		}
+		b, err := json.Marshal(f.public())
+		if err != nil {
+			return `{"connections":[],"active_id":""}`
+		}
+		return string(b)
+	})
+	_ = w.Bind("keimlingPutClientConnections", func(raw string) string {
+		var body struct {
+			Connections *[]connectionProfile `json:"connections"`
+			ActiveID    *string              `json:"active_id"`
+		}
+		if err := json.Unmarshal([]byte(raw), &body); err != nil {
+			return `{"ok":false,"error":"invalid json"}`
+		}
+		err := updateClientConnections(configPath, func(f *clientConnectionsFile) {
+			if body.Connections != nil {
+				prevByID := map[string]connectionProfile{}
+				for _, c := range f.Connections {
+					prevByID[c.ID] = c
+				}
+				next := *body.Connections
+				for i := range next {
+					if strings.TrimSpace(next[i].AccessSecret) != "" {
+						continue
+					}
+					if prev, ok := prevByID[strings.TrimSpace(next[i].ID)]; ok && prev.AccessSecret != "" {
+						next[i].AccessSecret = prev.AccessSecret
+					}
+				}
+				f.Connections = next
+			}
+			if body.ActiveID != nil {
+				f.ActiveID = strings.TrimSpace(*body.ActiveID)
+			}
+		})
+		if err != nil {
+			return fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error())
+		}
+		f, err := readClientConnections(configPath)
+		if err != nil {
+			return `{"ok":false}`
+		}
+		b, _ := json.Marshal(f.public())
+		return string(b)
 	})
 	_ = w.Bind("keimlingRelaunchWorkspace", func(workspaceID string) string {
 		scheduleRelaunchWorkspace(configPath, workspaceID, func() {

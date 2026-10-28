@@ -185,7 +185,7 @@ func main() {
 	cliMode := flag.Bool("cli", false, "Force shell client")
 	serverMode := flag.Bool("server", false, "Run HTTP agent server only")
 	listenAddr := flag.String("listen", "", "HTTP listen address (required with --server), e.g. 0.0.0.0:7420")
-	connectURL := flag.String("connect", "", "Connect to remote Keimling agent base URL")
+	connectURL := flag.String("connect", "", "Connect to remote Keimling (URL, or name/id from connections.json)")
 	accessSecret := flag.String("access-secret", "", "Shared secret for agent HTTP API/UI")
 	publicURL := flag.String("public-url", "", "Public base URL for share_file links (e.g. https://keimling.example.com)")
 	flag.Parse()
@@ -230,7 +230,17 @@ func main() {
 		os.Exit(2)
 	}
 	if presentation != presentationServer {
+		if u, sec, ok := resolveConnectReference(*configPath, *connectURL); ok {
+			*connectURL = u
+			if strings.TrimSpace(*accessSecret) == "" && sec != "" {
+				*accessSecret = sec
+			}
+		}
 		if err := applyGuiPrefsConnect(*configPath, connectURL, accessSecret, changed["connect"]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := applyClientConnectionsConnect(*configPath, connectURL, accessSecret, changed["connect"]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
@@ -246,6 +256,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "--connect cannot be combined with --server")
 			os.Exit(2)
 		}
+		_ = upsertClientRemote(*configPath, "", *connectURL, *accessSecret)
 		_ = mergeGuiPrefsConnect(*configPath, *connectURL, *accessSecret)
 		wantGUI := presentation == presentationUI || presentation == presentationAuto
 		if wantGUI {

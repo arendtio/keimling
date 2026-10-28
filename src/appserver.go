@@ -146,6 +146,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
 	s.mux.Handle("/api/gui-prefs", s.requireSecret(http.HandlerFunc(s.handleGuiPrefs)))
+	s.mux.Handle("/api/client-connections", s.requireSecret(http.HandlerFunc(s.handleClientConnections)))
 	s.mux.Handle("/api/approve", s.requireSecret(http.HandlerFunc(s.handleApprove)))
 	s.mux.Handle("/api/transcribe", s.requireSecret(http.HandlerFunc(s.handleTranscribe)))
 	s.mux.Handle("/events", s.requireSecret(http.HandlerFunc(s.handleEvents)))
@@ -1274,11 +1275,71 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 	return out, active, nil
 }
 
-func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
-	path := ""
+func (s *appServer) configPath() string {
 	if s.agent != nil {
-		path = s.agent.Cfg.ConfigPath
+		return s.agent.Cfg.ConfigPath
 	}
+	return ""
+}
+
+func (s *appServer) handleClientConnections(w http.ResponseWriter, r *http.Request) {
+	path := s.configPath()
+	switch r.Method {
+	case http.MethodGet:
+		f, err := readClientConnections(path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(f.public())
+	case http.MethodPut, http.MethodPatch:
+		var body struct {
+			Connections *[]connectionProfile `json:"connections"`
+			ActiveID    *string              `json:"active_id"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if err := updateClientConnections(path, func(f *clientConnectionsFile) {
+			if body.Connections != nil {
+				prevByID := map[string]connectionProfile{}
+				for _, c := range f.Connections {
+					prevByID[c.ID] = c
+				}
+				next := *body.Connections
+				for i := range next {
+					if strings.TrimSpace(next[i].AccessSecret) != "" {
+						continue
+					}
+					if prev, ok := prevByID[strings.TrimSpace(next[i].ID)]; ok && prev.AccessSecret != "" {
+						next[i].AccessSecret = prev.AccessSecret
+					}
+				}
+				f.Connections = next
+			}
+			if body.ActiveID != nil {
+				f.ActiveID = strings.TrimSpace(*body.ActiveID)
+			}
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		f, err := readClientConnections(path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(f.public())
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
+	path := s.configPath()
 	switch r.Method {
 	case http.MethodGet:
 		p, err := readGuiPrefs(path)

@@ -1,15 +1,16 @@
 # User stories: Settings profiles
 
-## US-20 — Save Keimling connections
+## US-20 — Hybrid Keimling connections
 
-**As** a user, **I want** to save several local/remote Keimling connections, **so that** I can switch without retyping URL and secret.
+**As** a user (GUI or CLI), **I want** a machine-local connection book plus optional server-side bookmarks, **so that** remote Settings do not pretend the server’s “local” profile is my desktop.
 
 **Acceptance**
 
-- Settings → Connection shows a list (local + remotes).
-- I can add, edit, and delete remotes; local cannot be deleted.
-- Continue uses the selected profile (local resume or remote navigate).
-- Profiles persist in gui-prefs across launches.
+- Settings → Connection shows **Currently connected**, **My connections (this machine)**, and **On this server**.
+- Client book persists in `~/.config/keimling/connections.json` (CLI can resolve `--connect` by name/id).
+- Server book remains editable on the process; connecting to a server entry adopts/updates the client book.
+- Continue still navigates or resumes (reload), as today.
+- Wording never calls the current remote session “Local desktop agent”.
 
 ## US-21 — Save model providers
 

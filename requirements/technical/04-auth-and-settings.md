@@ -34,9 +34,12 @@ The model provider never receives the OpenAI external key. When the model base U
 - Successful `PUT` applies in-process and **persists** mapped fields into the process config file (`--config`), including inline keys when provided; the active provider is mirrored into legacy `api` / `model` fields
 - Config file mode should be `0600` when written
 
-## GUI prefs (connections)
+## Connection storage
 
-`GET`/`PUT` `/api/gui-prefs` also carries `connections[]` and `active_connection_id` (see `features/04-settings-profiles.md`). Legacy `connect` / `access_secret` stay mirrored for compatibility.
+See `features/04-settings-profiles.md`.
+
+- **Client book:** `connections.json` beside `config.json` (default `~/.config/keimling/connections.json`). `GET`/`PUT` `/api/client-connections` on a local process; desktop WebView also binds direct file access for remote page origins. CLI resolves `--connect` name/id here.
+- **Server book:** `GET`/`PUT` `/api/gui-prefs` `connections[]` + `active_connection_id`. Legacy `connect` / `access_secret` stay mirrored for compatibility.
 
 ## Startup precedence (model provider key)
 

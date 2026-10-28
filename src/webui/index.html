@@ -22,11 +22,24 @@
       </div>
 
       <div id="pane-connection" class="settings-pane" role="tabpanel">
-        <p class="settings-lead">Saved ways this UI reaches a Keimling process. Only one is active; Continue reconnects using the selected profile.</p>
-        <p class="settings-section-title">Profiles</p>
-        <ul id="connection-list" class="profile-list" aria-label="Connections"></ul>
-        <button type="button" id="connection-new" class="ghost wide">New remote…</button>
+        <p class="settings-lead">Where this UI connects. <strong>My connections</strong> live on this machine (<code>connections.json</code>); <strong>On this server</strong> are bookmarks on the Keimling process you are talking to. Continue navigates or resumes.</p>
+
+        <p class="settings-section-title">Currently connected</p>
+        <ul id="connection-current" class="profile-list" aria-label="Current connection"></ul>
+
+        <p class="settings-section-title">My connections (this machine)</p>
+        <p class="hint">Shared with the CLI (<code>--connect name</code>). Desktop WebView keeps this file even when viewing a remote agent.</p>
+        <ul id="connection-client-list" class="profile-list" aria-label="Client connections"></ul>
+        <button type="button" id="connection-client-new" class="ghost wide">New in my connections…</button>
+        <button type="button" id="connection-use-local" class="ghost wide" hidden>Switch to desktop agent…</button>
+
+        <p class="settings-section-title">On this server</p>
+        <p class="hint">Stored on the connected process. Connecting to one of these also saves it into your machine book.</p>
+        <ul id="connection-server-list" class="profile-list" aria-label="Server connections"></ul>
+        <button type="button" id="connection-server-new" class="ghost wide">New on this server…</button>
+
         <div id="connection-editor" class="profile-editor" hidden>
+          <p id="conn-edit-scope" class="hint"></p>
           <label>Name
             <input id="conn-edit-name" type="text" autocomplete="off">
           </label>
@@ -43,8 +56,8 @@
             <button type="button" id="conn-edit-delete" class="ghost danger" hidden>Delete</button>
           </div>
         </div>
-        <p id="local-hint" class="hint">Local “This window” needs no secret when you are already on the desktop agent.</p>
-        <!-- Legacy fields kept for JS wiring / Continue (hidden; driven by active profile). -->
+        <p id="local-hint" class="hint" hidden></p>
+        <!-- Legacy fields kept for JS wiring / Continue (hidden; driven by selection). -->
         <input id="connect-url" type="hidden" value="">
         <input id="secret" type="hidden" value="">
         <div id="choice-local" hidden></div>
