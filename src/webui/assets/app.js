@@ -209,6 +209,7 @@
   var approvalCmd = document.getElementById("approval-cmd");
   var approvalPreview = document.getElementById("approval-preview");
   var voiceBtn = document.getElementById("voice");
+  var stopBtn = document.getElementById("stop");
   var voiceStatus = document.getElementById("voice-status");
 
   var es = null;
@@ -217,6 +218,7 @@
   var activeChapter = null;
   var connected = false;
   var agentState = "idle";
+  var stopping = false;
   var voiceOK = false;
   var mode = "local"; // local | remote
   var apiBase = ""; // empty = same origin
@@ -1076,6 +1078,7 @@
     if (agentState !== "running" && agentState !== "compacting") clearProgress();
     var waiting = agentState === "awaiting_approval";
     var busyish = agentState === "running" || agentState === "compacting" || waiting;
+    if (!busyish) stopping = false;
     approve.disabled = !waiting;
     deny.disabled = !waiting;
     // While recording, Send means “stop + transcribe + send” (same as Enter in CLI).
@@ -1084,6 +1087,10 @@
     voiceBtn.disabled = !connected || !voiceOK || busyish;
     newChatBtn.disabled = !connected || busyish;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
+    if (stopBtn) {
+      stopBtn.disabled = !connected || !busyish || stopping;
+      stopBtn.textContent = stopping ? "Stopping…" : "Stop";
+    }
     if (!waiting) hideApproval();
     if (currentAgentInstanceID && agentsCache.length) {
       var busyNow = agentState === "running" || agentState === "compacting";
@@ -3719,6 +3726,29 @@
       });
   }
 
+  // /api/stop reaches the worker's appServer both when the GUI is served directly
+  // and when it is proxied through the host (/api/ prefix is proxied).
+  function stopCurrentRun() {
+    if (stopping) return;
+    stopping = true;
+    setState(agentState);
+    appendLive("\n[stop] Stopping…\n");
+    fetch(apiURL("/api/stop"), { method: "POST", headers: headers() })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = {};
+          try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+          if (!r.ok) throw new Error(j.error || j.message || t || r.status);
+          return j;
+        });
+      })
+      .catch(function (err) {
+        appendLive("\n[stop] " + err + "\n");
+        stopping = false;
+        setState(agentState);
+      });
+  }
+
   document.getElementById("composer").addEventListener("submit", function (e) {
     e.preventDefault();
     if (recording) {
@@ -3739,6 +3769,7 @@
   }
   approve.addEventListener("click", function () { decide(true); });
   deny.addEventListener("click", function () { decide(false); });
+  if (stopBtn) stopBtn.addEventListener("click", function () { stopCurrentRun(); });
 
   function pickMime() {
     var types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
