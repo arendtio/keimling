@@ -16,13 +16,15 @@ const (
 // guiPrefs remembers desktop UI state across ephemeral localhost ports
 // (localStorage cannot — each launch uses a new origin).
 type guiPrefs struct {
-	Connect      string `json:"connect,omitempty"`
-	AccessSecret string `json:"access_secret,omitempty"`
-	WindowWidth  int    `json:"window_width,omitempty"`
-	WindowHeight int    `json:"window_height,omitempty"`
-	BgLight      string `json:"bg_light,omitempty"` // #rrggbb page background (light)
-	BgDark       string `json:"bg_dark,omitempty"`  // #rrggbb page background (dark)
-	WorkspaceID  string `json:"workspace_id,omitempty"`
+	Connect            string              `json:"connect,omitempty"`
+	AccessSecret       string              `json:"access_secret,omitempty"`
+	Connections        []connectionProfile `json:"connections,omitempty"`
+	ActiveConnectionID string              `json:"active_connection_id,omitempty"`
+	WindowWidth        int                 `json:"window_width,omitempty"`
+	WindowHeight       int                 `json:"window_height,omitempty"`
+	BgLight            string              `json:"bg_light,omitempty"` // #rrggbb page background (light)
+	BgDark             string              `json:"bg_dark,omitempty"`  // #rrggbb page background (dark)
+	WorkspaceID        string              `json:"workspace_id,omitempty"`
 }
 
 // normalizeBgColor accepts #rgb / #rrggbb (case-insensitive); empty clears to default.
@@ -79,6 +81,7 @@ func readGuiPrefs(configPath string) (guiPrefs, error) {
 	}
 	p.Connect = strings.TrimSpace(p.Connect)
 	p.AccessSecret = strings.TrimSpace(p.AccessSecret)
+	normalizeConnectionProfiles(&p)
 	return p, nil
 }
 
@@ -86,9 +89,7 @@ func writeGuiPrefs(configPath string, p guiPrefs) error {
 	path := guiPrefsPath(configPath)
 	p.Connect = strings.TrimSpace(p.Connect)
 	p.AccessSecret = strings.TrimSpace(p.AccessSecret)
-	if p.Connect == "" {
-		p.AccessSecret = ""
-	}
+	normalizeConnectionProfiles(&p)
 	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
@@ -114,14 +115,32 @@ func updateGuiPrefs(configPath string, mut func(*guiPrefs)) error {
 }
 
 // mergeGuiPrefsConnect updates only connection fields; window size is preserved.
+// Also syncs the active remote profile (or switches to local when connect is empty).
 func mergeGuiPrefsConnect(configPath, connect, secret string) error {
 	return updateGuiPrefs(configPath, func(p *guiPrefs) {
-		p.Connect = strings.TrimSpace(connect)
-		if p.Connect == "" {
-			p.AccessSecret = ""
-		} else {
-			p.AccessSecret = strings.TrimSpace(secret)
+		normalizeConnectionProfiles(p)
+		connect = strings.TrimSpace(connect)
+		secret = strings.TrimSpace(secret)
+		if connect == "" {
+			p.ActiveConnectionID = localConnectionID
+			mirrorActiveConnection(p)
+			return
 		}
+		for i := range p.Connections {
+			c := &p.Connections[i]
+			if c.Kind == connectionKindRemote && c.URL == connect {
+				c.AccessSecret = secret
+				p.ActiveConnectionID = c.ID
+				mirrorActiveConnection(p)
+				return
+			}
+		}
+		id := newConnectionID(connectionKindRemote)
+		p.Connections = append(p.Connections, connectionProfile{
+			ID: id, Name: "Remote", Kind: connectionKindRemote, URL: connect, AccessSecret: secret,
+		})
+		p.ActiveConnectionID = id
+		mirrorActiveConnection(p)
 	})
 }
 

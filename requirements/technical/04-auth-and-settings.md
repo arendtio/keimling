@@ -28,9 +28,15 @@ The model provider never receives the OpenAI external key. When the model base U
 `GET`/`PUT` `/api/settings` (access secret required):
 
 - Returns current knobs plus `api_key_set` / `openai_api_key_set` (booleans only — never raw secrets)
+- Also returns `model_providers` (each with `api_key_set`, never raw keys) and `active_model_provider_id`
 - `PUT` may include write-only `api_key` and/or `openai_api_key` (omit or leave blank in UI = unchanged)
-- Successful `PUT` applies in-process and **persists** mapped fields into the process config file (`--config`), including inline keys when provided
+- `PUT` may replace `model_providers` and set `active_model_provider_id`; provider entries may include write-only `api_key`
+- Successful `PUT` applies in-process and **persists** mapped fields into the process config file (`--config`), including inline keys when provided; the active provider is mirrored into legacy `api` / `model` fields
 - Config file mode should be `0600` when written
+
+## GUI prefs (connections)
+
+`GET`/`PUT` `/api/gui-prefs` also carries `connections[]` and `active_connection_id` (see `features/04-settings-profiles.md`). Legacy `connect` / `access_secret` stay mirrored for compatibility.
 
 ## Startup precedence (model provider key)
 

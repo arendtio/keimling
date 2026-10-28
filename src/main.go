@@ -78,12 +78,14 @@ type fileConfig struct {
 		WebSearch               *bool `json:"web_search"`
 		DisableExternalServices bool  `json:"disable_external_services"`
 	} `json:"features"`
-	Presentation string                     `json:"presentation"`
-	Listen       string                     `json:"listen"`
-	Connect      string                     `json:"connect"`
-	AccessSecret string                     `json:"access_secret"`
-	PublicURL    string                     `json:"public_url"`
-	MCPServers   map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+	Presentation          string                     `json:"presentation"`
+	Listen                string                     `json:"listen"`
+	Connect               string                     `json:"connect"`
+	AccessSecret          string                     `json:"access_secret"`
+	PublicURL             string                     `json:"public_url"`
+	MCPServers            map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+	ModelProviders        []modelProvider            `json:"model_providers,omitempty"`
+	ActiveModelProviderID string                     `json:"active_model_provider_id,omitempty"`
 }
 
 func readConfiguration(path string) (fileConfig, error) {

@@ -148,6 +148,35 @@
   var setMaxSteps = document.getElementById("set-max-steps");
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
+  var connectionsCache = [];
+  var activeConnectionID = "local";
+  var editingConnectionID = null;
+  var connectionListEl = document.getElementById("connection-list");
+  var connectionEditor = document.getElementById("connection-editor");
+  var connectionNewBtn = document.getElementById("connection-new");
+  var connEditName = document.getElementById("conn-edit-name");
+  var connEditURL = document.getElementById("conn-edit-url");
+  var connEditSecret = document.getElementById("conn-edit-secret");
+  var connEditURLWrap = document.getElementById("conn-edit-url-wrap");
+  var connEditSecretWrap = document.getElementById("conn-edit-secret-wrap");
+  var connEditHint = document.getElementById("conn-edit-hint");
+  var connEditCancel = document.getElementById("conn-edit-cancel");
+  var connEditSave = document.getElementById("conn-edit-save");
+  var connEditDelete = document.getElementById("conn-edit-delete");
+  var providersCache = [];
+  var activeProviderID = "";
+  var editingProviderID = null;
+  var providerListEl = document.getElementById("provider-list");
+  var providerEditor = document.getElementById("provider-editor");
+  var providerNewBtn = document.getElementById("provider-new");
+  var provEditName = document.getElementById("prov-edit-name");
+  var provEditBaseURL = document.getElementById("prov-edit-base-url");
+  var provEditAPIKey = document.getElementById("prov-edit-api-key");
+  var provEditModel = document.getElementById("prov-edit-model");
+  var provEditReasoning = document.getElementById("prov-edit-reasoning");
+  var provEditCancel = document.getElementById("prov-edit-cancel");
+  var provEditSave = document.getElementById("prov-edit-save");
+  var provEditDelete = document.getElementById("prov-edit-delete");
 
   var thread = document.getElementById("thread");
   var chaptersEl = document.getElementById("chapters");
@@ -302,56 +331,370 @@
 
   function setChoice(next) {
     mode = next;
-    choiceLocal.classList.toggle("active", mode === "local");
-    choiceRemote.classList.toggle("active", mode === "remote");
-    choiceLocal.setAttribute("aria-pressed", mode === "local" ? "true" : "false");
-    choiceRemote.setAttribute("aria-pressed", mode === "remote" ? "true" : "false");
-    urlField.hidden = mode !== "remote";
-    if (mode === "local" && sameOriginLocal() && !secret()) {
-      secretField.hidden = true;
-      localHint.hidden = false;
-    } else {
-      secretField.hidden = false;
-      localHint.hidden = true;
+    if (choiceLocal) {
+      choiceLocal.classList.toggle("active", mode === "local");
+      choiceLocal.setAttribute("aria-pressed", mode === "local" ? "true" : "false");
     }
+    if (choiceRemote) {
+      choiceRemote.classList.toggle("active", mode === "remote");
+      choiceRemote.setAttribute("aria-pressed", mode === "remote" ? "true" : "false");
+    }
+    if (urlField) urlField.hidden = mode !== "remote";
+    if (mode === "local" && sameOriginLocal() && !secret()) {
+      if (secretField) secretField.hidden = true;
+      if (localHint) localHint.hidden = false;
+    } else {
+      if (secretField) secretField.hidden = false;
+      if (localHint) localHint.hidden = mode === "local";
+    }
+    renderConnectionList();
+  }
+
+  function applyActiveConnection() {
+    var c = null;
+    for (var i = 0; i < connectionsCache.length; i++) {
+      if (connectionsCache[i].id === activeConnectionID) { c = connectionsCache[i]; break; }
+    }
+    if (!c) {
+      setChoice("local");
+      connectURLEl.value = "";
+      return;
+    }
+    if (c.kind === "remote") {
+      setChoice("remote");
+      connectURLEl.value = c.url || "";
+      if (c.access_secret) secretEl.value = c.access_secret;
+    } else {
+      setChoice("local");
+      connectURLEl.value = "";
+    }
+  }
+
+  function renderConnectionList() {
+    if (!connectionListEl) return;
+    connectionListEl.innerHTML = "";
+    if (!connectionsCache.length) {
+      var empty = document.createElement("li");
+      empty.className = "hint";
+      empty.textContent = "No profiles yet";
+      connectionListEl.appendChild(empty);
+      return;
+    }
+    connectionsCache.forEach(function (c) {
+      var li = document.createElement("li");
+      var pick = document.createElement("button");
+      pick.type = "button";
+      pick.className = "profile-pick" + (c.id === activeConnectionID ? " active" : "");
+      pick.innerHTML = esc(c.name || c.id) +
+        '<span class="profile-meta">' + (c.kind === "remote" ? esc(c.url || "remote") : "Local desktop agent") + "</span>";
+      pick.addEventListener("click", function () {
+        activeConnectionID = c.id;
+        applyActiveConnection();
+        persistConnectionsPrefs();
+      });
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost profile-edit-btn";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () { openConnectionEditor(c); });
+      li.appendChild(pick);
+      li.appendChild(edit);
+      connectionListEl.appendChild(li);
+    });
+  }
+
+  function openConnectionEditor(c) {
+    editingConnectionID = c ? c.id : "";
+    if (connectionEditor) connectionEditor.hidden = false;
+    if (connEditName) connEditName.value = c ? (c.name || "") : "Remote";
+    if (connEditURL) connEditURL.value = c && c.kind === "remote" ? (c.url || "") : "";
+    if (connEditSecret) {
+      connEditSecret.value = "";
+      connEditSecret.placeholder = c && c.access_secret_set ? "Set — leave blank to keep" : "Access secret";
+    }
+    var isLocal = c && c.kind === "local";
+    if (connEditURLWrap) connEditURLWrap.hidden = !!isLocal;
+    if (connEditSecretWrap) connEditSecretWrap.hidden = !!isLocal;
+    if (connEditDelete) connEditDelete.hidden = !c || isLocal;
+    if (connEditHint) {
+      connEditHint.textContent = isLocal
+        ? "Local profile has no URL; Continue resumes this window’s agent."
+        : "Remote profiles store URL and access secret for Continue.";
+    }
+  }
+
+  function closeConnectionEditor() {
+    editingConnectionID = null;
+    if (connectionEditor) connectionEditor.hidden = true;
+  }
+
+  function persistConnectionsPrefs() {
+    var body = {
+      connections: connectionsCache.map(function (c) {
+        return {
+          id: c.id,
+          name: c.name,
+          kind: c.kind,
+          url: c.url || "",
+          access_secret: c.access_secret || "",
+        };
+      }),
+      active_connection_id: activeConnectionID,
+    };
+    return saveGuiPrefs(body).catch(function () {});
+  }
+
+  function loadConnectionsFromPrefs() {
+    var h = { "Content-Type": "application/json" };
+    var s = pageAccessSecret() || secret();
+    if (s) h["Authorization"] = "Bearer " + s;
+    return fetch(apiURL("/api/gui-prefs"), { headers: h })
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (p) {
+        if (!p) {
+          connectionsCache = [{ id: "local", name: "This window", kind: "local" }];
+          activeConnectionID = "local";
+          renderConnectionList();
+          return;
+        }
+        connectionsCache = p.connections || [];
+        activeConnectionID = p.active_connection_id || "local";
+        if (!connectionsCache.length) {
+          connectionsCache = [{ id: "local", name: "This window", kind: "local" }];
+        }
+        applyActiveConnection();
+        renderConnectionList();
+      })
+      .catch(function () {
+        connectionsCache = [{ id: "local", name: "This window", kind: "local" }];
+        activeConnectionID = "local";
+        renderConnectionList();
+      });
+  }
+
+  function saveConnectionEditor() {
+    var name = connEditName ? connEditName.value.trim() : "";
+    var isNew = !editingConnectionID;
+    var existing = null;
+    for (var i = 0; i < connectionsCache.length; i++) {
+      if (connectionsCache[i].id === editingConnectionID) { existing = connectionsCache[i]; break; }
+    }
+    if (existing && existing.kind === "local") {
+      existing.name = name || "This window";
+      closeConnectionEditor();
+      renderConnectionList();
+      persistConnectionsPrefs();
+      return;
+    }
+    var url = connEditURL ? connEditURL.value.trim() : "";
+    if (!url) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Server URL required for remote profiles";
+      return;
+    }
+    var secretVal = connEditSecret ? connEditSecret.value.trim() : "";
+    if (isNew) {
+      var id = "remote-" + Date.now();
+      connectionsCache.push({
+        id: id,
+        name: name || "Remote",
+        kind: "remote",
+        url: url,
+        access_secret: secretVal,
+        access_secret_set: !!secretVal,
+      });
+      activeConnectionID = id;
+    } else if (existing) {
+      existing.name = name || existing.name;
+      existing.url = url;
+      if (secretVal) {
+        existing.access_secret = secretVal;
+        existing.access_secret_set = true;
+      }
+    }
+    closeConnectionEditor();
+    applyActiveConnection();
+    renderConnectionList();
+    persistConnectionsPrefs();
+  }
+
+  function deleteConnectionEditor() {
+    if (!editingConnectionID || editingConnectionID === "local") return;
+    if (!window.confirm("Delete this connection profile?")) return;
+    connectionsCache = connectionsCache.filter(function (c) { return c.id !== editingConnectionID; });
+    if (activeConnectionID === editingConnectionID) activeConnectionID = "local";
+    closeConnectionEditor();
+    applyActiveConnection();
+    renderConnectionList();
+    persistConnectionsPrefs();
   }
 
   function setSettingsTab(tab) {
     tab = tab || "connection";
+    if (tab === "agent") tab = "models";
     settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {
       var on = btn.getAttribute("data-tab") === tab;
       btn.classList.toggle("active", on);
       btn.setAttribute("aria-selected", on ? "true" : "false");
     });
     if (paneConnection) paneConnection.hidden = tab !== "connection";
-    if (paneAgent) paneAgent.hidden = tab !== "agent";
+    if (paneAgent) paneAgent.hidden = tab !== "models";
     if (paneSkills) paneSkills.hidden = tab !== "skills";
     if (paneMcp) paneMcp.hidden = tab !== "mcp";
-    saveSettingsBtn.hidden = tab !== "agent";
+    saveSettingsBtn.hidden = tab !== "models";
     connectBtn.hidden = tab !== "connection";
+  }
+
+  function syncHiddenProviderFields() {
+    var p = null;
+    for (var i = 0; i < providersCache.length; i++) {
+      if (providersCache[i].id === activeProviderID) { p = providersCache[i]; break; }
+    }
+    if (!p) return;
+    setBaseURL.value = p.base_url || "";
+    setModel.value = p.model || "";
+    setReasoning.value = p.reasoning || setReasoning.value || "high";
+    setAPIKey.value = "";
+  }
+
+  function renderProviderList() {
+    if (!providerListEl) return;
+    providerListEl.innerHTML = "";
+    providersCache.forEach(function (p) {
+      var li = document.createElement("li");
+      var pick = document.createElement("button");
+      pick.type = "button";
+      pick.className = "profile-pick" + (p.id === activeProviderID ? " active" : "");
+      pick.innerHTML = esc(p.name || p.id) +
+        '<span class="profile-meta">' + esc(p.model || p.base_url || "") + "</span>";
+      pick.addEventListener("click", function () {
+        activeProviderID = p.id;
+        syncHiddenProviderFields();
+        renderProviderList();
+      });
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost profile-edit-btn";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () { openProviderEditor(p); });
+      li.appendChild(pick);
+      li.appendChild(edit);
+      providerListEl.appendChild(li);
+    });
+  }
+
+  function openProviderEditor(p) {
+    editingProviderID = p ? p.id : "";
+    if (providerEditor) providerEditor.hidden = false;
+    if (provEditName) provEditName.value = p ? (p.name || "") : "";
+    if (provEditBaseURL) provEditBaseURL.value = p ? (p.base_url || "") : "";
+    if (provEditModel) provEditModel.value = p ? (p.model || "") : "";
+    if (provEditReasoning) provEditReasoning.value = (p && p.reasoning) || "high";
+    if (provEditAPIKey) {
+      provEditAPIKey.value = "";
+      provEditAPIKey.placeholder = p && p.api_key_set ? "Set — leave blank to keep" : "API key";
+    }
+    if (apiKeyHint) {
+      apiKeyHint.textContent = p && p.api_key_set
+        ? "Key is set. Leave blank to keep it, or paste a new key."
+        : "Required for OpenRouter and most remote APIs.";
+    }
+    if (provEditDelete) provEditDelete.hidden = !p || providersCache.length <= 1;
+  }
+
+  function closeProviderEditor() {
+    editingProviderID = null;
+    if (providerEditor) providerEditor.hidden = true;
+  }
+
+  function saveProviderEditor() {
+    var name = provEditName ? provEditName.value.trim() : "";
+    var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
+    var model = provEditModel ? provEditModel.value.trim() : "";
+    var reasoning = provEditReasoning ? provEditReasoning.value : "high";
+    var key = provEditAPIKey ? provEditAPIKey.value.trim() : "";
+    if (!base) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Base URL required";
+      return;
+    }
+    if (!editingProviderID) {
+      var id = "provider-" + Date.now();
+      providersCache.push({
+        id: id, name: name || base, base_url: base, model: model, reasoning: reasoning,
+        api_key: key, api_key_set: !!key,
+      });
+      activeProviderID = id;
+    } else {
+      for (var i = 0; i < providersCache.length; i++) {
+        if (providersCache[i].id === editingProviderID) {
+          providersCache[i].name = name || providersCache[i].name;
+          providersCache[i].base_url = base;
+          providersCache[i].model = model;
+          providersCache[i].reasoning = reasoning;
+          if (key) {
+            providersCache[i].api_key = key;
+            providersCache[i].api_key_set = true;
+          }
+          break;
+        }
+      }
+    }
+    closeProviderEditor();
+    syncHiddenProviderFields();
+    renderProviderList();
+  }
+
+  function deleteProviderEditor() {
+    if (!editingProviderID || providersCache.length <= 1) return;
+    if (!window.confirm("Delete this model provider?")) return;
+    providersCache = providersCache.filter(function (p) { return p.id !== editingProviderID; });
+    if (activeProviderID === editingProviderID) activeProviderID = providersCache[0].id;
+    closeProviderEditor();
+    syncHiddenProviderFields();
+    renderProviderList();
   }
 
   function fillAgentSettings(j) {
     if (!j) return;
-    setBaseURL.value = j.base_url || "";
-    setAPIKey.value = "";
+    providersCache = (j.model_providers || []).map(function (p) {
+      return {
+        id: p.id,
+        name: p.name,
+        base_url: p.base_url,
+        model: p.model,
+        reasoning: p.reasoning || j.reasoning || "high",
+        api_key_set: !!p.api_key_set,
+      };
+    });
+    activeProviderID = j.active_model_provider_id || (providersCache[0] && providersCache[0].id) || "";
+    if (!providersCache.length) {
+      providersCache = [{
+        id: "default",
+        name: "Default",
+        base_url: j.base_url || "",
+        model: j.model || "",
+        reasoning: j.reasoning || "high",
+        api_key_set: !!j.api_key_set,
+      }];
+      activeProviderID = "default";
+    }
     setOpenAIAPIKey.value = "";
-    setAPIKey.placeholder = j.api_key_set ? "Set — leave blank to keep" : "Not set";
     setOpenAIAPIKey.placeholder = j.openai_api_key_set ? "Set — leave blank to keep" : "Not set";
-    apiKeyHint.textContent = j.api_key_set
-      ? "Provider key is set. Leave blank to keep it, or paste a new key."
-      : "No provider key yet. Required for OpenRouter and most remote APIs.";
     openaiKeyHint.textContent = j.openai_api_key_set
       ? "OpenAI key is set. Leave blank to keep it, or paste a new key."
       : "Optional unless you use web search or voice transcription.";
-    setModel.value = j.model || "";
     setMode.value = j.mode || "auto";
-    setReasoning.value = j.reasoning || "high";
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
     setMaxSteps.value = j.max_steps != null ? j.max_steps : 200;
     setContextLimit.value = j.context_limit != null ? j.context_limit : 128000;
     setVoiceModel.value = j.voice_model || "";
+    syncHiddenProviderFields();
+    renderProviderList();
   }
 
   function loadAgentSettings() {
@@ -371,19 +714,27 @@
 
   function saveAgentSettings() {
     gateErr.hidden = true;
+    syncHiddenProviderFields();
     var body = {
-      base_url: setBaseURL.value.trim(),
-      model: setModel.value.trim(),
       mode: setMode.value,
-      reasoning: setReasoning.value,
       web: setWeb.checked,
       autopilot: setAutopilot.checked,
       max_steps: parseInt(setMaxSteps.value, 10),
       context_limit: parseInt(setContextLimit.value, 10),
       voice_model: setVoiceModel.value.trim(),
+      active_model_provider_id: activeProviderID,
+      model_providers: providersCache.map(function (p) {
+        var row = {
+          id: p.id,
+          name: p.name,
+          base_url: p.base_url,
+          model: p.model,
+          reasoning: p.reasoning || "high",
+        };
+        if (p.api_key) row.api_key = p.api_key;
+        return row;
+      }),
     };
-    var providerKey = setAPIKey.value.trim();
-    if (providerKey) body.api_key = providerKey;
     var openaiKey = setOpenAIAPIKey.value.trim();
     if (openaiKey) body.openai_api_key = openaiKey;
     saveSettingsBtn.disabled = true;
@@ -397,12 +748,14 @@
           var j = {};
           try { j = JSON.parse(t); } catch (e) {}
           if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
+          // Clear one-shot keys from cache after successful save.
+          providersCache.forEach(function (p) { delete p.api_key; });
           fillAgentSettings(j);
           modelEl.textContent = j.model || "—";
           modeEl.textContent = j.mode || "—";
           gateErr.hidden = false;
           gateErr.style.color = "var(--accent)";
-          gateErr.textContent = "Agent settings saved to the server config.";
+          gateErr.textContent = "Model settings saved to the server config.";
         });
       })
       .catch(function (e) {
@@ -421,34 +774,58 @@
     var first = !prefs.seen && !opts.manage;
     gateTitle.textContent = opts.manage ? "Settings" : first ? "Welcome" : "Connect";
     gateCopy.textContent = opts.manage
-      ? "Two layers: Connection (UI ↔ agent process) and Agent (model provider & behaviour)."
+      ? "Connection profiles (UI ↔ Keimling) and Models (providers & behaviour)."
       : first
-        ? "First pick how this UI reaches an agent. Model provider options live under Settings → Agent after you connect."
-        : "Resume or pick how to reach the agent.";
-    if (prefs.url && !connectURLEl.value.trim()) {
-      connectURLEl.value = prefs.url;
-    }
-    // Do not reset the user's Connection choice while Settings is open.
-    if (!opts.manage) {
-      if (!sameOriginLocal()) {
-        setChoice("remote");
-        if (!connectURLEl.value.trim()) {
-          try { connectURLEl.value = location.origin + "/"; } catch (e) {}
-        }
-      } else if (prefs.url) {
-        setChoice("remote");
-      } else {
-        setChoice("local");
-      }
-    }
-    if (opts.prefillSecret) secretEl.value = opts.prefillSecret;
-    else if (prefs.secret && !secretEl.value) secretEl.value = prefs.secret;
+        ? "Pick a connection profile, then Continue. Model providers live under Settings → Models after you connect."
+        : "Select a saved connection and Continue.";
     gateErr.hidden = !opts.error;
     gateErr.style.color = "";
     gateErr.textContent = opts.error || "";
     settingsTabs.hidden = !opts.manage;
     gateManage = !!opts.manage && (!!opts.keepApp || connected);
     gateCancelBtn.hidden = !gateManage;
+    loadConnectionsFromPrefs().then(function () {
+      if (!opts.manage) {
+        if (!sameOriginLocal()) {
+          // Prefer a remote profile matching this origin when already on a remote page.
+          var origin = "";
+          try { origin = location.origin; } catch (e) {}
+          var match = null;
+          for (var i = 0; i < connectionsCache.length; i++) {
+            var c = connectionsCache[i];
+            if (c.kind === "remote" && c.url && origin && c.url.indexOf(origin) === 0) { match = c; break; }
+          }
+          if (match) activeConnectionID = match.id;
+          else if (prefs.url) {
+            // Ensure a remote entry exists for prefs.
+            var found = false;
+            for (var j = 0; j < connectionsCache.length; j++) {
+              if (connectionsCache[j].url === prefs.url) {
+                activeConnectionID = connectionsCache[j].id;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              var nid = "remote-pref";
+              connectionsCache.push({
+                id: nid, name: "Remote", kind: "remote", url: prefs.url,
+                access_secret: prefs.secret || "", access_secret_set: !!prefs.secret,
+              });
+              activeConnectionID = nid;
+            }
+          }
+        } else if (prefs.url && opts.auto) {
+          /* keep prefs-driven remote if auto-boot used url */
+        }
+        applyActiveConnection();
+        if (opts.prefillSecret) secretEl.value = opts.prefillSecret;
+        else if (prefs.secret && mode === "local" && !secretEl.value) secretEl.value = prefs.secret;
+      } else if (opts.prefillSecret) {
+        secretEl.value = opts.prefillSecret;
+      }
+      renderConnectionList();
+    });
     if (opts.manage) {
       setSettingsTab(opts.tab || "connection");
       if (connected) loadAgentSettings();
@@ -1891,7 +2268,27 @@
     if (typeof keimlingRememberRemote === "function") {
       try { keimlingRememberRemote(connect, sec); } catch (e) {}
     }
-    return saveGuiPrefs({ connect: connect, access_secret: sec }).catch(function () {});
+    // Prefer updating the active remote profile; fall back to legacy connect fields.
+    var body = { connect: connect, access_secret: sec };
+    if (activeConnectionID && activeConnectionID !== "local") {
+      body.active_connection_id = activeConnectionID;
+      body.connections = connectionsCache.map(function (c) {
+        var row = {
+          id: c.id,
+          name: c.name,
+          kind: c.kind,
+          url: c.url || "",
+          access_secret: c.access_secret || "",
+        };
+        if (c.id === activeConnectionID) {
+          row.url = connect;
+          row.access_secret = sec;
+          row.kind = "remote";
+        }
+        return row;
+      });
+    }
+    return saveGuiPrefs(body).catch(function () {});
   }
 
   function switchAwayFromRemotePage() {
@@ -1988,7 +2385,12 @@
     // Clear remembered remote only when the user explicitly chooses local on the
     // desktop agent — not on auto-boot into a remote page (mode "local" there).
     var clearRemote = !opts.auto && mode !== "remote" && sameOriginLocal();
-    (clearRemote ? saveGuiPrefs({ connect: "", access_secret: "" }).catch(function () {}) : Promise.resolve())
+    (clearRemote
+      ? saveGuiPrefs({ active_connection_id: "local", connect: "", access_secret: "" }).then(function () {
+          activeConnectionID = "local";
+          renderConnectionList();
+        }).catch(function () {})
+      : Promise.resolve())
       .then(function () { return loadSession(); })
       .then(function () {
         connected = true;
@@ -2015,15 +2417,30 @@
       });
   }
 
-  choiceLocal.addEventListener("click", function () { setChoice("local"); });
-  choiceRemote.addEventListener("click", function () { setChoice("remote"); });
-  connectBtn.addEventListener("click", openSession);
-  secretEl.addEventListener("keydown", function (e) {
+  if (choiceLocal) choiceLocal.addEventListener("click", function () { setChoice("local"); });
+  if (choiceRemote) choiceRemote.addEventListener("click", function () { setChoice("remote"); });
+  connectBtn.addEventListener("click", function () {
+    applyActiveConnection();
+    openSession();
+  });
+  if (secretEl) secretEl.addEventListener("keydown", function (e) {
     if (e.key === "Enter") openSession();
   });
-  connectURLEl.addEventListener("keydown", function (e) {
+  if (connectURLEl) connectURLEl.addEventListener("keydown", function (e) {
     if (e.key === "Enter") openSession();
   });
+  if (connectionNewBtn) connectionNewBtn.addEventListener("click", function () {
+    openConnectionEditor(null);
+  });
+  if (connEditCancel) connEditCancel.addEventListener("click", closeConnectionEditor);
+  if (connEditSave) connEditSave.addEventListener("click", saveConnectionEditor);
+  if (connEditDelete) connEditDelete.addEventListener("click", deleteConnectionEditor);
+  if (providerNewBtn) providerNewBtn.addEventListener("click", function () {
+    openProviderEditor(null);
+  });
+  if (provEditCancel) provEditCancel.addEventListener("click", closeProviderEditor);
+  if (provEditSave) provEditSave.addEventListener("click", saveProviderEditor);
+  if (provEditDelete) provEditDelete.addEventListener("click", deleteProviderEditor);
   openConnection.addEventListener("click", function () {
     showGate({ manage: true, keepApp: true, tab: "connection" });
     app.hidden = false;
@@ -2974,7 +3391,7 @@
   settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {
     btn.addEventListener("click", function () {
       setSettingsTab(btn.getAttribute("data-tab"));
-      if (btn.getAttribute("data-tab") === "agent" && connected) loadAgentSettings();
+      if ((btn.getAttribute("data-tab") === "models" || btn.getAttribute("data-tab") === "agent") && connected) loadAgentSettings();
     });
   });
   saveSettingsBtn.addEventListener("click", saveAgentSettings);

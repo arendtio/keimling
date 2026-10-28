@@ -31,11 +31,13 @@ type appServer struct {
 	hub    *eventHub
 	mux    *http.ServeMux
 
-	mu              sync.Mutex
-	busy            bool
-	cancel          context.CancelFunc
-	skillCandidates []SkillCandidate
-	skillPreviews   *skillPreviewHub
+	mu                    sync.Mutex
+	busy                  bool
+	cancel                context.CancelFunc
+	skillCandidates       []SkillCandidate
+	skillPreviews         *skillPreviewHub
+	pendingProviders      []modelProvider
+	pendingActiveProvider string
 }
 
 func newAppServer(opts appServerOpts) *appServer {
@@ -1000,22 +1002,24 @@ func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
 }
 
 type agentSettings struct {
-	BaseURL      string  `json:"base_url,omitempty"`
-	Model        string  `json:"model"`
-	Mode         string  `json:"mode"`
-	Reasoning    string  `json:"reasoning"`
-	Web          *bool   `json:"web,omitempty"`
-	Autopilot    *bool   `json:"autopilot,omitempty"`
-	MaxSteps     *int    `json:"max_steps,omitempty"`
-	ContextLimit *int    `json:"context_limit,omitempty"`
-	VoiceModel   string  `json:"voice_model,omitempty"`
-	APIKey       *string `json:"api_key,omitempty"`        // write-only
-	OpenAIAPIKey *string `json:"openai_api_key,omitempty"` // write-only
-	APIKeySet    bool    `json:"api_key_set"`              // GET only
-	OpenAIKeySet bool    `json:"openai_api_key_set"`       // GET only
+	BaseURL               string          `json:"base_url,omitempty"`
+	Model                 string          `json:"model"`
+	Mode                  string          `json:"mode"`
+	Reasoning             string          `json:"reasoning"`
+	Web                   *bool           `json:"web,omitempty"`
+	Autopilot             *bool           `json:"autopilot,omitempty"`
+	MaxSteps              *int            `json:"max_steps,omitempty"`
+	ContextLimit          *int            `json:"context_limit,omitempty"`
+	VoiceModel            string          `json:"voice_model,omitempty"`
+	APIKey                *string         `json:"api_key,omitempty"`        // write-only
+	OpenAIAPIKey          *string         `json:"openai_api_key,omitempty"` // write-only
+	APIKeySet             bool            `json:"api_key_set"`              // GET only
+	OpenAIKeySet          bool            `json:"openai_api_key_set"`       // GET only
+	ModelProviders        []modelProvider `json:"model_providers,omitempty"`
+	ActiveModelProviderID string          `json:"active_model_provider_id,omitempty"`
 }
 
-func (s *appServer) settingsSnapshot() agentSettings {
+func (s *appServer) settingsSnapshot() map[string]any {
 	web, auto := s.agent.Cfg.Web, s.agent.Cfg.Autopilot
 	steps, limit := s.agent.Cfg.MaxSteps, s.agent.Cfg.ContextLimit
 	base := s.agent.Cfg.BaseURL
@@ -1030,19 +1034,51 @@ func (s *appServer) settingsSnapshot() agentSettings {
 	if s.agent.Cfg.ExternalClient != nil {
 		openaiSet = strings.TrimSpace(s.agent.Cfg.ExternalClient.APIKey) != ""
 	}
-	return agentSettings{
-		BaseURL:      base,
-		Model:        s.agent.Cfg.Model,
-		Mode:         s.agent.Cfg.Mode,
-		Reasoning:    s.agent.Cfg.Reasoning,
-		Web:          &web,
-		Autopilot:    &auto,
-		MaxSteps:     &steps,
-		ContextLimit: &limit,
-		VoiceModel:   s.agent.Cfg.VoiceModel,
-		APIKeySet:    providerKey != "",
-		OpenAIKeySet: openaiSet,
+	providers, activeID := s.loadModelProvidersForSettings()
+	return map[string]any{
+		"base_url":                 base,
+		"model":                    s.agent.Cfg.Model,
+		"mode":                     s.agent.Cfg.Mode,
+		"reasoning":                s.agent.Cfg.Reasoning,
+		"web":                      web,
+		"autopilot":                auto,
+		"max_steps":                steps,
+		"context_limit":            limit,
+		"voice_model":              s.agent.Cfg.VoiceModel,
+		"api_key_set":              providerKey != "",
+		"openai_api_key_set":       openaiSet,
+		"model_providers":          publicModelProviders(providers),
+		"active_model_provider_id": activeID,
 	}
+}
+
+func (s *appServer) loadModelProvidersForSettings() ([]modelProvider, string) {
+	path := strings.TrimSpace(s.agent.Cfg.ConfigPath)
+	fc, err := readConfiguration(path)
+	if err != nil {
+		fc = fileConfig{}
+	}
+	// Seed from live agent if config empty.
+	if strings.TrimSpace(fc.API.BaseURL) == "" {
+		fc.API.BaseURL = s.agent.Cfg.BaseURL
+	}
+	if strings.TrimSpace(fc.API.Model) == "" {
+		fc.API.Model = s.agent.Cfg.Model
+	}
+	if strings.TrimSpace(fc.API.Key) == "" {
+		fc.API.Key = s.agent.Cfg.Key
+	}
+	fc.ensureModelProviders()
+	// Prefer live key on active provider display without writing raw key to response.
+	if p := modelProviderByID(fc.ModelProviders, fc.ActiveModelProviderID); p != nil {
+		if strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(s.agent.Cfg.Key) != "" {
+			p.APIKey = s.agent.Cfg.Key
+		}
+		if strings.TrimSpace(p.Reasoning) == "" {
+			p.Reasoning = s.agent.Cfg.Reasoning
+		}
+	}
+	return fc.ModelProviders, fc.ActiveModelProviderID
 }
 
 func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -1063,7 +1099,7 @@ func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body agentSettings
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
@@ -1080,7 +1116,35 @@ func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *appServer) applySettings(body agentSettings) error {
 	cfg := &s.agent.Cfg
-	if raw := strings.TrimSpace(body.BaseURL); raw != "" {
+	writeProviders := body.ModelProviders != nil
+	s.pendingProviders = nil
+	s.pendingActiveProvider = ""
+	if writeProviders {
+		out, active, err := s.resolveModelProviders(body)
+		if err != nil {
+			return err
+		}
+		ap := modelProviderByID(out, active)
+		cfg.BaseURL = ap.BaseURL
+		if ap.Model != "" {
+			cfg.Model = ap.Model
+		}
+		if ap.Reasoning != "" {
+			cfg.Reasoning = ap.Reasoning
+		}
+		if ap.APIKey != "" {
+			cfg.Key = ap.APIKey
+		}
+		if s.agent.Client == nil {
+			s.agent.Client = NewClient(cfg.Key)
+		} else {
+			s.agent.Client.APIKey = cfg.Key
+		}
+		s.agent.Client.BaseURL = cfg.BaseURL
+		s.pendingProviders = out
+		s.pendingActiveProvider = active
+	}
+	if raw := strings.TrimSpace(body.BaseURL); raw != "" && !writeProviders {
 		resolved, err := normalizeBaseURL(raw)
 		if err != nil {
 			return err
@@ -1096,7 +1160,7 @@ func (s *appServer) applySettings(body agentSettings) error {
 		}
 		cfg.Mode = m
 	}
-	if model := strings.TrimSpace(body.Model); model != "" {
+	if model := strings.TrimSpace(body.Model); model != "" && !writeProviders {
 		cfg.Model = model
 	}
 	if r := strings.TrimSpace(body.Reasoning); r != "" {
@@ -1128,7 +1192,7 @@ func (s *appServer) applySettings(body agentSettings) error {
 	if v := strings.TrimSpace(body.VoiceModel); v != "" {
 		cfg.VoiceModel = v
 	}
-	writeProviderKey := body.APIKey != nil
+	writeProviderKey := body.APIKey != nil && !writeProviders
 	writeOpenAIKey := body.OpenAIAPIKey != nil
 	if writeProviderKey {
 		k := strings.TrimSpace(*body.APIKey)
@@ -1150,10 +1214,64 @@ func (s *appServer) applySettings(body agentSettings) error {
 			cfg.ExternalClient.APIKey = k
 		}
 	}
-	if err := s.persistAgentConfig(writeProviderKey, writeOpenAIKey); err != nil {
+	if err := s.persistAgentConfig(writeProviderKey || writeProviders, writeOpenAIKey); err != nil {
 		return fmt.Errorf("persist config: %w", err)
 	}
 	return nil
+}
+
+func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, string, error) {
+	if len(body.ModelProviders) == 0 {
+		return nil, "", fmt.Errorf("at least one model provider required")
+	}
+	existing, _ := s.loadModelProvidersForSettings()
+	byID := map[string]modelProvider{}
+	for _, p := range existing {
+		byID[p.ID] = p
+	}
+	out := make([]modelProvider, 0, len(body.ModelProviders))
+	for _, in := range body.ModelProviders {
+		p := modelProvider{
+			ID:        strings.TrimSpace(in.ID),
+			Name:      strings.TrimSpace(in.Name),
+			BaseURL:   strings.TrimSpace(in.BaseURL),
+			Model:     strings.TrimSpace(in.Model),
+			Reasoning: strings.TrimSpace(in.Reasoning),
+		}
+		if p.BaseURL == "" {
+			return nil, "", fmt.Errorf("provider base_url required")
+		}
+		resolved, err := normalizeBaseURL(p.BaseURL)
+		if err != nil {
+			return nil, "", fmt.Errorf("provider %q: %w", p.Name, err)
+		}
+		p.BaseURL = resolved
+		if prev, ok := byID[p.ID]; ok {
+			p.APIKey = prev.APIKey
+		}
+		if k := strings.TrimSpace(in.APIKey); k != "" {
+			p.APIKey = k
+		}
+		if p.ID == "" {
+			p.ID = newModelProviderID()
+		}
+		if p.Name == "" {
+			p.Name = p.BaseURL
+		}
+		if p.Reasoning != "" {
+			switch p.Reasoning {
+			case "low", "medium", "high", "xhigh", "max":
+			default:
+				return nil, "", fmt.Errorf("provider %q: invalid reasoning", p.Name)
+			}
+		}
+		out = append(out, p)
+	}
+	active := strings.TrimSpace(body.ActiveModelProviderID)
+	if active == "" || modelProviderByID(out, active) == nil {
+		active = out[0].ID
+	}
+	return out, active, nil
 }
 
 func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
@@ -1169,20 +1287,51 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(p)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"connect":              p.Connect,
+			"access_secret":        p.AccessSecret,
+			"connections":          p.publicConnections(),
+			"active_connection_id": p.ActiveConnectionID,
+			"bg_light":             p.BgLight,
+			"bg_dark":              p.BgDark,
+			"workspace_id":         p.WorkspaceID,
+			"window_width":         p.WindowWidth,
+			"window_height":        p.WindowHeight,
+		})
 	case http.MethodPut, http.MethodPatch:
 		var body struct {
-			Connect      *string `json:"connect"`
-			AccessSecret *string `json:"access_secret"`
-			BgLight      *string `json:"bg_light"`
-			BgDark       *string `json:"bg_dark"`
-			WorkspaceID  *string `json:"workspace_id"`
+			Connect            *string              `json:"connect"`
+			AccessSecret       *string              `json:"access_secret"`
+			Connections        *[]connectionProfile `json:"connections"`
+			ActiveConnectionID *string              `json:"active_connection_id"`
+			BgLight            *string              `json:"bg_light"`
+			BgDark             *string              `json:"bg_dark"`
+			WorkspaceID        *string              `json:"workspace_id"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
 		if err := updateGuiPrefs(path, func(p *guiPrefs) {
+			if body.Connections != nil {
+				prevByID := map[string]connectionProfile{}
+				for _, c := range p.Connections {
+					prevByID[c.ID] = c
+				}
+				next := *body.Connections
+				for i := range next {
+					if strings.TrimSpace(next[i].AccessSecret) != "" {
+						continue
+					}
+					if prev, ok := prevByID[strings.TrimSpace(next[i].ID)]; ok && prev.AccessSecret != "" {
+						next[i].AccessSecret = prev.AccessSecret
+					}
+				}
+				p.Connections = next
+			}
+			if body.ActiveConnectionID != nil {
+				p.ActiveConnectionID = strings.TrimSpace(*body.ActiveConnectionID)
+			}
 			if body.Connect != nil {
 				p.Connect = strings.TrimSpace(*body.Connect)
 				if p.Connect == "" {
@@ -1206,6 +1355,42 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			if body.WorkspaceID != nil {
 				p.WorkspaceID = strings.TrimSpace(*body.WorkspaceID)
 			}
+			normalizeConnectionProfiles(p)
+			// If only legacy connect was patched without connections array, sync profiles.
+			if body.Connections == nil && body.Connect != nil {
+				_ = body
+				connect := strings.TrimSpace(*body.Connect)
+				secret := ""
+				if body.AccessSecret != nil {
+					secret = strings.TrimSpace(*body.AccessSecret)
+				} else {
+					secret = p.AccessSecret
+				}
+				if connect == "" {
+					p.ActiveConnectionID = localConnectionID
+				} else {
+					matched := false
+					for i := range p.Connections {
+						c := &p.Connections[i]
+						if c.Kind == connectionKindRemote && c.URL == connect {
+							if body.AccessSecret != nil {
+								c.AccessSecret = secret
+							}
+							p.ActiveConnectionID = c.ID
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						id := newConnectionID(connectionKindRemote)
+						p.Connections = append(p.Connections, connectionProfile{
+							ID: id, Name: "Remote", Kind: connectionKindRemote, URL: connect, AccessSecret: secret,
+						})
+						p.ActiveConnectionID = id
+					}
+				}
+				normalizeConnectionProfiles(p)
+			}
 		}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1228,7 +1413,14 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) er
 		return nil
 	}
 	cfg := &s.agent.Cfg
+	providers := s.pendingProviders
+	active := s.pendingActiveProvider
 	return updateConfiguration(path, func(fc *fileConfig) {
+		if providers != nil {
+			fc.ModelProviders = providers
+			fc.ActiveModelProviderID = active
+			fc.ensureModelProviders()
+		}
 		fc.API.BaseURL = cfg.BaseURL
 		fc.API.Model = cfg.Model
 		fc.API.Mode = cfg.Mode
@@ -1237,6 +1429,9 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) er
 		if writeProviderKey {
 			fc.API.Key = cfg.Key
 			fc.API.KeyFile = ""
+			if p := modelProviderByID(fc.ModelProviders, fc.ActiveModelProviderID); p != nil && cfg.Key != "" {
+				p.APIKey = cfg.Key
+			}
 		}
 		if writeOpenAIKey {
 			k := ""
@@ -1245,6 +1440,9 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) er
 			}
 			fc.OpenAI.Key = k
 			fc.OpenAI.KeyFile = ""
+		}
+		if len(fc.ModelProviders) > 0 {
+			fc.mirrorActiveModelProvider()
 		}
 	})
 }

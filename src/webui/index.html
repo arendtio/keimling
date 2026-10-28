@@ -16,32 +16,41 @@
 
       <div class="settings-tabs" id="settings-tabs" hidden role="tablist" aria-label="Settings sections">
         <button type="button" class="settings-tab active" data-tab="connection" role="tab" aria-selected="true">Connection</button>
-        <button type="button" class="settings-tab" data-tab="agent" role="tab" aria-selected="false">Agent</button>
+        <button type="button" class="settings-tab" data-tab="models" role="tab" aria-selected="false">Models</button>
         <button type="button" class="settings-tab" data-tab="skills" role="tab" aria-selected="false">Skills</button>
         <button type="button" class="settings-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
       </div>
 
       <div id="pane-connection" class="settings-pane" role="tabpanel">
-        <p class="settings-lead">How this UI talks to a Keimling process: embedded in the same window, or a separate agent server (CLI <code>--server</code> / remote attach).</p>
-        <p class="settings-section-title">UI mode</p>
-        <div class="choice-stack" role="radiogroup" aria-label="UI mode">
-          <button type="button" id="choice-local" class="choice-card active" aria-pressed="true">
-            This window
-            <span class="choice-desc">Local desktop agent on this machine. If you are currently viewing a remote agent, Continue switches back (or relaunches local).</span>
-          </button>
-          <button type="button" id="choice-remote" class="choice-card" aria-pressed="false">
-            Remote agent
-            <span class="choice-desc">Open the agent server URL in this window (same as <code>--connect</code>). Tools run on that host.</span>
-          </button>
+        <p class="settings-lead">Saved ways this UI reaches a Keimling process. Only one is active; Continue reconnects using the selected profile.</p>
+        <p class="settings-section-title">Profiles</p>
+        <ul id="connection-list" class="profile-list" aria-label="Connections"></ul>
+        <button type="button" id="connection-new" class="ghost wide">New remote…</button>
+        <div id="connection-editor" class="profile-editor" hidden>
+          <label>Name
+            <input id="conn-edit-name" type="text" autocomplete="off">
+          </label>
+          <label id="conn-edit-url-wrap">Server URL
+            <input id="conn-edit-url" type="url" placeholder="http://host:7420" autocomplete="off">
+          </label>
+          <label id="conn-edit-secret-wrap">Access secret
+            <input id="conn-edit-secret" type="password" autocomplete="off" placeholder="">
+          </label>
+          <p id="conn-edit-hint" class="hint"></p>
+          <div class="skills-row">
+            <button type="button" id="conn-edit-cancel" class="ghost">Cancel</button>
+            <button type="button" id="conn-edit-save">Save profile</button>
+            <button type="button" id="conn-edit-delete" class="ghost danger" hidden>Delete</button>
+          </div>
         </div>
-
-        <label id="url-field" hidden>Agent server URL
-          <input id="connect-url" type="url" placeholder="http://host:7420" autocomplete="off">
-        </label>
-        <label id="secret-field">Access secret
-          <input id="secret" type="password" autocomplete="off">
-        </label>
-        <p id="local-hint" class="hint" hidden>Local embedded agents do not need a secret — continue to resume.</p>
+        <p id="local-hint" class="hint">Local “This window” needs no secret when you are already on the desktop agent.</p>
+        <!-- Legacy fields kept for JS wiring / Continue (hidden; driven by active profile). -->
+        <input id="connect-url" type="hidden" value="">
+        <input id="secret" type="hidden" value="">
+        <div id="choice-local" hidden></div>
+        <div id="choice-remote" hidden></div>
+        <div id="url-field" hidden></div>
+        <div id="secret-field" hidden></div>
 
         <p class="settings-section-title">Appearance</p>
         <p class="hint">Page background for light and dark (follows the system color scheme). Defaults match KDE Breeze.</p>
@@ -55,30 +64,53 @@
       </div>
 
       <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">Anyone with the access secret can change these on the server. Values are written to the process config file when you save.</p>
+        <p class="settings-lead">Model providers for this Keimling process. One is active; behaviour knobs apply to the running agent.</p>
 
-        <p class="settings-section-title">Model provider</p>
-        <p class="hint">Chat, tools, and reasoning use this endpoint and key (OpenAI, OpenRouter, local server, …).</p>
-        <label>API base URL
-          <input id="set-base-url" type="url" placeholder="https://api.openai.com/v1" autocomplete="off">
-        </label>
-        <p class="hint">Examples: <code>https://openrouter.ai/api/v1</code>, <code>http://127.0.0.1:8080/v1</code>.</p>
-        <label>Provider API key
-          <input id="set-api-key" type="password" autocomplete="off" placeholder="">
-        </label>
-        <p id="api-key-hint" class="hint">Leave blank to keep the current key.</p>
-        <label>Model
-          <input id="set-model" type="text" autocomplete="off">
-        </label>
-        <label>Reasoning
-          <select id="set-reasoning">
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-            <option value="xhigh">xhigh</option>
-            <option value="max">max</option>
-          </select>
-        </label>
+        <p class="settings-section-title">Providers</p>
+        <ul id="provider-list" class="profile-list" aria-label="Model providers"></ul>
+        <button type="button" id="provider-new" class="ghost wide">New provider…</button>
+        <div id="provider-editor" class="profile-editor" hidden>
+          <label>Name
+            <input id="prov-edit-name" type="text" autocomplete="off" placeholder="OpenRouter">
+          </label>
+          <label>API base URL
+            <input id="prov-edit-base-url" type="url" placeholder="https://openrouter.ai/api/v1" autocomplete="off">
+          </label>
+          <p class="hint">Examples: <code>https://api.openai.com/v1</code>, <code>http://127.0.0.1:8080/v1</code>.</p>
+          <label>API key
+            <input id="prov-edit-api-key" type="password" autocomplete="off" placeholder="">
+          </label>
+          <p id="api-key-hint" class="hint">Leave blank to keep the current key.</p>
+          <label>Default model
+            <input id="prov-edit-model" type="text" autocomplete="off">
+          </label>
+          <label>Reasoning
+            <select id="prov-edit-reasoning">
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
+            </select>
+          </label>
+          <div class="skills-row">
+            <button type="button" id="prov-edit-cancel" class="ghost">Cancel</button>
+            <button type="button" id="prov-edit-save">Save provider</button>
+            <button type="button" id="prov-edit-delete" class="ghost danger" hidden>Delete</button>
+          </div>
+        </div>
+
+        <!-- Mirrored from active provider for legacy save path / display -->
+        <input id="set-base-url" type="hidden" value="">
+        <input id="set-api-key" type="hidden" value="">
+        <input id="set-model" type="hidden" value="">
+        <select id="set-reasoning" hidden>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="xhigh">xhigh</option>
+          <option value="max">max</option>
+        </select>
 
         <p class="settings-section-title">OpenAI services</p>
         <p class="hint">Separate key for web search and voice transcription only. Not sent to a custom model provider.</p>
@@ -120,7 +152,7 @@
 
       <div class="gate-actions">
         <button id="gate-cancel" type="button" class="ghost" hidden>Cancel</button>
-        <button id="save-settings" type="button" hidden>Save agent settings</button>
+        <button id="save-settings" type="button" hidden>Save model settings</button>
         <button id="connect" type="button">Continue</button>
       </div>
       <p id="gate-err" class="gate-err" hidden></p>

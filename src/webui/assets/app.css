@@ -451,6 +451,49 @@ button.wide { width: 100%; max-width: 100%; }
   color: var(--fg);
 }
 .agent-actions button.danger { color: var(--danger); }
+.profile-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.profile-list li {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+.profile-list .profile-pick {
+  flex: 1 1 auto;
+  text-align: left;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  font-weight: 500;
+}
+.profile-list .profile-pick.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.profile-list .profile-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+.profile-list .profile-edit-btn {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+}
+.profile-editor {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.65rem 0 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
 .agent-def-pane { display: grid; gap: 0.65rem; }
 .agent-def-field {
   display: grid;
