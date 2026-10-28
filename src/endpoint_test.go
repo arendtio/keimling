@@ -21,7 +21,7 @@ func TestCustomEndpointNoKey(t *testing.T) {
 	defer srv.Close()
 	c := NewClient("")
 	c.BaseURL = srv.URL + "/v1"
-	if _, e := c.Respond(context.Background(), "local-model", "low", nil, false, ""); e != nil {
+	if _, e := c.Respond(context.Background(), "local-model", "low", nil, false, "", nil); e != nil {
 		t.Fatal(e)
 	}
 }

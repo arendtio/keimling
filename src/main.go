@@ -72,11 +72,12 @@ type fileConfig struct {
 		WebSearch               *bool `json:"web_search"`
 		DisableExternalServices bool  `json:"disable_external_services"`
 	} `json:"features"`
-	Presentation string `json:"presentation"`
-	Listen       string `json:"listen"`
-	Connect      string `json:"connect"`
-	AccessSecret string `json:"access_secret"`
-	PublicURL    string `json:"public_url"`
+	Presentation string                     `json:"presentation"`
+	Listen       string                     `json:"listen"`
+	Connect      string                     `json:"connect"`
+	AccessSecret string                     `json:"access_secret"`
+	PublicURL    string                     `json:"public_url"`
+	MCPServers   map[string]MCPServerConfig `json:"mcpServers,omitempty"`
 }
 
 func readConfiguration(path string) (fileConfig, error) {
@@ -358,7 +359,7 @@ func main() {
 	}
 	defer journal.Close()
 	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/")}
-	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry("")}
+	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager()}
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
 	} else {
@@ -371,6 +372,8 @@ func main() {
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	a.SessionCtx = sessionCtx
 	defer sessionCancel()
+	a.MCP.ConnectAll(sessionCtx, LoadMCPServerConfigs(c.ConfigPath))
+	defer a.MCP.Close()
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(c.SessionPath)
 	if *disableExternal {
 		a.Cfg.ExternalClient = nil
@@ -463,6 +466,10 @@ func main() {
 		}
 		if line == "/skills" || strings.HasPrefix(line, "/skills ") {
 			handleSkillsCommand(a, strings.TrimSpace(strings.TrimPrefix(line, "/skills")))
+			continue
+		}
+		if line == "/mcp" || strings.HasPrefix(line, "/mcp ") {
+			handleMCPCommand(a, strings.TrimSpace(strings.TrimPrefix(line, "/mcp")))
 			continue
 		}
 		if line == "/newchat" {
@@ -594,6 +601,10 @@ func printHelp() {
 	fmt.Println("  /skills add PATH  Install skill from local directory or SKILL.md")
 	fmt.Println("  /skills search Q  Search the web for public skills")
 	fmt.Println("  /skills install N|URL  Install search hit #N or a SKILL.md URL")
+	fmt.Println("  /mcp              List MCP servers (backend clients; no browser CORS)")
+	fmt.Println("  /mcp reload       Reconnect MCP servers from mcp.json")
+	fmt.Println("  /mcp add NAME -- CMD… | --url URL   Persist to ~/.config/keimling/mcp.json")
+	fmt.Println("  /mcp remove NAME  Remove from user mcp.json")
 	fmt.Println("  /mode             Show current approval mode")
 	fmt.Println("  /mode auto        Review commands; ask before sensitive changes")
 	fmt.Println("  /mode ask         Confirm changing commands")

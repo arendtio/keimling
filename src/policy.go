@@ -97,6 +97,9 @@ func forceApproval(name, args string) (bool, string) {
 	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" {
 		return false, ""
 	}
+	if isMCPTool(name) {
+		return true, "MCP tool call"
+	}
 	if name == "read_file" || name == "share_file" {
 		var a struct {
 			Path string `json:"path"`

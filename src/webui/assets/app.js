@@ -29,6 +29,18 @@
   var skillsAddBtn = document.getElementById("skills-add-btn");
   var skillsSearchBtn = document.getElementById("skills-search-btn");
   var skillsErr = document.getElementById("skills-err");
+  var openMcpBtn = document.getElementById("open-mcp");
+  var mcpDialog = document.getElementById("mcp-dialog");
+  var mcpList = document.getElementById("mcp-list");
+  var mcpName = document.getElementById("mcp-name");
+  var mcpKind = document.getElementById("mcp-kind");
+  var mcpCommand = document.getElementById("mcp-command");
+  var mcpUrl = document.getElementById("mcp-url");
+  var mcpStdioRow = document.getElementById("mcp-stdio-row");
+  var mcpUrlRow = document.getElementById("mcp-url-row");
+  var mcpAddBtn = document.getElementById("mcp-add-btn");
+  var mcpReloadBtn = document.getElementById("mcp-reload-btn");
+  var mcpErr = document.getElementById("mcp-err");
   var newChatBtn = document.getElementById("new-chat");
   var settingsTabs = document.getElementById("settings-tabs");
   var paneConnection = document.getElementById("pane-connection");
@@ -1160,6 +1172,169 @@
         })
         .catch(function (e) { showSkillsErr(e.message || e); })
         .finally(function () { skillsSearchBtn.disabled = false; });
+    });
+  }
+
+  function showMcpErr(msg) {
+    if (!mcpErr) return;
+    if (!msg) {
+      mcpErr.hidden = true;
+      mcpErr.textContent = "";
+      return;
+    }
+    mcpErr.hidden = false;
+    mcpErr.textContent = msg;
+  }
+  function syncMcpKindUI() {
+    var kind = (mcpKind && mcpKind.value) || "stdio";
+    var remote = kind === "http" || kind === "sse";
+    if (mcpStdioRow) mcpStdioRow.hidden = remote;
+    if (mcpUrlRow) mcpUrlRow.hidden = !remote;
+  }
+  function renderMcpServers(servers) {
+    if (!mcpList) return;
+    mcpList.innerHTML = "";
+    if (!servers || !servers.length) {
+      var empty = document.createElement("li");
+      empty.className = "skill-meta";
+      empty.textContent = "No MCP servers configured.";
+      mcpList.appendChild(empty);
+      return;
+    }
+    servers.forEach(function (s) {
+      var li = document.createElement("li");
+      var title = document.createElement("div");
+      title.className = "skill-name";
+      title.textContent = s.name || "";
+      var meta = document.createElement("div");
+      meta.className = "skill-meta";
+      meta.textContent = (s.transport || "") + " · " + (s.status || "") +
+        (s.error ? " — " + s.error : "") +
+        (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : "");
+      var tools = document.createElement("div");
+      tools.className = "skill-desc";
+      tools.textContent = (s.tools || []).join(", ");
+      var rm = document.createElement("button");
+      rm.type = "button";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", function () {
+        showMcpErr("");
+        rm.disabled = true;
+        fetch(apiURL("/api/mcp/remove"), {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ name: s.name }),
+        })
+          .then(function (r) {
+            return r.text().then(function (t) {
+              if (!r.ok) throw new Error(t || r.status);
+            });
+          })
+          .then(function () { return loadMcpList(); })
+          .catch(function (e) { showMcpErr(e.message || e); })
+          .finally(function () { rm.disabled = false; });
+      });
+      li.appendChild(title);
+      li.appendChild(meta);
+      if (s.tools && s.tools.length) li.appendChild(tools);
+      li.appendChild(rm);
+      mcpList.appendChild(li);
+    });
+  }
+  function loadMcpList() {
+    return fetch(apiURL("/api/mcp"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
+        renderMcpServers(j.servers || []);
+      });
+  }
+  function openMcpDialog() {
+    if (!connected || !mcpDialog) return;
+    showMcpErr("");
+    syncMcpKindUI();
+    loadMcpList()
+      .then(function () {
+        if (typeof mcpDialog.showModal === "function") mcpDialog.showModal();
+        else mcpDialog.setAttribute("open", "");
+      })
+      .catch(function (err) {
+        appendLive("\n[mcp] " + err + "\n");
+      });
+  }
+  if (openMcpBtn) {
+    openMcpBtn.addEventListener("click", openMcpDialog);
+  }
+  if (mcpKind) {
+    mcpKind.addEventListener("change", syncMcpKindUI);
+  }
+  if (mcpReloadBtn) {
+    mcpReloadBtn.addEventListener("click", function () {
+      showMcpErr("");
+      mcpReloadBtn.disabled = true;
+      fetch(apiURL("/api/mcp/reload"), { method: "POST", headers: headers() })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && j.error) || r.status);
+            return j;
+          });
+        })
+        .then(function (j) { renderMcpServers(j.servers || []); })
+        .catch(function (e) { showMcpErr(e.message || e); })
+        .finally(function () { mcpReloadBtn.disabled = false; });
+    });
+  }
+  if (mcpAddBtn) {
+    mcpAddBtn.addEventListener("click", function () {
+      showMcpErr("");
+      var name = (mcpName && mcpName.value || "").trim();
+      if (!name) {
+        showMcpErr("Name required.");
+        return;
+      }
+      var kind = (mcpKind && mcpKind.value) || "stdio";
+      var body = { name: name };
+      if (kind === "stdio") {
+        var line = (mcpCommand && mcpCommand.value || "").trim();
+        if (!line) {
+          showMcpErr("Command required.");
+          return;
+        }
+        var parts = line.split(/\s+/);
+        body.command = parts[0];
+        body.args = parts.slice(1);
+      } else {
+        var url = (mcpUrl && mcpUrl.value || "").trim();
+        if (!url) {
+          showMcpErr("URL required.");
+          return;
+        }
+        body.url = url;
+        body.type = kind === "sse" ? "sse" : "streamableHttp";
+      }
+      mcpAddBtn.disabled = true;
+      fetch(apiURL("/api/mcp/add"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(body),
+      })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            if (!r.ok) throw new Error(t || r.status);
+          });
+        })
+        .then(function () {
+          if (mcpName) mcpName.value = "";
+          if (mcpCommand) mcpCommand.value = "";
+          if (mcpUrl) mcpUrl.value = "";
+          return loadMcpList();
+        })
+        .catch(function (e) { showMcpErr(e.message || e); })
+        .finally(function () { mcpAddBtn.disabled = false; });
     });
   }
 

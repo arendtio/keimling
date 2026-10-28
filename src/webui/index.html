@@ -123,6 +123,7 @@
 
         <div class="sidebar-foot">
           <button type="button" id="open-skills" class="ghost wide">Skills</button>
+          <button type="button" id="open-mcp" class="ghost wide">MCP</button>
           <button type="button" id="open-context" class="ghost wide">Context</button>
           <button type="button" id="new-chat" class="ghost wide">New chat</button>
           <button type="button" id="open-connection" class="ghost wide">Settings</button>
@@ -160,6 +161,44 @@
             <ul id="skills-results" class="skills-list"></ul>
           </section>
           <p id="skills-err" class="gate-err" hidden></p>
+        </form>
+      </dialog>
+
+      <dialog id="mcp-dialog" class="context-dialog">
+        <form method="dialog" class="context-panel" id="mcp-form">
+          <header class="context-head">
+            <h2>MCP</h2>
+            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
+          </header>
+          <p class="hint">Model Context Protocol servers run in the Keimling backend (no browser CORS). Tools are exposed as mcp__server__tool.</p>
+          <section>
+            <h3>Servers</h3>
+            <ul id="mcp-list" class="skills-list"></ul>
+            <div class="skills-row">
+              <button type="button" id="mcp-reload-btn" class="ghost">Reload</button>
+            </div>
+          </section>
+          <section>
+            <h3>Add server</h3>
+            <div class="skills-row">
+              <input id="mcp-name" type="text" placeholder="name" autocomplete="off">
+              <select id="mcp-kind" aria-label="Transport">
+                <option value="stdio">stdio</option>
+                <option value="http">HTTP</option>
+                <option value="sse">SSE</option>
+              </select>
+            </div>
+            <div class="skills-row" id="mcp-stdio-row">
+              <input id="mcp-command" type="text" placeholder="command and args (e.g. npx -y @modelcontextprotocol/server-everything)" autocomplete="off">
+            </div>
+            <div class="skills-row" id="mcp-url-row" hidden>
+              <input id="mcp-url" type="text" placeholder="https://…" autocomplete="off">
+            </div>
+            <div class="skills-row">
+              <button type="button" id="mcp-add-btn">Add</button>
+            </div>
+          </section>
+          <p id="mcp-err" class="gate-err" hidden></p>
         </form>
       </dialog>
 

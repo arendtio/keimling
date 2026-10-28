@@ -19,6 +19,7 @@ type Agent struct {
 	History              []json.RawMessage
 	Charter              *Charter
 	Skills               *SkillRegistry
+	MCP                  *MCPManager
 	TaskActive           bool
 	TaskDone             bool
 	TaskBlocked          bool
@@ -316,7 +317,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				}
 			}
 		}()
-		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock())
+		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock(), a.mcpToolDefs())
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil
@@ -570,6 +571,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 								}
 							}
 						}
+					} else if isMCPTool(item.Name) {
+						result = a.ensureMCP().Call(ctx, item.Name, item.Arguments)
+						a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
 					} else {
 						if a.Control != nil && toolNeedsTerminal(item.Name, item.Arguments) {
 							a.Control.takeTerminal()
