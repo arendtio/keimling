@@ -160,6 +160,7 @@
             <span class="settings-section-title">Threads</span>
             <button type="button" id="new-chat" class="ghost threads-new" title="New thread">New</button>
           </div>
+          <input id="thread-search" type="search" placeholder="Search titles & content…" autocomplete="off" aria-label="Search threads">
           <nav id="thread-list" class="thread-list" aria-label="Threads"></nav>
         </div>
 
@@ -279,20 +280,23 @@
       </dialog>
 
       <main class="main">
-        <div class="column">
-          <header class="paper-toolbar">
-            <div class="paper-toolbar-left">
-              <button type="button" id="chapters-toggle" class="ghost" aria-expanded="false" aria-controls="chapters-flyout">Chapters</button>
-              <div id="chapters-flyout" class="chapters-flyout" hidden>
-                <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
-              </div>
+        <header class="paper-toolbar">
+          <div class="paper-toolbar-left">
+            <button type="button" id="chapters-toggle" class="ghost" aria-expanded="false" aria-controls="chapters-flyout">Chapters</button>
+            <div id="chapters-flyout" class="chapters-flyout" hidden>
+              <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
             </div>
-            <div class="paper-toolbar-right">
-              <button type="button" id="open-context" class="ghost">Context</button>
-              <button type="button" id="open-artifacts" class="ghost">Artifacts</button>
+          </div>
+          <div class="paper-toolbar-right">
+            <button type="button" id="paper-menu-toggle" class="ghost" aria-expanded="false" aria-controls="paper-menu" aria-haspopup="menu">More</button>
+            <div id="paper-menu" class="paper-menu" role="menu" hidden>
+              <button type="button" id="open-context" role="menuitem">Context</button>
+              <button type="button" id="open-artifacts" role="menuitem">Artifacts</button>
             </div>
-          </header>
+          </div>
+        </header>
 
+        <div class="column">
           <details id="working-wrap" class="block" hidden>
             <summary>Working state</summary>
             <pre id="working" class="block-body"></pre>

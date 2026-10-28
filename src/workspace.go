@@ -338,6 +338,97 @@ func isProvisionalThreadTitle(title string) bool {
 	return false
 }
 
+// searchThreads returns threads whose title/id or journal text match query (case-insensitive).
+func searchThreads(workspaceID, query string) ([]ThreadMeta, error) {
+	query = strings.TrimSpace(query)
+	all, err := listThreads(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if query == "" {
+		return all, nil
+	}
+	q := strings.ToLower(query)
+	out := make([]ThreadMeta, 0, len(all))
+	for _, th := range all {
+		if threadMatchesQuery(workspaceID, th, q) {
+			out = append(out, th)
+		}
+	}
+	return out, nil
+}
+
+func threadMatchesQuery(workspaceID string, th ThreadMeta, qLower string) bool {
+	if strings.Contains(strings.ToLower(th.Title), qLower) || strings.Contains(strings.ToLower(th.ID), qLower) {
+		return true
+	}
+	events, err := originalEvents(threadSessionPath(workspaceID, th.ID))
+	if err != nil {
+		return false
+	}
+	for _, raw := range events {
+		if strings.Contains(strings.ToLower(threadSearchText(raw)), qLower) {
+			return true
+		}
+	}
+	return false
+}
+
+func threadSearchText(raw json.RawMessage) string {
+	if label := eventLabel(raw); label != "" {
+		return label
+	}
+	var v struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+		Type    string          `json:"type"`
+		Output  string          `json:"output"`
+	}
+	if json.Unmarshal(raw, &v) != nil {
+		return ""
+	}
+	var parts []string
+	if v.Role == "assistant" || v.Role == "user" {
+		var s string
+		if json.Unmarshal(v.Content, &s) == nil {
+			parts = append(parts, s)
+		} else {
+			var chunks []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(v.Content, &chunks) == nil {
+				for _, c := range chunks {
+					if c.Text != "" {
+						parts = append(parts, c.Text)
+					}
+				}
+			}
+		}
+	}
+	if v.Type == "function_call_output" && v.Output != "" {
+		parts = append(parts, v.Output)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// deleteThreadDir permanently removes a thread's journal and metadata.
+func deleteThreadDir(workspaceID, threadID string) error {
+	workspaceID = strings.TrimSpace(workspaceID)
+	threadID = strings.TrimSpace(threadID)
+	if workspaceID == "" || threadID == "" {
+		return fmt.Errorf("workspace and thread required")
+	}
+	dir := threadDir(workspaceID, threadID)
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("unknown thread %q", threadID)
+		}
+		return err
+	}
+	return os.RemoveAll(dir)
+}
+
 func readActiveThreadID(workspaceID string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(workspaceDir(workspaceID), workspaceActiveFile))
 	if err != nil {

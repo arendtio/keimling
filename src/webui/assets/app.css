@@ -415,24 +415,31 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .threads-head .settings-section-title { margin: 0; }
 .threads-new { padding: 0.25rem 0.55rem; font-size: 0.8rem; }
+#thread-search {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--panel);
+}
 .thread-list {
   display: grid;
   gap: 0.2rem;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   min-height: 0;
+  min-width: 0;
   align-content: start;
 }
 .thread-item {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
+  position: relative;
+  display: block;
   width: 100%;
-  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
   background: transparent;
   color: var(--fg);
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 0.45rem 0.5rem;
+  padding: 0;
   font-weight: 500;
   font-size: 0.86rem;
 }
@@ -451,19 +458,76 @@ button.wide { width: 100%; max-width: 100%; }
 .thread-status.running { background: var(--accent); }
 .thread-status.awaiting_approval { background: var(--live-warn); }
 .thread-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.thread-open {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  cursor: pointer;
+}
+.thread-delete {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  transform: translateY(-50%);
+  z-index: 1;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+}
+.thread-item:hover .thread-delete,
+.thread-item:focus-within .thread-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.thread-delete:hover {
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel-2));
+}
+.thread-list-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+}
+.thread-show-all {
+  margin-top: 0.25rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
 
 .paper-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  margin: 0 0 0.75rem;
-  position: relative;
-  z-index: 5;
+  margin: 0;
+  padding: 0.65rem 0.85rem 0.55rem;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
 }
 .paper-toolbar-left,
 .paper-toolbar-right {
@@ -471,21 +535,40 @@ button.wide { width: 100%; max-width: 100%; }
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: flex-start;
+  position: relative;
 }
-.paper-toolbar-left { position: relative; }
-.chapters-flyout {
+.chapters-flyout,
+.paper-menu {
   position: absolute;
   top: calc(100% + 0.35rem);
-  left: 0;
-  min-width: 14rem;
+  min-width: 11rem;
   max-width: min(22rem, 70vw);
   max-height: 50vh;
   overflow: auto;
-  padding: 0.45rem;
+  padding: 0.35rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 10px 28px color-mix(in srgb, #000 18%, transparent);
+}
+.chapters-flyout { left: 0; }
+.paper-menu {
+  right: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+.paper-menu button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  font-weight: 500;
+}
+.paper-menu button:hover {
+  background: var(--panel-2);
 }
 .chapters-flyout .chapters { display: grid; gap: 0.15rem; }
 
@@ -494,7 +577,7 @@ button.wide { width: 100%; max-width: 100%; }
   --paper-top: 3.25rem; /* chrome gap above the paper sheet */
   min-width: 0;
   margin: var(--paper-top) 0.65rem 0 0;
-  padding: 1.25rem 0 2rem;
+  padding: 0 0 2rem;
   background: var(--panel);
   min-height: calc(100vh - var(--paper-top));
   border-top: 1px solid var(--paper-edge);
@@ -505,6 +588,7 @@ button.wide { width: 100%; max-width: 100%; }
 .column {
   width: min(var(--col), calc(100% - 2rem));
   margin: 0 auto;
+  padding-top: 0.85rem;
   display: grid;
   gap: 0.85rem;
 }

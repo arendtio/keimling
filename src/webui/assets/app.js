@@ -96,11 +96,20 @@
   var workspacePath = document.getElementById("workspace-path");
   var workspaceOpenBtn = document.getElementById("workspace-open-btn");
   var threadListEl = document.getElementById("thread-list");
+  var threadSearchEl = document.getElementById("thread-search");
   var chaptersToggle = document.getElementById("chapters-toggle");
   var chaptersFlyout = document.getElementById("chapters-flyout");
+  var paperMenuToggle = document.getElementById("paper-menu-toggle");
+  var paperMenu = document.getElementById("paper-menu");
   var workspacesCache = [];
+  var threadsCache = [];
+  var threadsListState = "idle";
+  var threadsShowAll = false;
+  var threadsSearchTimer = null;
+  var threadsSearchActive = false;
   var currentWorkspaceID = "";
   var currentThreadID = "";
+  var THREAD_RECENT_LIMIT = 5;
   var setBaseURL = document.getElementById("set-base-url");
   var setAPIKey = document.getElementById("set-api-key");
   var setOpenAIAPIKey = document.getElementById("set-openai-api-key");
@@ -503,26 +512,9 @@
       liveWrap.open = true;
     }
     if (threadListEl && currentThreadID) {
-      renderThreadList({
-        current: currentThreadID,
-        state: agentState,
-        threads: collectThreadListSnapshot(),
-      });
+      threadsListState = agentState;
+      renderThreadListFromCache();
     }
-  }
-
-  function collectThreadListSnapshot() {
-    var out = [];
-    if (!threadListEl) return out;
-    threadListEl.querySelectorAll(".thread-item").forEach(function (btn) {
-      var title = btn.querySelector(".thread-title");
-      out.push({
-        id: btn.title || (title && title.textContent) || "",
-        title: title ? title.textContent : "",
-        active: btn.classList.contains("active"),
-      });
-    });
-    return out;
   }
 
   function setAnsiPre(el, text) {
@@ -630,6 +622,16 @@
     if (!chaptersFlyout || !chaptersToggle) return;
     chaptersFlyout.hidden = true;
     chaptersToggle.setAttribute("aria-expanded", "false");
+  }
+
+  function setPaperMenuOpen(open) {
+    if (!paperMenu || !paperMenuToggle) return;
+    paperMenu.hidden = !open;
+    paperMenuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function closePaperMenu() {
+    setPaperMenuOpen(false);
   }
 
   function setWorkspaceMenuOpen(open) {
@@ -753,42 +755,125 @@
       });
   }
 
-  function renderThreadList(payload) {
+  function visibleThreads(all, currentID) {
+    all = all || [];
+    if (threadsSearchActive || threadsShowAll) {
+      return all.slice();
+    }
+    var out = [];
+    var seen = {};
+    all.slice(0, THREAD_RECENT_LIMIT).forEach(function (th) {
+      out.push(th);
+      seen[th.id] = true;
+    });
+    if (currentID && !seen[currentID]) {
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].id === currentID) {
+          out.push(all[i]);
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  function renderThreadListFromCache() {
     if (!threadListEl) return;
-    payload = payload || {};
-    var threads = payload.threads || [];
-    var state = payload.state || agentState || "idle";
-    currentThreadID = payload.current || currentThreadID;
+    var state = threadsListState || agentState || "idle";
+    var query = threadSearchEl ? String(threadSearchEl.value || "").trim() : "";
+    var threads = visibleThreads(threadsCache, currentThreadID);
     threadListEl.innerHTML = "";
-    if (!threads.length) {
+    if (!threadsCache.length) {
       var empty = document.createElement("p");
       empty.className = "hint";
-      empty.textContent = "No threads yet";
+      empty.textContent = query ? "No matching threads" : "No threads yet";
       threadListEl.appendChild(empty);
       return;
     }
+    if (!threads.length) {
+      var none = document.createElement("p");
+      none.className = "hint";
+      none.textContent = "No threads to show";
+      threadListEl.appendChild(none);
+      return;
+    }
     threads.forEach(function (th) {
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "thread-item" + (th.id === currentThreadID || th.active ? " active" : "");
+      var row = document.createElement("div");
+      row.className = "thread-item" + (th.id === currentThreadID || th.active ? " active" : "");
+      row.title = th.id;
+
+      var open = document.createElement("button");
+      open.type = "button";
+      open.className = "thread-open";
       var st = document.createElement("span");
       st.className = "thread-status" + (th.id === currentThreadID || th.active ? " " + state : "");
       var title = document.createElement("span");
       title.className = "thread-title";
       title.textContent = th.title || th.id;
-      btn.appendChild(st);
-      btn.appendChild(title);
-      btn.title = th.id;
-      btn.addEventListener("click", function () {
+      open.appendChild(st);
+      open.appendChild(title);
+      open.addEventListener("click", function () {
         switchThread(th.id);
       });
-      threadListEl.appendChild(btn);
+
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "thread-delete";
+      del.textContent = "Delete";
+      del.title = "Delete thread permanently";
+      del.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteThread(th.id, th.title || th.id);
+      });
+
+      row.appendChild(open);
+      row.appendChild(del);
+      threadListEl.appendChild(row);
     });
+    if (!query && threadsCache.length > THREAD_RECENT_LIMIT) {
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "ghost wide thread-show-all";
+      toggle.textContent = threadsShowAll
+        ? "Show recent only"
+        : "Show all (" + threadsCache.length + ")";
+      toggle.addEventListener("click", function () {
+        threadsShowAll = !threadsShowAll;
+        renderThreadListFromCache();
+      });
+      threadListEl.appendChild(toggle);
+      if (!threadsShowAll) {
+        var hint = document.createElement("p");
+        hint.className = "hint thread-list-hint";
+        hint.textContent = "Showing " + THREAD_RECENT_LIMIT + " recent · search title & content";
+        threadListEl.appendChild(hint);
+      }
+    } else if (query) {
+      var sh = document.createElement("p");
+      sh.className = "hint thread-list-hint";
+      sh.textContent = threadsCache.length + " match" + (threadsCache.length === 1 ? "" : "es") + " in titles & content";
+      threadListEl.appendChild(sh);
+    }
   }
 
-  function loadThreads() {
+  function renderThreadList(payload) {
+    payload = payload || {};
+    threadsCache = payload.threads || [];
+    threadsListState = payload.state || agentState || "idle";
+    currentThreadID = payload.current || currentThreadID;
+    threadsSearchActive = !!(payload.query && String(payload.query).trim());
+    renderThreadListFromCache();
+  }
+
+  function loadThreads(query) {
     if (!connected) return Promise.resolve();
-    return fetch(apiURL("/api/threads"), { headers: headers() })
+    var q = query == null
+      ? (threadSearchEl ? String(threadSearchEl.value || "").trim() : "")
+      : String(query || "").trim();
+    var url = apiURL("/api/threads");
+    if (q) url += "?q=" + encodeURIComponent(q);
+    return fetch(url, { headers: headers() })
       .then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok) throw new Error((j && j.error) || r.status);
@@ -800,14 +885,24 @@
       });
   }
 
+  function scheduleThreadSearch() {
+    if (threadsSearchTimer) clearTimeout(threadsSearchTimer);
+    threadsSearchTimer = setTimeout(function () {
+      threadsSearchTimer = null;
+      loadThreads();
+    }, 280);
+  }
+
   function updateThreadTitle(p) {
     p = p || {};
-    if (!p.id || !p.title || !threadListEl) return;
-    threadListEl.querySelectorAll(".thread-item").forEach(function (btn) {
-      if (btn.title !== p.id) return;
-      var title = btn.querySelector(".thread-title");
-      if (title) title.textContent = p.title;
-    });
+    if (!p.id || !p.title) return;
+    for (var i = 0; i < threadsCache.length; i++) {
+      if (threadsCache[i].id === p.id) {
+        threadsCache[i].title = p.title;
+        break;
+      }
+    }
+    renderThreadListFromCache();
   }
 
   function switchThread(id) {
@@ -824,6 +919,31 @@
         });
       })
       .then(function () {
+        return loadSession();
+      })
+      .then(function () {
+        return loadThreads();
+      })
+      .catch(function (err) {
+        appendLive("\n[threads] " + err + "\n");
+      });
+  }
+
+  function deleteThread(id, label) {
+    if (!id) return;
+    if (agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval") return;
+    var name = label || id;
+    if (!window.confirm("Delete thread “" + name + "” permanently?\n\nThis cannot be undone. The conversation and its local data will be removed.")) {
+      return;
+    }
+    fetch(apiURL("/api/threads/delete"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(readAPIResult)
+      .then(function (j) {
+        currentThreadID = j.thread_id || currentThreadID;
         return loadSession();
       })
       .then(function () {
@@ -1411,7 +1531,10 @@
       });
   }
   if (openContextBtn) {
-    openContextBtn.addEventListener("click", openContextDialog);
+    openContextBtn.addEventListener("click", function () {
+      closePaperMenu();
+      openContextDialog();
+    });
   }
   if (contextCompactBtn) {
     contextCompactBtn.addEventListener("click", function (e) {
@@ -2106,6 +2229,7 @@
   });
   if (openArtifactsBtn) {
     openArtifactsBtn.addEventListener("click", function () {
+      closePaperMenu();
       if (!connected) return;
       loadArtifactsList()
         .then(function (items) {
@@ -2219,6 +2343,12 @@
     });
   }
 
+  if (threadSearchEl) {
+    threadSearchEl.addEventListener("input", function () {
+      scheduleThreadSearch();
+    });
+    threadSearchEl.placeholder = "Search titles & content…";
+  }
   if (workspaceToggle) {
     workspaceToggle.addEventListener("click", function () {
       var open = workspaceMenu && workspaceMenu.hidden;
@@ -2257,17 +2387,28 @@
   if (chaptersToggle) {
     chaptersToggle.addEventListener("click", function () {
       if (!chaptersFlyout) return;
+      closePaperMenu();
       var open = chaptersFlyout.hidden;
       chaptersFlyout.hidden = !open;
       chaptersToggle.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) renderChapters();
     });
   }
+  if (paperMenuToggle) {
+    paperMenuToggle.addEventListener("click", function () {
+      closeChaptersFlyout();
+      setPaperMenuOpen(!!(paperMenu && paperMenu.hidden));
+    });
+  }
   document.addEventListener("click", function (e) {
-    if (!chaptersFlyout || chaptersFlyout.hidden) return;
-    var left = chaptersToggle && chaptersToggle.parentElement;
-    if (left && left.contains(e.target)) return;
-    closeChaptersFlyout();
+    if (chaptersFlyout && !chaptersFlyout.hidden) {
+      var left = chaptersToggle && chaptersToggle.parentElement;
+      if (!(left && left.contains(e.target))) closeChaptersFlyout();
+    }
+    if (paperMenu && !paperMenu.hidden) {
+      var right = paperMenuToggle && paperMenuToggle.parentElement;
+      if (!(right && right.contains(e.target))) closePaperMenu();
+    }
   });
 
   settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {

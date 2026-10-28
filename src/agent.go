@@ -751,6 +751,63 @@ func (a *Agent) NewChat() error {
 	return nil
 }
 
+// DeleteThread permanently removes a thread. If it was active, switches to another
+// existing thread or creates a fresh one.
+func (a *Agent) DeleteThread(threadID string) error {
+	threadID = strings.TrimSpace(threadID)
+	if a.Cfg.WorkspaceID == "" || threadID == "" {
+		return fmt.Errorf("thread delete requires workspace")
+	}
+	wasActive := threadID == a.Cfg.ThreadID
+	if wasActive {
+		if a.Compaction != nil {
+			a.Compaction.cancel()
+			a.Compaction = nil
+		}
+		if a.Journal != nil {
+			_ = a.Journal.Close()
+			a.Journal = nil
+		}
+	}
+	if err := deleteThreadDir(a.Cfg.WorkspaceID, threadID); err != nil {
+		return err
+	}
+	if !wasActive {
+		return nil
+	}
+	list, err := listThreads(a.Cfg.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	if len(list) > 0 {
+		return a.SwitchThread(list[0].ID)
+	}
+	th, session, err := createThread(a.Cfg.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	j, err := OpenJournal(session, false)
+	if err != nil {
+		return err
+	}
+	a.Journal = j
+	a.History = nil
+	a.Cfg.SessionPath = session
+	a.Cfg.ThreadID = th.ID
+	a.Charter = &Charter{Version: charterVersion}
+	a.Plan = nil
+	a.TaskActive = false
+	a.LastTaskMessage = ""
+	a.ResumeAvailable = false
+	if a.Shares != nil {
+		a.Shares.Clear()
+	}
+	if a.Artifacts != nil {
+		a.Artifacts.Clear()
+	}
+	return nil
+}
+
 // SwitchThread loads another thread in the same workspace (same process/CWD).
 func (a *Agent) SwitchThread(threadID string) error {
 	threadID = strings.TrimSpace(threadID)

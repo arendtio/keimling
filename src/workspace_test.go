@@ -79,3 +79,28 @@ func TestCreateAndListThreads(t *testing.T) {
 		t.Fatalf("%v %#v", err, list)
 	}
 }
+
+func TestDeleteThreadDir(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(session, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteThreadDir(ws.ID, th.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err := listThreads(ws.ID)
+	if err != nil || len(list) != 0 {
+		t.Fatalf("%v %#v", err, list)
+	}
+	if err := deleteThreadDir(ws.ID, th.ID); err == nil {
+		t.Fatal("expected missing thread error")
+	}
+}

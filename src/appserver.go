@@ -118,6 +118,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/workspaces/switch", s.requireSecret(http.HandlerFunc(s.handleWorkspaceSwitch)))
 	s.mux.Handle("/api/threads", s.requireSecret(http.HandlerFunc(s.handleThreads)))
 	s.mux.Handle("/api/threads/switch", s.requireSecret(http.HandlerFunc(s.handleThreadSwitch)))
+	s.mux.Handle("/api/threads/delete", s.requireSecret(http.HandlerFunc(s.handleThreadDelete)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("/api/compact", s.requireSecret(http.HandlerFunc(s.handleCompact)))
 	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
@@ -306,7 +307,16 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		list, err := listThreads(s.agent.Cfg.WorkspaceID)
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		var (
+			list []ThreadMeta
+			err  error
+		)
+		if q != "" {
+			list, err = searchThreads(s.agent.Cfg.WorkspaceID, q)
+		} else {
+			list, err = listThreads(s.agent.Cfg.WorkspaceID)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -321,7 +331,6 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 		for i := range list {
 			if list[i].ID == s.agent.Cfg.ThreadID {
 				list[i].Active = true
-				// Title stays id for now; status via separate field in JSON wrapper.
 			} else {
 				list[i].Active = false
 			}
@@ -331,6 +340,7 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 			"workspace_id": s.agent.Cfg.WorkspaceID,
 			"current":      s.agent.Cfg.ThreadID,
 			"state":        state,
+			"query":        q,
 			"threads":      list,
 		})
 	case http.MethodPost:
@@ -384,6 +394,40 @@ func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": s.agent.Cfg.ThreadID})
+}
+
+func (s *appServer) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		http.Error(w, "agent busy", http.StatusConflict)
+		return
+	}
+	s.mu.Unlock()
+	if err := s.agent.DeleteThread(strings.TrimSpace(body.ID)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":        true,
+		"thread_id": s.agent.Cfg.ThreadID,
+	})
 }
 
 func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
