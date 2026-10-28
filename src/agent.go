@@ -39,6 +39,8 @@ type Agent struct {
 	ApprovalCh chan bool
 	// Shares holds capability-URL file shares for GET /files/{token}.
 	Shares *fileShareHub
+	// Artifacts are HTML/viewable files opened in the GUI panel via show_artifact.
+	Artifacts *artifactHub
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -421,7 +423,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						}
 					}
 				}
-				if a.Cfg.Mode == "ask" && (item.Name == "read_file" || item.Name == "activate_skill" || item.Name == "read_skill_file") {
+				if a.Cfg.Mode == "ask" && (item.Name == "read_file" || item.Name == "activate_skill" || item.Name == "read_skill_file" || item.Name == "show_artifact") {
 					allowed = true
 				}
 				if reason != "" {
@@ -519,6 +521,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					} else if item.Name == "share_file" {
 						result = a.shareFile(item.Arguments)
 						a.println("\033[35m📎 Share\033[0m " + truncate(result, 240))
+					} else if item.Name == "show_artifact" {
+						result = a.showArtifact(item.Arguments)
 					} else if item.Name == "search_history" {
 						result = a.searchHistory(item.Arguments)
 					} else if item.Name == "read_history" {
@@ -717,6 +721,9 @@ func (a *Agent) NewChat() error {
 	_ = os.Remove(charterPath(a.Cfg.SessionPath))
 	if a.Shares != nil {
 		a.Shares.Clear()
+	}
+	if a.Artifacts != nil {
+		a.Artifacts.Clear()
 	}
 	return nil
 }

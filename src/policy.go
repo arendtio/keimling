@@ -100,7 +100,7 @@ func forceApproval(name, args string) (bool, string) {
 	if isMCPTool(name) {
 		return true, "MCP tool call"
 	}
-	if name == "read_file" || name == "share_file" {
+	if name == "read_file" || name == "share_file" || name == "show_artifact" {
 		var a struct {
 			Path string `json:"path"`
 		}
@@ -110,7 +110,7 @@ func forceApproval(name, args string) (bool, string) {
 		if privatePath(a.Path) {
 			return true, "protected path"
 		}
-		if name == "share_file" && !insideWorkingDir(a.Path) {
+		if (name == "share_file" || name == "show_artifact") && !insideWorkingDir(a.Path) {
 			return true, "share outside working directory"
 		}
 		return false, ""
@@ -290,6 +290,14 @@ func autoApproved(name, args string) bool {
 	switch name {
 	case "activate_skill", "read_skill_file":
 		return true
+	case "show_artifact":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
+			return false
+		}
+		return insideWorkingDir(a.Path) && !privatePath(a.Path)
 	case "read_file":
 		var a struct {
 			Path string `json:"path"`

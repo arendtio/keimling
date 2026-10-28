@@ -68,6 +68,13 @@ func newAppServer(opts appServerOpts) *appServer {
 					return
 				}
 				s.hub.Broadcast("line", map[string]string{"text": text})
+			case "artifact":
+				var payload map[string]any
+				if json.Unmarshal([]byte(text), &payload) == nil {
+					s.hub.Broadcast("artifact", payload)
+					return
+				}
+				s.hub.Broadcast("line", map[string]string{"text": text})
 			default:
 				s.hub.Broadcast("line", map[string]string{"text": text})
 			}
@@ -99,6 +106,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
+	s.mux.Handle("/api/artifacts", s.requireSecret(http.HandlerFunc(s.handleArtifacts)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
@@ -205,6 +213,19 @@ func (s *appServer) handleSkills(w http.ResponseWriter, r *http.Request) {
 	list := s.agent.ensureSkills().List()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"skills": list})
+}
+
+func (s *appServer) handleArtifacts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"artifacts": s.agent.ensureArtifacts().List()})
 }
 
 func (s *appServer) handleMCP(w http.ResponseWriter, r *http.Request) {

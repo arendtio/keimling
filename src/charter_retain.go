@@ -9,7 +9,7 @@ import (
 // toolPurpose classifies tools for the cheap post-tool retain prompt.
 func toolPurpose(name string) string {
 	switch strings.TrimSpace(name) {
-	case "exec", "edit_file", "write_file", "apply_patch", "update_plan", "finish_task", "share_file":
+	case "exec", "edit_file", "write_file", "apply_patch", "update_plan", "finish_task", "share_file", "show_artifact":
 		return "mutate"
 	default:
 		return "query"

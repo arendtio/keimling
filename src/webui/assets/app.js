@@ -41,6 +41,24 @@
   var mcpAddBtn = document.getElementById("mcp-add-btn");
   var mcpReloadBtn = document.getElementById("mcp-reload-btn");
   var mcpErr = document.getElementById("mcp-err");
+  var openArtifactsBtn = document.getElementById("open-artifacts");
+  var artifactPane = document.getElementById("artifact-pane");
+  var artifactBackdrop = document.getElementById("artifact-backdrop");
+  var artifactTitle = document.getElementById("artifact-title");
+  var artifactFrame = document.getElementById("artifact-frame");
+  var artifactHistory = document.getElementById("artifact-history");
+  var artifactOpenExt = document.getElementById("artifact-open-ext");
+  var artifactClose = document.getElementById("artifact-close");
+  var artifactResize = document.getElementById("artifact-resize");
+  var artifactModeDock = document.getElementById("artifact-mode-dock");
+  var artifactModeOverlay = document.getElementById("artifact-mode-overlay");
+  var shellEl = document.querySelector(".shell");
+  var currentArtifact = null;
+  var artifactViewMode = "dock";
+  var STORAGE_ARTIFACT_WIDTH = "keimling.artifact_width";
+  var STORAGE_ARTIFACT_MODE = "keimling.artifact_mode";
+  var ARTIFACT_WIDTH_MIN = 280;
+  var ARTIFACT_WIDTH_MAX_RATIO = 0.72;
   var newChatBtn = document.getElementById("new-chat");
   var settingsTabs = document.getElementById("settings-tabs");
   var paneConnection = document.getElementById("pane-connection");
@@ -774,6 +792,7 @@
               if (ev === "line" && payload.text) appendLive(payload.text);
               if (ev === "approval") showApproval(payload);
               if (ev === "progress") updateProgress(payload);
+              if (ev === "artifact") showArtifact(payload);
               if (ev === "status" && payload.state) {
                 setState(payload.state);
                 if (payload.state === "idle") loadSession().catch(function () {});
@@ -1268,6 +1287,197 @@
   }
   if (openMcpBtn) {
     openMcpBtn.addEventListener("click", openMcpDialog);
+  }
+
+  function artifactSrc(art) {
+    if (!art) return "";
+    var u = art.url || "";
+    if (/^https?:\/\//i.test(u)) return u;
+    if (art.token) return apiURL("/files/" + art.token);
+    if (u.charAt(0) === "/") return apiURL(u);
+    return u;
+  }
+  function clampArtifactWidth(px) {
+    var max = Math.floor(window.innerWidth * ARTIFACT_WIDTH_MAX_RATIO);
+    if (max < ARTIFACT_WIDTH_MIN) max = ARTIFACT_WIDTH_MIN;
+    if (px < ARTIFACT_WIDTH_MIN) return ARTIFACT_WIDTH_MIN;
+    if (px > max) return max;
+    return Math.round(px);
+  }
+  function applyArtifactWidth(px) {
+    if (!shellEl) return;
+    var w = clampArtifactWidth(px);
+    shellEl.style.setProperty("--artifact-width", w + "px");
+    return w;
+  }
+  function loadArtifactPrefs() {
+    try {
+      var savedW = parseInt(localStorage.getItem(STORAGE_ARTIFACT_WIDTH) || "", 10);
+      if (savedW > 0) applyArtifactWidth(savedW);
+      var savedMode = localStorage.getItem(STORAGE_ARTIFACT_MODE);
+      if (savedMode === "overlay" || savedMode === "dock") artifactViewMode = savedMode;
+    } catch (e) {}
+  }
+  function saveArtifactWidth(px) {
+    try { localStorage.setItem(STORAGE_ARTIFACT_WIDTH, String(px)); } catch (e) {}
+  }
+  function saveArtifactMode(mode) {
+    try { localStorage.setItem(STORAGE_ARTIFACT_MODE, mode); } catch (e) {}
+  }
+  function syncArtifactModeUI() {
+    if (!artifactPane) return;
+    var overlay = artifactViewMode === "overlay";
+    artifactPane.classList.toggle("mode-overlay", overlay);
+    artifactPane.classList.toggle("mode-dock", !overlay);
+    if (shellEl) {
+      shellEl.classList.toggle("artifact-overlay", overlay && !artifactPane.hidden);
+      shellEl.classList.toggle("artifact-open", !artifactPane.hidden && !overlay);
+    }
+    if (artifactBackdrop) artifactBackdrop.hidden = !overlay || artifactPane.hidden;
+    if (artifactModeDock) artifactModeDock.hidden = !overlay;
+    if (artifactModeOverlay) artifactModeOverlay.hidden = overlay;
+  }
+  function setArtifactMode(mode) {
+    artifactViewMode = mode === "overlay" ? "overlay" : "dock";
+    saveArtifactMode(artifactViewMode);
+    syncArtifactModeUI();
+  }
+  function openArtifactPane() {
+    if (!artifactPane) return;
+    artifactPane.hidden = false;
+    syncArtifactModeUI();
+  }
+  function renderArtifactHistory(items) {
+    if (!artifactHistory) return;
+    artifactHistory.innerHTML = "";
+    (items || []).forEach(function (art) {
+      var li = document.createElement("li");
+      var title = document.createElement("div");
+      title.className = "skill-name";
+      title.textContent = art.title || art.path || "Artifact";
+      var meta = document.createElement("div");
+      meta.className = "skill-meta";
+      meta.textContent = art.path || "";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Show";
+      btn.addEventListener("click", function () { showArtifact(art); });
+      li.appendChild(title);
+      li.appendChild(meta);
+      li.appendChild(btn);
+      artifactHistory.appendChild(li);
+    });
+  }
+  function showArtifact(art) {
+    if (!art || !artifactPane || !artifactFrame) return;
+    currentArtifact = art;
+    if (artifactTitle) artifactTitle.textContent = art.title || art.path || "Artifact";
+    var src = artifactSrc(art);
+    if (src) artifactFrame.src = src;
+    openArtifactPane();
+  }
+  function closeArtifactPane() {
+    if (artifactFrame) artifactFrame.src = "about:blank";
+    if (artifactPane) artifactPane.hidden = true;
+    if (artifactBackdrop) artifactBackdrop.hidden = true;
+    if (shellEl) {
+      shellEl.classList.remove("artifact-open");
+      shellEl.classList.remove("artifact-overlay");
+      shellEl.classList.remove("artifact-resizing");
+    }
+  }
+  function loadArtifactsList() {
+    return fetch(apiURL("/api/artifacts"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
+        renderArtifactHistory(j.artifacts || []);
+        return j.artifacts || [];
+      });
+  }
+  loadArtifactPrefs();
+  if (artifactClose) {
+    artifactClose.addEventListener("click", closeArtifactPane);
+  }
+  if (artifactBackdrop) {
+    artifactBackdrop.addEventListener("click", closeArtifactPane);
+  }
+  if (artifactModeDock) {
+    artifactModeDock.addEventListener("click", function () { setArtifactMode("dock"); });
+  }
+  if (artifactModeOverlay) {
+    artifactModeOverlay.addEventListener("click", function () { setArtifactMode("overlay"); });
+  }
+  if (artifactOpenExt) {
+    artifactOpenExt.addEventListener("click", function () {
+      var src = artifactSrc(currentArtifact);
+      if (!src) return;
+      if (typeof keimlingOpenExternal === "function") {
+        try { keimlingOpenExternal(src); return; } catch (e) {}
+      }
+      window.open(src, "_blank", "noopener,noreferrer");
+    });
+  }
+  if (artifactResize && shellEl) {
+    artifactResize.addEventListener("pointerdown", function (e) {
+      if (artifactViewMode === "overlay" || !artifactPane || artifactPane.hidden) return;
+      e.preventDefault();
+      var startX = e.clientX;
+      var startW = artifactPane.getBoundingClientRect().width;
+      shellEl.classList.add("artifact-resizing");
+      function onMove(ev) {
+        var next = applyArtifactWidth(startW + (startX - ev.clientX));
+        saveArtifactWidth(next);
+      }
+      function onUp() {
+        shellEl.classList.remove("artifact-resizing");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+    artifactResize.addEventListener("keydown", function (e) {
+      if (artifactViewMode === "overlay") return;
+      var cur = artifactPane ? artifactPane.getBoundingClientRect().width : 512;
+      var step = e.shiftKey ? 48 : 16;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        saveArtifactWidth(applyArtifactWidth(cur + step));
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        saveArtifactWidth(applyArtifactWidth(cur - step));
+      }
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (!artifactPane || artifactPane.hidden) return;
+    if (artifactViewMode === "overlay") {
+      e.preventDefault();
+      closeArtifactPane();
+    }
+  });
+  if (openArtifactsBtn) {
+    openArtifactsBtn.addEventListener("click", function () {
+      if (!connected) return;
+      loadArtifactsList()
+        .then(function (items) {
+          if (items.length) showArtifact(items[0]);
+          else {
+            if (artifactTitle) artifactTitle.textContent = "Artifacts";
+            if (artifactFrame) artifactFrame.src = "about:blank";
+            openArtifactPane();
+          }
+        })
+        .catch(function (err) {
+          appendLive("\n[artifacts] " + err + "\n");
+        });
+    });
   }
   if (mcpKind) {
     mcpKind.addEventListener("change", syncMcpKindUI);

@@ -124,6 +124,7 @@
         <div class="sidebar-foot">
           <button type="button" id="open-skills" class="ghost wide">Skills</button>
           <button type="button" id="open-mcp" class="ghost wide">MCP</button>
+          <button type="button" id="open-artifacts" class="ghost wide">Artifacts</button>
           <button type="button" id="open-context" class="ghost wide">Context</button>
           <button type="button" id="new-chat" class="ghost wide">New chat</button>
           <button type="button" id="open-connection" class="ghost wide">Settings</button>
@@ -263,6 +264,27 @@
           </form>
         </div>
       </main>
+
+      <div id="artifact-backdrop" class="artifact-backdrop" hidden></div>
+      <aside id="artifact-pane" class="artifact-pane mode-dock" hidden>
+        <div id="artifact-resize" class="artifact-resize" role="separator" aria-orientation="vertical" aria-label="Resize artifact panel" tabindex="0"></div>
+        <header class="artifact-head">
+          <h2 id="artifact-title">Artifact</h2>
+          <div class="artifact-actions">
+            <button type="button" id="artifact-mode-dock" class="ghost" title="Dock beside chat" hidden>Dock</button>
+            <button type="button" id="artifact-mode-overlay" class="ghost" title="Focus overlay">Focus</button>
+            <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab">Open</button>
+            <button type="button" id="artifact-close" class="ghost" aria-label="Close">Close</button>
+          </div>
+        </header>
+        <div class="artifact-paper">
+          <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" referrerpolicy="no-referrer"></iframe>
+        </div>
+        <details class="artifact-history-wrap">
+          <summary>Session artifacts</summary>
+          <ul id="artifact-history" class="skills-list"></ul>
+        </details>
+      </aside>
     </div>
   </div>
 

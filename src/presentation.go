@@ -22,10 +22,10 @@ func renderToolCall(name, args string) string {
 			label = "\033[35m⌨ interactive\033[0m"
 		}
 		return "\n" + label + " " + highlightCommand(truncate(cmd, 1600))
-	case "read_file", "edit_file", "write_file", "share_file":
+	case "read_file", "edit_file", "write_file", "share_file", "show_artifact":
 		var path string
 		_ = json.Unmarshal(v["path"], &path)
-		icons := map[string]string{"read_file": "◉ Read", "edit_file": "✎ Edit", "write_file": "✎ Write", "share_file": "📎 Share"}
+		icons := map[string]string{"read_file": "◉ Read", "edit_file": "✎ Edit", "write_file": "✎ Write", "share_file": "📎 Share", "show_artifact": "▣ Artifact"}
 		return "\n\033[35m" + icons[name] + "\033[0m " + truncate(path, 260)
 	default:
 		return "\n\033[35m⚙ " + name + "\033[0m"

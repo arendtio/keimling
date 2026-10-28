@@ -267,10 +267,14 @@ button.wide { width: 100%; max-width: 100%; }
   background: var(--chrome);
 }
 .shell {
+  --artifact-width: 32rem;
   display: grid;
   grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr);
   align-items: start;
   min-height: 100vh;
+}
+.shell.artifact-open:not(.artifact-overlay) {
+  grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr) var(--artifact-width);
 }
 .sidebar {
   position: sticky;
@@ -912,8 +916,151 @@ button.wide { width: 100%; max-width: 100%; }
   flex: 0 0 auto;
 }
 
+.artifact-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  background: color-mix(in srgb, var(--fg) 28%, transparent);
+  backdrop-filter: blur(2px);
+}
+.artifact-pane {
+  --paper-edge: color-mix(in srgb, var(--line) 70%, var(--chrome));
+  --paper-top: 3.25rem;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  z-index: 2;
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 0.75rem 1rem 0.35rem;
+  border-left: 0;
+  background: var(--chrome);
+  box-sizing: border-box;
+}
+.artifact-pane.mode-overlay {
+  position: fixed;
+  inset: 4vh 5vw;
+  z-index: 30;
+  width: auto;
+  min-height: 0;
+  max-height: none;
+  height: auto;
+  padding: 0.85rem 1rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--fg) 18%, transparent);
+}
+.artifact-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.45rem;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 3;
+}
+.artifact-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 2.5rem;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.artifact-pane:hover .artifact-resize::after,
+.artifact-resize:focus-visible::after,
+.shell.artifact-resizing .artifact-resize::after {
+  opacity: 1;
+}
+.artifact-pane.mode-overlay .artifact-resize {
+  display: none;
+}
+.artifact-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.15rem 0.35rem 0 0.55rem;
+}
+.artifact-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+.artifact-paper {
+  flex: 1 1 auto;
+  min-height: 14rem;
+  margin: 0 0.15rem 0 0.45rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border-top: 1px solid var(--paper-edge);
+  border-right: 1px solid var(--paper-edge);
+  border-left: 1px solid var(--paper-edge);
+  border-bottom: 1px solid var(--paper-edge);
+  box-sizing: border-box;
+}
+.artifact-pane.mode-dock .artifact-paper {
+  margin-top: var(--paper-top);
+  min-height: calc(100vh - var(--paper-top) - 7.5rem);
+}
+.artifact-pane.mode-overlay .artifact-paper {
+  min-height: calc(92vh - 7rem);
+}
+.artifact-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--panel);
+}
+.artifact-history-wrap {
+  flex: 0 0 auto;
+  max-height: 22vh;
+  overflow: auto;
+  padding: 0 0.35rem 0 0.55rem;
+}
+.artifact-history-wrap summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.shell.artifact-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+.shell.artifact-resizing iframe {
+  pointer-events: none;
+}
+
 @media (max-width: 820px) {
   .shell { grid-template-columns: 1fr; }
+  .shell.artifact-open:not(.artifact-overlay) { grid-template-columns: 1fr; }
   .sidebar {
     position: static;
     max-width: none;
@@ -921,5 +1068,18 @@ button.wide { width: 100%; max-width: 100%; }
     border-right: 0;
     border-bottom: 1px solid var(--line);
     overflow-x: visible;
+  }
+  .artifact-pane.mode-dock {
+    position: static;
+    min-height: 50vh;
+    max-height: none;
+  }
+  .artifact-pane.mode-dock .artifact-paper {
+    margin-top: 0.35rem;
+    min-height: 40vh;
+  }
+  .artifact-resize { display: none; }
+  .artifact-pane.mode-overlay {
+    inset: 2vh 2vw;
   }
 }
