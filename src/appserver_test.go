@@ -316,3 +316,114 @@ func TestAppServerSettingsAPIKeysPersist(t *testing.T) {
 		t.Fatal("keys changed when omitted")
 	}
 }
+
+func TestAppServerStopRequiresSecret(t *testing.T) {
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: &Agent{ApprovalCh: make(chan bool, 1)}})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/stop", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated stop: got %d", rec.Code)
+	}
+}
+
+func TestAppServerStopRejectsGet(t *testing.T) {
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: &Agent{ApprovalCh: make(chan bool, 1)}})
+	req := httptest.NewRequest(http.MethodGet, "/api/stop", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET stop: got %d", rec.Code)
+	}
+}
+
+func TestAppServerStopWhenIdle(t *testing.T) {
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: &Agent{ApprovalCh: make(chan bool, 1)}})
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("idle stop: got %d body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAppServerStopCancelsRunningTask(t *testing.T) {
+	a := &Agent{ApprovalCh: make(chan bool, 1)}
+	a.ApprovalCh <- true // decision queued before stopping must be drained
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	srv.mu.Lock()
+	srv.busy = true
+	srv.cancel = cancel
+	srv.mu.Unlock()
+
+	ch := srv.hub.Subscribe(16)
+	defer srv.hub.Unsubscribe(ch)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop: got %d body %q", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != true || body["stopped"] != true {
+		t.Fatalf("body: %#v", body)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop did not cancel the run context")
+	}
+	if n := len(a.ApprovalCh); n != 0 {
+		t.Fatalf("stale approval decision not drained: %d", n)
+	}
+	srv.mu.Lock()
+	stopping := srv.stopRequested
+	srv.mu.Unlock()
+	if !stopping {
+		t.Fatal("stopRequested not set")
+	}
+	select {
+	case ev := <-ch:
+		if ev.Type != "line" {
+			t.Fatalf("unexpected event %q", ev.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no stop broadcast")
+	}
+}
+
+func TestAppServerApproveRejectedAfterStop(t *testing.T) {
+	a := &Agent{ApprovalCh: make(chan bool, 1)}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.cancel = func() {}
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop: got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/approve", strings.NewReader(`{"allow":true}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("approve after stop: got %d body %q", rec.Code, rec.Body.String())
+	}
+	if n := len(a.ApprovalCh); n != 0 {
+		t.Fatalf("decision queued after stop: %d", n)
+	}
+}

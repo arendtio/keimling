@@ -34,6 +34,7 @@ type appServer struct {
 	mu                    sync.Mutex
 	busy                  bool
 	cancel                context.CancelFunc
+	stopRequested         bool
 	skillCandidates       []SkillCandidate
 	skillPreviews         *skillPreviewHub
 	pendingProviders      []modelProvider
@@ -1513,13 +1514,41 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.mu.Lock()
-	if s.cancel != nil {
-		s.cancel()
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
 	}
+	s.mu.Lock()
+	if !s.busy || s.cancel == nil {
+		s.mu.Unlock()
+		http.Error(w, "agent not running", http.StatusConflict)
+		return
+	}
+	cancel := s.cancel
+	s.stopRequested = true
 	s.mu.Unlock()
+
+	// A decision queued before/while stopping must not auto-approve the next run.
+	drainApproval(s.agent)
+	cancel()
+	// Catch a decision that slipped in between the drain and cancel.
+	drainApproval(s.agent)
+	s.hub.Broadcast("line", map[string]string{"text": "\n[stop] Stopped by user.\n"})
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "stopped": true})
+}
+
+func drainApproval(a *Agent) {
+	if a == nil || a.ApprovalCh == nil {
+		return
+	}
+	for {
+		select {
+		case <-a.ApprovalCh:
+		default:
+			return
+		}
+	}
 }
 
 func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
@@ -1582,6 +1611,7 @@ func (s *appServer) startAgentRun(text string) bool {
 		return false
 	}
 	s.busy = true
+	s.stopRequested = false
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	agent := s.agent
@@ -1595,13 +1625,21 @@ func (s *appServer) startAgentRun(text string) bool {
 			s.mu.Lock()
 			s.busy = false
 			s.cancel = nil
+			s.stopRequested = false
 			s.mu.Unlock()
 			s.hub.Broadcast("status", map[string]string{"state": "idle"})
 			s.pumpAgentWakes()
 		}()
 		err := agent.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
-		if err != nil && ctx.Err() == nil {
-			s.hub.Broadcast("line", map[string]string{"text": "\nError: " + err.Error() + "\n"})
+		if err != nil {
+			if ctx.Err() != nil {
+				// A cancelled run can leave a dangling function_call (e.g. while
+				// awaiting approval) which the Responses API rejects on the next
+				// message. Mark such calls interrupted before releasing busy.
+				_ = agent.repairInterruptedCalls()
+			} else {
+				s.hub.Broadcast("line", map[string]string{"text": "\nError: " + err.Error() + "\n"})
+			}
 		}
 	}()
 	return true
@@ -1735,6 +1773,13 @@ func (s *appServer) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	stopping := s.stopRequested
+	s.mu.Unlock()
+	if stopping {
+		http.Error(w, "no pending approval", http.StatusConflict)
 		return
 	}
 	select {
