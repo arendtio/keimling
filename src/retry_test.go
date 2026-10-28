@@ -23,7 +23,7 @@ func TestRespondRetriesFailedServerError(t *testing.T) {
 	c := NewClient("")
 	c.BaseURL = srv.URL
 	c.HTTP = srv.Client()
-	out, err := c.Respond(context.Background(), "test-model", "low", nil, false)
+	out, err := c.Respond(context.Background(), "test-model", "low", nil, false, "")
 	if err != nil || out.Status != "completed" || calls != 3 {
 		t.Fatalf("status=%q calls=%d err=%v", out.Status, calls, err)
 	}
@@ -41,7 +41,7 @@ func TestRespondDoesNotRetryPermanentFailure(t *testing.T) {
 	c := NewClient("")
 	c.BaseURL = srv.URL
 	c.HTTP = srv.Client()
-	_, err := c.Respond(context.Background(), "model", "low", nil, false)
+	_, err := c.Respond(context.Background(), "model", "low", nil, false, "")
 	if err == nil || !strings.Contains(err.Error(), "invalid_request_error") || calls != 1 {
 		t.Fatalf("calls=%d err=%v", calls, err)
 	}
@@ -50,7 +50,7 @@ func TestRespondCanceledBeforeRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	c := NewClient("")
-	_, err := c.Respond(ctx, "model", "low", nil, false)
+	_, err := c.Respond(ctx, "model", "low", nil, false, "")
 	if err != context.Canceled {
 		t.Fatalf("err=%v", err)
 	}

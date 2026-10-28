@@ -122,11 +122,46 @@
         </details>
 
         <div class="sidebar-foot">
+          <button type="button" id="open-skills" class="ghost wide">Skills</button>
           <button type="button" id="open-context" class="ghost wide">Context</button>
           <button type="button" id="new-chat" class="ghost wide">New chat</button>
           <button type="button" id="open-connection" class="ghost wide">Settings</button>
         </div>
       </aside>
+
+      <dialog id="skills-dialog" class="context-dialog">
+        <form method="dialog" class="context-panel" id="skills-form">
+          <header class="context-head">
+            <h2>Skills</h2>
+            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
+          </header>
+          <p class="hint">Agent Skills (agentskills.io). Catalog is injected into the model; full bodies load via activate_skill.</p>
+          <section>
+            <h3>Installed</h3>
+            <ul id="skills-list" class="skills-list"></ul>
+          </section>
+          <section>
+            <h3>Add from path</h3>
+            <div class="skills-row">
+              <input id="skills-path" type="text" placeholder="/path/to/skill-dir or SKILL.md" autocomplete="off">
+              <select id="skills-scope" aria-label="Install scope">
+                <option value="user">user</option>
+                <option value="project">project</option>
+              </select>
+              <button type="button" id="skills-add-btn">Add</button>
+            </div>
+          </section>
+          <section>
+            <h3>Search</h3>
+            <div class="skills-row">
+              <input id="skills-query" type="text" placeholder="Search public skills…" autocomplete="off">
+              <button type="button" id="skills-search-btn">Search</button>
+            </div>
+            <ul id="skills-results" class="skills-list"></ul>
+          </section>
+          <p id="skills-err" class="gate-err" hidden></p>
+        </form>
+      </dialog>
 
       <dialog id="context-dialog" class="context-dialog">
         <form method="dialog" class="context-panel">

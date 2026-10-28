@@ -31,9 +31,10 @@ type appServer struct {
 	hub    *eventHub
 	mux    *http.ServeMux
 
-	mu     sync.Mutex
-	busy   bool
-	cancel context.CancelFunc
+	mu              sync.Mutex
+	busy            bool
+	cancel          context.CancelFunc
+	skillCandidates []SkillCandidate
 }
 
 func newAppServer(opts appServerOpts) *appServer {
@@ -90,6 +91,10 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/health", s.requireSecret(http.HandlerFunc(s.handleHealth)))
 	s.mux.Handle("/api/session", s.requireSecret(http.HandlerFunc(s.handleSession)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
+	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
+	s.mux.Handle("/api/skills/add", s.requireSecret(http.HandlerFunc(s.handleSkillsAdd)))
+	s.mux.Handle("/api/skills/search", s.requireSecret(http.HandlerFunc(s.handleSkillsSearch)))
+	s.mux.Handle("/api/skills/install", s.requireSecret(http.HandlerFunc(s.handleSkillsInstall)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
@@ -181,6 +186,136 @@ func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
 		"markdown": c.RenderMarkdown(),
 		"budget":   b,
 	})
+}
+
+func (s *appServer) handleSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	s.agent.refreshSkills()
+	list := s.agent.ensureSkills().List()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"skills": list})
+}
+
+func (s *appServer) handleSkillsAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Path  string `json:"path"`
+		Scope string `json:"scope"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	scope := SkillScopeUser
+	if body.Scope == "project" {
+		scope = SkillScopeProject
+	}
+	cwd, _ := os.Getwd()
+	sk, err := InstallSkillFromPath(body.Path, scope, cwd)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.agent.refreshSkills()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "skill": sk})
+}
+
+func (s *appServer) handleSkillsSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	client := s.agent.Cfg.ExternalClient
+	if client == nil {
+		http.Error(w, "web search unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	cands, raw, err := SearchSkillsOnline(r.Context(), client, body.Query)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.mu.Lock()
+	s.skillCandidates = cands
+	s.mu.Unlock()
+	lastSkillSearch = cands
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"candidates": cands, "raw": raw})
+}
+
+func (s *appServer) handleSkillsInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		URL         string `json:"url"`
+		CandidateID string `json:"candidate_id"`
+		Scope       string `json:"scope"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	scope := SkillScopeUser
+	if body.Scope == "project" {
+		scope = SkillScopeProject
+	}
+	installURL := strings.TrimSpace(body.URL)
+	if installURL == "" && body.CandidateID != "" {
+		s.mu.Lock()
+		cands := s.skillCandidates
+		s.mu.Unlock()
+		for _, c := range cands {
+			if c.ID == body.CandidateID {
+				installURL = c.SourceURL
+				break
+			}
+		}
+	}
+	if installURL == "" {
+		http.Error(w, "url or candidate_id required", http.StatusBadRequest)
+		return
+	}
+	cwd, _ := os.Getwd()
+	sk, err := InstallSkillFromURL(installURL, scope, cwd)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.agent.refreshSkills()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "skill": sk})
 }
 
 func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {

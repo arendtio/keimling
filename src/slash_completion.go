@@ -6,7 +6,7 @@ import (
 )
 
 var slashCommands = []string{
-	"/help", "/status", "/mode", "/compact", "/newchat", "/stop",
+	"/help", "/status", "/skills", "/mode", "/compact", "/newchat", "/stop",
 	"/resume", "/continue", "/continue-new-model", "/autopilot", "/voice", "/exit",
 }
 

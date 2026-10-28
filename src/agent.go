@@ -18,6 +18,7 @@ type Agent struct {
 	Journal              *Journal
 	History              []json.RawMessage
 	Charter              *Charter
+	Skills               *SkillRegistry
 	TaskActive           bool
 	TaskDone             bool
 	TaskBlocked          bool
@@ -315,7 +316,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				}
 			}
 		}()
-		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web)
+		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock())
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil
@@ -419,7 +420,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						}
 					}
 				}
-				if a.Cfg.Mode == "ask" && item.Name == "read_file" {
+				if a.Cfg.Mode == "ask" && (item.Name == "read_file" || item.Name == "activate_skill" || item.Name == "read_skill_file") {
 					allowed = true
 				}
 				if reason != "" {
@@ -521,6 +522,36 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						result = a.searchHistory(item.Arguments)
 					} else if item.Name == "read_history" {
 						result = a.readHistory(item.Arguments)
+					} else if item.Name == "activate_skill" {
+						var args struct {
+							Name string `json:"name"`
+						}
+						if e := decodeArgs(item.Arguments, &args); e != nil {
+							result = e.Error()
+						} else {
+							text, e := a.ensureSkills().Activate(args.Name)
+							if e != nil {
+								result = "activate_skill: " + e.Error()
+							} else {
+								result = text
+								a.println("\033[35m◇ Skill\033[0m " + args.Name)
+							}
+						}
+					} else if item.Name == "read_skill_file" {
+						var args struct {
+							Name string `json:"name"`
+							Path string `json:"path"`
+						}
+						if e := decodeArgs(item.Arguments, &args); e != nil {
+							result = e.Error()
+						} else {
+							text, e := a.ensureSkills().ReadFile(args.Name, args.Path)
+							if e != nil {
+								result = "read_skill_file: " + e.Error()
+							} else {
+								result = text
+							}
+						}
 					} else if item.Name == "delegate" {
 						var args DelegateArgs
 						if e := decodeArgs(item.Arguments, &args); e != nil {

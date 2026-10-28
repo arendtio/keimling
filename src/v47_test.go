@@ -39,7 +39,7 @@ func TestRespondRetriesNetworkUnreachable(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"completed","output":[]}`))}, nil
 	})}
-	_, err := c.Respond(context.Background(), "test-model", "", nil, false)
+	_, err := c.Respond(context.Background(), "test-model", "", nil, false, "")
 	if err != nil || calls != 2 {
 		t.Fatalf("calls=%d error=%v", calls, err)
 	}

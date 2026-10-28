@@ -94,7 +94,7 @@ func softSuspicion(name, args string) (SoftSuspicion, bool) {
 // forceApproval is the non-bypassable floor. Soft regex hits are NOT returned here;
 // they go through the review model instead.
 func forceApproval(name, args string) (bool, string) {
-	if name == "update_plan" || name == "finish_task" {
+	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" {
 		return false, ""
 	}
 	if name == "read_file" || name == "share_file" {
@@ -285,6 +285,8 @@ func destructiveFlag(args []string) bool {
 // the reviewer or the user.
 func autoApproved(name, args string) bool {
 	switch name {
+	case "activate_skill", "read_skill_file":
+		return true
 	case "read_file":
 		var a struct {
 			Path string `json:"path"`

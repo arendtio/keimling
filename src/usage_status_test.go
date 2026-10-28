@@ -17,7 +17,7 @@ func TestLastMainUsage(t *testing.T) {
 	client := NewClient("")
 	client.BaseURL = server.URL
 	history := []json.RawMessage{json.RawMessage(`{"role":"user","content":"test"}`)}
-	_, err := client.Respond(context.Background(), "test-model", "low", history, false)
+	_, err := client.Respond(context.Background(), "test-model", "low", history, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

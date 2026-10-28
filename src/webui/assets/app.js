@@ -19,6 +19,16 @@
   var openConnection = document.getElementById("open-connection");
   var openContextBtn = document.getElementById("open-context");
   var contextDialog = document.getElementById("context-dialog");
+  var openSkillsBtn = document.getElementById("open-skills");
+  var skillsDialog = document.getElementById("skills-dialog");
+  var skillsList = document.getElementById("skills-list");
+  var skillsResults = document.getElementById("skills-results");
+  var skillsPath = document.getElementById("skills-path");
+  var skillsScope = document.getElementById("skills-scope");
+  var skillsQuery = document.getElementById("skills-query");
+  var skillsAddBtn = document.getElementById("skills-add-btn");
+  var skillsSearchBtn = document.getElementById("skills-search-btn");
+  var skillsErr = document.getElementById("skills-err");
   var newChatBtn = document.getElementById("new-chat");
   var settingsTabs = document.getElementById("settings-tabs");
   var paneConnection = document.getElementById("pane-connection");
@@ -997,6 +1007,160 @@
   }
   if (openContextBtn) {
     openContextBtn.addEventListener("click", openContextDialog);
+  }
+
+  function showSkillsErr(msg) {
+    if (!skillsErr) return;
+    if (!msg) {
+      skillsErr.hidden = true;
+      skillsErr.textContent = "";
+      return;
+    }
+    skillsErr.hidden = false;
+    skillsErr.textContent = String(msg);
+  }
+  function renderSkillsInstalled(list) {
+    if (!skillsList) return;
+    skillsList.innerHTML = "";
+    if (!list || !list.length) {
+      skillsList.innerHTML = "<li class=\"skill-meta\">No skills installed.</li>";
+      return;
+    }
+    list.forEach(function (sk) {
+      var li = document.createElement("li");
+      li.innerHTML =
+        "<div class=\"skill-name\">" + esc(sk.name || "") + "</div>" +
+        "<div class=\"skill-meta\">" + esc(sk.source || "") + (sk.writable ? "" : " · read-only") + "</div>" +
+        "<div class=\"skill-desc\">" + esc(sk.description || "") + "</div>";
+      skillsList.appendChild(li);
+    });
+  }
+  function renderSkillsResults(cands) {
+    if (!skillsResults) return;
+    skillsResults.innerHTML = "";
+    if (!cands || !cands.length) {
+      skillsResults.innerHTML = "<li class=\"skill-meta\">No candidates.</li>";
+      return;
+    }
+    cands.forEach(function (c) {
+      var li = document.createElement("li");
+      var title = document.createElement("div");
+      title.className = "skill-name";
+      title.textContent = c.title || c.source_url || "skill";
+      var meta = document.createElement("div");
+      meta.className = "skill-meta";
+      meta.textContent = c.source_url || "";
+      var desc = document.createElement("div");
+      desc.className = "skill-desc";
+      desc.textContent = c.description || "";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Add";
+      btn.addEventListener("click", function () {
+        showSkillsErr("");
+        btn.disabled = true;
+        fetch(apiURL("/api/skills/install"), {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ candidate_id: c.id, scope: "user" }),
+        })
+          .then(function (r) {
+            return r.text().then(function (t) {
+              if (!r.ok) throw new Error(t || r.status);
+              return t;
+            });
+          })
+          .then(function () { return loadSkillsList(); })
+          .catch(function (e) { showSkillsErr(e.message || e); })
+          .finally(function () { btn.disabled = false; });
+      });
+      li.appendChild(title);
+      li.appendChild(meta);
+      li.appendChild(desc);
+      li.appendChild(btn);
+      skillsResults.appendChild(li);
+    });
+  }
+  function loadSkillsList() {
+    return fetch(apiURL("/api/skills"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
+        renderSkillsInstalled(j.skills || []);
+      });
+  }
+  function openSkillsDialog() {
+    if (!connected || !skillsDialog) return;
+    showSkillsErr("");
+    loadSkillsList()
+      .then(function () {
+        if (typeof skillsDialog.showModal === "function") skillsDialog.showModal();
+        else skillsDialog.setAttribute("open", "");
+      })
+      .catch(function (err) {
+        appendLive("\n[skills] " + err + "\n");
+      });
+  }
+  if (openSkillsBtn) {
+    openSkillsBtn.addEventListener("click", openSkillsDialog);
+  }
+  if (skillsAddBtn) {
+    skillsAddBtn.addEventListener("click", function () {
+      showSkillsErr("");
+      var path = (skillsPath && skillsPath.value || "").trim();
+      if (!path) {
+        showSkillsErr("Path required.");
+        return;
+      }
+      skillsAddBtn.disabled = true;
+      fetch(apiURL("/api/skills/add"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ path: path, scope: (skillsScope && skillsScope.value) || "user" }),
+      })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            if (!r.ok) throw new Error(t || r.status);
+          });
+        })
+        .then(function () {
+          if (skillsPath) skillsPath.value = "";
+          return loadSkillsList();
+        })
+        .catch(function (e) { showSkillsErr(e.message || e); })
+        .finally(function () { skillsAddBtn.disabled = false; });
+    });
+  }
+  if (skillsSearchBtn) {
+    skillsSearchBtn.addEventListener("click", function () {
+      showSkillsErr("");
+      var q = (skillsQuery && skillsQuery.value || "").trim();
+      if (!q) {
+        showSkillsErr("Query required.");
+        return;
+      }
+      skillsSearchBtn.disabled = true;
+      fetch(apiURL("/api/skills/search"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ query: q }),
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && j.error) || j.message || r.status);
+            return j;
+          });
+        })
+        .then(function (j) {
+          renderSkillsResults(j.candidates || []);
+        })
+        .catch(function (e) { showSkillsErr(e.message || e); })
+        .finally(function () { skillsSearchBtn.disabled = false; });
+    });
   }
 
   gateCancelBtn.addEventListener("click", closeGate);

@@ -67,7 +67,7 @@ func TestRespondNormalizesBeforeHTTP(t *testing.T) {
 	_, err := c.Respond(context.Background(), "test-model", "low", []json.RawMessage{
 		json.RawMessage(`{"role":"user","content":"hey"}`),
 		json.RawMessage(`{"type":"message","role":"assistant","id":"msg_123","status":"completed","content":[{"type":"output_text","text":"hi"}]}`),
-	}, false)
+	}, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

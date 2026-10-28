@@ -358,7 +358,7 @@ func main() {
 	}
 	defer journal.Close()
 	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/")}
-	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub()}
+	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry("")}
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
 	} else {
@@ -459,6 +459,10 @@ func main() {
 		}
 		if line == "/status" {
 			printStatus(a)
+			continue
+		}
+		if line == "/skills" || strings.HasPrefix(line, "/skills ") {
+			handleSkillsCommand(a, strings.TrimSpace(strings.TrimPrefix(line, "/skills")))
 			continue
 		}
 		if line == "/newchat" {
@@ -586,6 +590,10 @@ func printHelp() {
 	fmt.Println("\n\033[1mCommands\033[0m")
 	fmt.Println("  /help             Show this help")
 	fmt.Println("  /status           Show model, context estimate, tokens and settings")
+	fmt.Println("  /skills           List installed Agent Skills")
+	fmt.Println("  /skills add PATH  Install skill from local directory or SKILL.md")
+	fmt.Println("  /skills search Q  Search the web for public skills")
+	fmt.Println("  /skills install N|URL  Install search hit #N or a SKILL.md URL")
 	fmt.Println("  /mode             Show current approval mode")
 	fmt.Println("  /mode auto        Review commands; ask before sensitive changes")
 	fmt.Println("  /mode ask         Confirm changing commands")
