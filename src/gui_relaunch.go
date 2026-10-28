@@ -83,6 +83,7 @@ func relaunchLocalGUIWorkspace(workspaceID string) error {
 
 // scheduleRelaunchLocal clears remembered remote connect and starts a new local UI process.
 func scheduleRelaunchLocal(configPath string, terminate func()) {
+	_ = clearClientActiveConnection(configPath)
 	_ = mergeGuiPrefsConnect(configPath, "", "")
 	scheduleRelaunchWorkspace(configPath, "", terminate)
 }

@@ -242,3 +242,11 @@ func applyClientConnectionsConnect(configPath string, connectURL, accessSecret *
 	}
 	return nil
 }
+
+// clearClientActiveConnection drops auto-reconnect to a saved remote without
+// deleting profiles (used when switching back to the desktop agent).
+func clearClientActiveConnection(configPath string) error {
+	return updateClientConnections(configPath, func(f *clientConnectionsFile) {
+		f.ActiveID = ""
+	})
+}

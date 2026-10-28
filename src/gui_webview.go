@@ -49,6 +49,7 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 		return localHome
 	})
 	_ = w.Bind("keimlingUseLocalAgent", func() string {
+		_ = clearClientActiveConnection(configPath)
 		_ = mergeGuiPrefsConnect(configPath, "", "")
 		if localHome != "" {
 			return localHome

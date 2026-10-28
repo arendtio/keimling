@@ -83,3 +83,31 @@ func TestNormalizeClientDropsLocal(t *testing.T) {
 		t.Fatalf("%#v", f.Connections)
 	}
 }
+
+func TestClearClientActiveConnectionKeepsProfiles(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.json")
+	if err := upsertClientRemote(cfg, "Prod", "http://prod:7420", "sec"); err != nil {
+		t.Fatal(err)
+	}
+	if err := clearClientActiveConnection(cfg); err != nil {
+		t.Fatal(err)
+	}
+	f, err := readClientConnections(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.ActiveID != "" {
+		t.Fatalf("active_id=%q", f.ActiveID)
+	}
+	if len(f.Connections) != 1 {
+		t.Fatalf("profiles: %#v", f.Connections)
+	}
+	var connect, secret string
+	if err := applyClientConnectionsConnect(cfg, &connect, &secret, false); err != nil {
+		t.Fatal(err)
+	}
+	if connect != "" {
+		t.Fatalf("should not auto-connect, got %q", connect)
+	}
+}
