@@ -59,6 +59,12 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 	_ = w.Bind("keimlingRememberRemote", func(connect, secret string) {
 		_ = mergeGuiPrefsConnect(configPath, connect, secret)
 	})
+	_ = w.Bind("keimlingRelaunchWorkspace", func(workspaceID string) string {
+		scheduleRelaunchWorkspace(configPath, workspaceID, func() {
+			w.Dispatch(func() { w.Terminate() })
+		})
+		return "relaunch"
+	})
 	// Ensure clicks never navigate the embedded UI away before app.js binds handlers.
 	_ = w.Init(`document.addEventListener("click",function(e){
   if(typeof keimlingOpenExternal!=="function")return;

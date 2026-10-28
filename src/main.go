@@ -20,6 +20,9 @@ type Config struct {
 	DelegateFast, DelegateBalanced, DelegateDeep, PilotModel, PilotReasoning                                    string
 	ConfigPath                                                                                                  string // --config path; used to persist settings
 	PublicURL                                                                                                   string // public agent base URL for share_file links (optional)
+	WorkspaceID                                                                                                 string
+	WorkspaceRoot                                                                                               string
+	ThreadID                                                                                                    string
 	Autopilot                                                                                                   bool
 	ExternalClient                                                                                              *Client
 	Web                                                                                                         bool
@@ -168,7 +171,8 @@ func main() {
 	ctxLimit := flag.Int("context-limit", 128000, "Context window token budget for two-stage compaction")
 	compactParallel := flag.Bool("compact-parallel", true, "Run distill/summarize leaf renders in parallel (disable for single local models)")
 	steps := flag.Int("max-steps", 200, "Maximum API rounds per user task")
-	session := flag.String("session", "", "Session file (JSONL)")
+	session := flag.String("session", "", "Session file (JSONL); default: workspace thread under ~/.local/share/keimling")
+	workspaceFlag := flag.String("workspace", "", "Workspace id (default: resolve from CWD / gui-prefs / global)")
 	resume := flag.Bool("resume", true, "Resume last session (default: true)")
 	voiceModel := flag.String("voice-model", "gpt-transcribe", "Transcription model")
 	uiMode := flag.Bool("ui", false, "Force native WebView UI (fail if unavailable)")
@@ -348,17 +352,84 @@ func main() {
 			*web = false
 		}
 	}
-	externalClient := NewClient(externalKey)
-	if *session == "" {
-		*session = filepath.Join(home, ".local", "state", "keimling", "session.jsonl")
+	wsIDPref := strings.TrimSpace(*workspaceFlag)
+	if wsIDPref == "" {
+		wsIDPref = strings.TrimSpace(os.Getenv("KEIMLING_WORKSPACE"))
 	}
+	if wsIDPref == "" {
+		if gp, e := readGuiPrefs(*configPath); e == nil {
+			wsIDPref = strings.TrimSpace(gp.WorkspaceID)
+		}
+	}
+
+	// Host supervises one worker OS process per workspace. Workers re-enter this
+	// binary with KEIMLING_ROLE=worker and run a normal agent server.
+	if !isWorkerRole() {
+		if presentation == presentationServer {
+			if err := runHostServer(*listenAddr, *accessSecret, *configPath, wsIDPref); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
+		if presentation == presentationUI || presentation == presentationAuto {
+			if err := runHostGUI(*accessSecret, *configPath, wsIDPref); err != nil {
+				if presentation == presentationUI {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				fmt.Fprintln(os.Stderr, "GUI unavailable, falling back to CLI:", err)
+			} else {
+				return
+			}
+		}
+	}
+
+	externalClient := NewClient(externalKey)
+
+	var (
+		ws       WorkspaceMeta
+		threadID string
+		sessPath string
+	)
+	if wsIDPref != "" {
+		m, e := readWorkspaceMeta(wsIDPref)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "workspace:", e)
+			os.Exit(1)
+		}
+		if e := os.Chdir(m.Root); e != nil {
+			fmt.Fprintln(os.Stderr, "chdir workspace:", e)
+			os.Exit(1)
+		}
+		tid, sp, e := ensureActiveThread(m.ID)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(1)
+		}
+		ws, threadID, sessPath = m, tid, sp
+		_ = writeWorkspaceMeta(m)
+	} else {
+		cwd, _ := os.Getwd()
+		m, tid, sp, e := resolveStartupWorkspace(cwd)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "workspace:", e)
+			os.Exit(1)
+		}
+		ws, threadID, sessPath = m, tid, sp
+	}
+	_ = mergeGuiPrefsWorkspace(*configPath, ws.ID)
+	if *session == "" {
+		*session = sessPath
+	}
+
 	journal, err := OpenJournal(*session, *resume)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/")}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager()}
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
@@ -396,19 +467,8 @@ func main() {
 		}
 		return
 	}
-	if presentation == presentationUI || presentation == presentationAuto {
-		if err := runGUILocal(a, *accessSecret); err != nil {
-			if presentation == presentationUI {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			fmt.Fprintln(os.Stderr, "GUI unavailable, falling back to CLI:", err)
-		} else {
-			return
-		}
-	}
 	input := bufio.NewReader(os.Stdin)
-	fmt.Printf("keimling | %s | mode=%s | web=%v\nSession: %s\nF1/Space/Enter on empty prompt: record; F1/Space/Enter: stop; Enter: send draft; /newchat, /mode, /status, /help, /exit\n", c.Model, c.Mode, c.Web, c.SessionPath)
+	fmt.Printf("keimling | %s | mode=%s | web=%v\nWorkspace: %s (%s)\nThread: %s\nSession: %s\nF1/Space/Enter on empty prompt: record; F1/Space/Enter: stop; Enter: send draft; /newchat, /mode, /status, /help, /exit\n", c.Model, c.Mode, c.Web, c.WorkspaceID, c.WorkspaceRoot, c.ThreadID, c.SessionPath)
 	for {
 		discardPendingInput()
 		line, err := readInteractiveLine(input, a.Cfg.ExternalClient, c.VoiceModel)

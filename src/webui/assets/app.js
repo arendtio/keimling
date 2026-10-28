@@ -56,24 +56,51 @@
   var artifactFrame = document.getElementById("artifact-frame");
   var artifactHistory = document.getElementById("artifact-history");
   var artifactOpenExt = document.getElementById("artifact-open-ext");
+  var artifactFullscreen = document.getElementById("artifact-fullscreen");
+  var artifactPaper = document.getElementById("artifact-paper");
   var artifactClose = document.getElementById("artifact-close");
   var artifactResize = document.getElementById("artifact-resize");
   var artifactModeDock = document.getElementById("artifact-mode-dock");
   var artifactModeOverlay = document.getElementById("artifact-mode-overlay");
+  var contextCompactBtn = document.getElementById("context-compact-btn");
+  var contextCompactStatus = document.getElementById("context-compact-status");
   var shellEl = document.querySelector(".shell");
   var currentArtifact = null;
   var artifactViewMode = "dock";
   var STORAGE_ARTIFACT_WIDTH = "keimling.artifact_width";
   var STORAGE_ARTIFACT_MODE = "keimling.artifact_mode";
+  var STORAGE_BG_LIGHT = "keimling.bg_light";
+  var STORAGE_BG_DARK = "keimling.bg_dark";
+  var BG_LIGHT_DEFAULT = "#eff0f1";
+  var BG_DARK_DEFAULT = "#202326";
   var ARTIFACT_WIDTH_MIN = 280;
   var ARTIFACT_WIDTH_MAX_RATIO = 0.72;
+  var bgLightEl = document.getElementById("bg-light");
+  var bgDarkEl = document.getElementById("bg-dark");
+  var bgResetBtn = document.getElementById("bg-reset");
   var newChatBtn = document.getElementById("new-chat");
   var settingsTabs = document.getElementById("settings-tabs");
   var paneConnection = document.getElementById("pane-connection");
   var paneAgent = document.getElementById("pane-agent");
+  var paneSkills = document.getElementById("pane-skills");
+  var paneMcp = document.getElementById("pane-mcp");
   var saveSettingsBtn = document.getElementById("save-settings");
   var gateCancelBtn = document.getElementById("gate-cancel");
   var gateManage = false;
+  var workspaceToggle = document.getElementById("workspace-toggle");
+  var workspaceMenu = document.getElementById("workspace-menu");
+  var workspaceLabel = document.getElementById("workspace-label");
+  var workspaceRootEl = document.getElementById("workspace-root");
+  var workspaceList = document.getElementById("workspace-list");
+  var workspaceSearch = document.getElementById("workspace-search");
+  var workspacePath = document.getElementById("workspace-path");
+  var workspaceOpenBtn = document.getElementById("workspace-open-btn");
+  var threadListEl = document.getElementById("thread-list");
+  var chaptersToggle = document.getElementById("chapters-toggle");
+  var chaptersFlyout = document.getElementById("chapters-flyout");
+  var workspacesCache = [];
+  var currentWorkspaceID = "";
+  var currentThreadID = "";
   var setBaseURL = document.getElementById("set-base-url");
   var setAPIKey = document.getElementById("set-api-key");
   var setOpenAIAPIKey = document.getElementById("set-openai-api-key");
@@ -156,6 +183,7 @@
       } else {
         localStorage.removeItem(STORAGE_URL);
       }
+      storeThemePrefs();
     } catch (e) {}
   }
 
@@ -165,10 +193,77 @@
         seen: localStorage.getItem(STORAGE_SEEN) === "1",
         secret: localStorage.getItem(STORAGE_SECRET) || "",
         url: localStorage.getItem(STORAGE_URL) || "",
+        bgLight: localStorage.getItem(STORAGE_BG_LIGHT) || "",
+        bgDark: localStorage.getItem(STORAGE_BG_DARK) || "",
       };
     } catch (e) {
-      return { seen: false, secret: "", url: "" };
+      return { seen: false, secret: "", url: "", bgLight: "", bgDark: "" };
     }
+  }
+
+  function normalizeBgHex(v) {
+    v = String(v || "").trim().toLowerCase();
+    if (!v) return "";
+    if (v.charAt(0) !== "#") v = "#" + v;
+    if (/^#[0-9a-f]{6}$/.test(v)) return v;
+    if (/^#[0-9a-f]{3}$/.test(v)) {
+      return "#" + v.charAt(1) + v.charAt(1) + v.charAt(2) + v.charAt(2) + v.charAt(3) + v.charAt(3);
+    }
+    return "";
+  }
+
+  function applyThemeBg(light, dark) {
+    var root = document.documentElement;
+    var L = normalizeBgHex(light) || BG_LIGHT_DEFAULT;
+    var D = normalizeBgHex(dark) || BG_DARK_DEFAULT;
+    root.style.setProperty("--bg-light", L);
+    root.style.setProperty("--bg-dark", D);
+    if (bgLightEl) bgLightEl.value = L;
+    if (bgDarkEl) bgDarkEl.value = D;
+  }
+
+  function storeThemePrefs() {
+    try {
+      var L = normalizeBgHex(bgLightEl && bgLightEl.value) || BG_LIGHT_DEFAULT;
+      var D = normalizeBgHex(bgDarkEl && bgDarkEl.value) || BG_DARK_DEFAULT;
+      if (L === BG_LIGHT_DEFAULT) localStorage.removeItem(STORAGE_BG_LIGHT);
+      else localStorage.setItem(STORAGE_BG_LIGHT, L);
+      if (D === BG_DARK_DEFAULT) localStorage.removeItem(STORAGE_BG_DARK);
+      else localStorage.setItem(STORAGE_BG_DARK, D);
+    } catch (e) {}
+  }
+
+  function persistThemeBg() {
+    var L = normalizeBgHex(bgLightEl && bgLightEl.value) || BG_LIGHT_DEFAULT;
+    var D = normalizeBgHex(bgDarkEl && bgDarkEl.value) || BG_DARK_DEFAULT;
+    applyThemeBg(L, D);
+    storeThemePrefs();
+    // Desktop WebView origins are ephemeral — also persist via gui-prefs.
+    var body = {
+      bg_light: L === BG_LIGHT_DEFAULT ? "" : L,
+      bg_dark: D === BG_DARK_DEFAULT ? "" : D,
+    };
+    saveGuiPrefs(body).catch(function () {});
+  }
+
+  function loadThemeFromGuiPrefs() {
+    var h = { "Content-Type": "application/json" };
+    var s = pageAccessSecret();
+    if (s) h["Authorization"] = "Bearer " + s;
+    return fetch(apiURL("/api/gui-prefs"), { headers: h })
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (p) {
+        if (!p) return;
+        var L = normalizeBgHex(p.bg_light);
+        var D = normalizeBgHex(p.bg_dark);
+        if (!L && !D) return;
+        applyThemeBg(L || BG_LIGHT_DEFAULT, D || BG_DARK_DEFAULT);
+        storeThemePrefs();
+      })
+      .catch(function () {});
   }
 
   function setChoice(next) {
@@ -188,16 +283,18 @@
   }
 
   function setSettingsTab(tab) {
-    var agent = tab === "agent";
+    tab = tab || "connection";
     settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {
       var on = btn.getAttribute("data-tab") === tab;
       btn.classList.toggle("active", on);
       btn.setAttribute("aria-selected", on ? "true" : "false");
     });
-    paneConnection.hidden = agent;
-    paneAgent.hidden = !agent;
-    saveSettingsBtn.hidden = !agent;
-    connectBtn.hidden = agent;
+    if (paneConnection) paneConnection.hidden = tab !== "connection";
+    if (paneAgent) paneAgent.hidden = tab !== "agent";
+    if (paneSkills) paneSkills.hidden = tab !== "skills";
+    if (paneMcp) paneMcp.hidden = tab !== "mcp";
+    saveSettingsBtn.hidden = tab !== "agent";
+    connectBtn.hidden = tab !== "connection";
   }
 
   function fillAgentSettings(j) {
@@ -385,24 +482,47 @@
     stateEl.className = "state " + agentState;
     // Keep the indicator next to new output; hide when idle to free vertical space.
     if (agentStatus) {
-      var show = agentState === "running" || agentState === "awaiting_approval";
+      var show = agentState === "running" || agentState === "awaiting_approval" || agentState === "compacting";
       agentStatus.hidden = !show;
       agentStatus.className = "agent-status" + (show ? " " + agentState : "");
     }
-    if (agentState !== "running") clearProgress();
+    if (agentState !== "running" && agentState !== "compacting") clearProgress();
     var waiting = agentState === "awaiting_approval";
+    var busyish = agentState === "running" || agentState === "compacting" || waiting;
     approve.disabled = !waiting;
     deny.disabled = !waiting;
     // While recording, Send means “stop + transcribe + send” (same as Enter in CLI).
-    send.disabled = !connected || agentState === "running" || waiting;
-    msg.disabled = !connected || agentState === "running" || waiting;
-    voiceBtn.disabled = !connected || !voiceOK || agentState === "running" || waiting;
-    newChatBtn.disabled = !connected || agentState === "running" || waiting;
+    send.disabled = !connected || busyish;
+    msg.disabled = !connected || busyish;
+    voiceBtn.disabled = !connected || !voiceOK || busyish;
+    newChatBtn.disabled = !connected || busyish;
+    if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
     if (!waiting) hideApproval();
-    if (agentState === "running" || waiting) {
+    if (agentState === "running" || agentState === "compacting" || waiting) {
       liveWrap.hidden = false;
       liveWrap.open = true;
     }
+    if (threadListEl && currentThreadID) {
+      renderThreadList({
+        current: currentThreadID,
+        state: agentState,
+        threads: collectThreadListSnapshot(),
+      });
+    }
+  }
+
+  function collectThreadListSnapshot() {
+    var out = [];
+    if (!threadListEl) return out;
+    threadListEl.querySelectorAll(".thread-item").forEach(function (btn) {
+      var title = btn.querySelector(".thread-title");
+      out.push({
+        id: btn.title || (title && title.textContent) || "",
+        title: title ? title.textContent : "",
+        active: btn.classList.contains("active"),
+      });
+    });
+    return out;
   }
 
   function setAnsiPre(el, text) {
@@ -481,6 +601,7 @@
       activeChapter = null;
       renderChapters();
       renderThread();
+      closeChaptersFlyout();
     });
     chaptersEl.appendChild(all);
     chapters.forEach(function (ch) {
@@ -499,9 +620,218 @@
         activeChapter = ch;
         renderChapters();
         renderThread();
+        closeChaptersFlyout();
       });
       chaptersEl.appendChild(btn);
     });
+  }
+
+  function closeChaptersFlyout() {
+    if (!chaptersFlyout || !chaptersToggle) return;
+    chaptersFlyout.hidden = true;
+    chaptersToggle.setAttribute("aria-expanded", "false");
+  }
+
+  function setWorkspaceMenuOpen(open) {
+    if (!workspaceMenu || !workspaceToggle) return;
+    workspaceMenu.hidden = !open;
+    workspaceToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function renderWorkspaceList(filter) {
+    if (!workspaceList) return;
+    filter = String(filter || "").trim().toLowerCase();
+    workspaceList.innerHTML = "";
+    workspacesCache.forEach(function (ws) {
+      var hay = ((ws.name || "") + " " + (ws.root || "") + " " + (ws.id || "")).toLowerCase();
+      if (filter && hay.indexOf(filter) < 0) return;
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = ws.id === currentWorkspaceID ? "active" : "";
+      btn.innerHTML = esc(ws.name || ws.id) + '<span class="ws-path">' + esc(ws.root || "") + "</span>";
+      btn.addEventListener("click", function () {
+        switchWorkspace(ws.id);
+      });
+      li.appendChild(btn);
+      workspaceList.appendChild(li);
+    });
+  }
+
+  function loadWorkspaces() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/workspaces"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          workspacesCache = j.workspaces || [];
+          currentWorkspaceID = j.current || currentWorkspaceID;
+          var cur = null;
+          for (var i = 0; i < workspacesCache.length; i++) {
+            if (workspacesCache[i].id === currentWorkspaceID) {
+              cur = workspacesCache[i];
+              break;
+            }
+          }
+          if (workspaceLabel) workspaceLabel.textContent = (cur && cur.name) || currentWorkspaceID || "Workspace";
+          if (workspaceRootEl) {
+            workspaceRootEl.textContent = (cur && cur.root) || "";
+            workspaceRootEl.title = workspaceRootEl.textContent;
+          }
+          renderWorkspaceList(workspaceSearch && workspaceSearch.value);
+        });
+      })
+      .catch(function (err) {
+        appendLive("\n[workspace] " + err + "\n");
+      });
+  }
+
+  function readAPIResult(r) {
+    return r.text().then(function (t) {
+      var j = null;
+      try { j = t ? JSON.parse(t) : null; } catch (e) {}
+      if (!r.ok) {
+        throw new Error((j && (j.error || j.message)) || t || r.status);
+      }
+      return j || {};
+    });
+  }
+
+  function afterWorkspaceAttach(j) {
+    j = j || {};
+    currentWorkspaceID = j.id || currentWorkspaceID;
+    setWorkspaceMenuOpen(false);
+    // Host reattached proxy target — reload session/SSE without restarting the app.
+    if (es && typeof es.close === "function") {
+      try { es.close(); } catch (e) {}
+      es = null;
+    }
+    messages = [];
+    chapters = [];
+    activeChapter = null;
+    clearLive();
+    hideApproval();
+    return loadSession()
+      .then(function () {
+        connectEvents();
+        return Promise.all([loadWorkspaces(), loadThreads()]);
+      })
+      .then(function () {
+        if (msg) msg.focus();
+      });
+  }
+
+  function switchWorkspace(id) {
+    if (!id || id === currentWorkspaceID) {
+      setWorkspaceMenuOpen(false);
+      return;
+    }
+    fetch(apiURL("/api/workspaces/switch"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(readAPIResult)
+      .then(afterWorkspaceAttach)
+      .catch(function (err) {
+        appendLive("\n[workspace] " + err + "\n");
+      });
+  }
+
+  function openWorkspacePath(path) {
+    path = String(path || "").trim();
+    if (!path) return;
+    fetch(apiURL("/api/workspaces/open"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ path: path }),
+    })
+      .then(readAPIResult)
+      .then(afterWorkspaceAttach)
+      .catch(function (err) {
+        appendLive("\n[workspace] " + err + "\n");
+      });
+  }
+
+  function renderThreadList(payload) {
+    if (!threadListEl) return;
+    payload = payload || {};
+    var threads = payload.threads || [];
+    var state = payload.state || agentState || "idle";
+    currentThreadID = payload.current || currentThreadID;
+    threadListEl.innerHTML = "";
+    if (!threads.length) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "No threads yet";
+      threadListEl.appendChild(empty);
+      return;
+    }
+    threads.forEach(function (th) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "thread-item" + (th.id === currentThreadID || th.active ? " active" : "");
+      var st = document.createElement("span");
+      st.className = "thread-status" + (th.id === currentThreadID || th.active ? " " + state : "");
+      var title = document.createElement("span");
+      title.className = "thread-title";
+      title.textContent = th.title || th.id;
+      btn.appendChild(st);
+      btn.appendChild(title);
+      btn.title = th.id;
+      btn.addEventListener("click", function () {
+        switchThread(th.id);
+      });
+      threadListEl.appendChild(btn);
+    });
+  }
+
+  function loadThreads() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/threads"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          renderThreadList(j);
+        });
+      })
+      .catch(function (err) {
+        appendLive("\n[threads] " + err + "\n");
+      });
+  }
+
+  function updateThreadTitle(p) {
+    p = p || {};
+    if (!p.id || !p.title || !threadListEl) return;
+    threadListEl.querySelectorAll(".thread-item").forEach(function (btn) {
+      if (btn.title !== p.id) return;
+      var title = btn.querySelector(".thread-title");
+      if (title) title.textContent = p.title;
+    });
+  }
+
+  function switchThread(id) {
+    if (!id || id === currentThreadID) return;
+    if (agentState === "running" || agentState === "compacting") return;
+    fetch(apiURL("/api/threads/switch"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          if (!r.ok) throw new Error(t || r.status);
+        });
+      })
+      .then(function () {
+        return loadSession();
+      })
+      .then(function () {
+        return loadThreads();
+      })
+      .catch(function (err) {
+        appendLive("\n[threads] " + err + "\n");
+      });
   }
 
   function memoryLabel(m) {
@@ -745,6 +1075,18 @@
     chapters = j.chapters || [];
     voiceOK = !!j.voice;
     voiceBtn.hidden = !voiceOK;
+    if (j.workspace_id) currentWorkspaceID = j.workspace_id;
+    if (j.thread_id) currentThreadID = j.thread_id;
+    if (workspaceLabel && j.workspace_id) {
+      // refined when loadWorkspaces returns
+      if (!workspaceLabel.textContent || workspaceLabel.textContent === "Workspace") {
+        workspaceLabel.textContent = j.workspace_id;
+      }
+    }
+    if (workspaceRootEl && j.workspace_root) {
+      workspaceRootEl.textContent = j.workspace_root;
+      workspaceRootEl.title = j.workspace_root;
+    }
     if (j.working_state) {
       workingWrap.hidden = false;
       workingEl.textContent = j.working_state;
@@ -755,7 +1097,7 @@
     }
     renderChapters();
     renderThread();
-    setState(j.busy ? "running" : "idle");
+    setState(j.busy ? "running" : (j.state || "idle"));
     if (!j.busy) {
       clearLive();
       liveWrap.hidden = true;
@@ -801,9 +1143,14 @@
               if (ev === "approval") showApproval(payload);
               if (ev === "progress") updateProgress(payload);
               if (ev === "artifact") showArtifact(payload);
+              if (ev === "compaction") updateCompactionProgress(payload);
+              if (ev === "thread") updateThreadTitle(payload);
               if (ev === "status" && payload.state) {
                 setState(payload.state);
-                if (payload.state === "idle") loadSession().catch(function () {});
+                if (payload.state === "idle") {
+                  loadSession().catch(function () {});
+                  if (contextDialog && contextDialog.open) openContextDialog();
+                }
               }
             });
             return pump();
@@ -973,6 +1320,9 @@
         // applySession ran setState while connected was still false — refresh controls.
         setState(agentState);
         connectEvents();
+        loadThemeFromGuiPrefs();
+        loadWorkspaces();
+        loadThreads();
         msg.focus();
       })
       .catch(function (e) {
@@ -1026,6 +1376,21 @@
     fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
     fill.classList.toggle("warn", !!b.warn);
   }
+  function updateCompactionProgress(p) {
+    p = p || {};
+    var text = "";
+    if (p.error) text = "Failed: " + p.error;
+    else if (p.message) text = (p.message || "") + (p.elapsed_sec != null ? " · " + p.elapsed_sec + "s" : "");
+    if (contextCompactStatus) contextCompactStatus.textContent = text;
+    if (agentStatus && progressDetail && (agentState === "compacting" || !p.done)) {
+      agentStatus.hidden = false;
+      progressDetail.hidden = false;
+      progressDetail.textContent = text ? ("compact · " + text) : "compacting…";
+    }
+    if (p.done && contextCompactBtn && agentState !== "running" && agentState !== "compacting") {
+      contextCompactBtn.disabled = !connected;
+    }
+  }
   function openContextDialog() {
     if (!connected || !contextDialog) return;
     fetch(apiURL("/api/context"), { headers: headers() })
@@ -1037,8 +1402,9 @@
       })
       .then(function (j) {
         renderContextDialog(j);
-        if (typeof contextDialog.showModal === "function") contextDialog.showModal();
-        else contextDialog.setAttribute("open", "");
+        if (typeof contextDialog.showModal === "function") {
+          if (!contextDialog.open) contextDialog.showModal();
+        } else contextDialog.setAttribute("open", "");
       })
       .catch(function (err) {
         appendLive("\n[context] " + err + "\n");
@@ -1046,6 +1412,28 @@
   }
   if (openContextBtn) {
     openContextBtn.addEventListener("click", openContextDialog);
+  }
+  if (contextCompactBtn) {
+    contextCompactBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (!connected || agentState === "running" || agentState === "compacting") return;
+      contextCompactBtn.disabled = true;
+      if (contextCompactStatus) contextCompactStatus.textContent = "Starting…";
+      fetch(apiURL("/api/compact"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ guidance: "" }),
+      })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            if (!r.ok) throw new Error(t || r.status);
+          });
+        })
+        .catch(function (err) {
+          if (contextCompactStatus) contextCompactStatus.textContent = String(err.message || err);
+          contextCompactBtn.disabled = false;
+        });
+    });
   }
 
   function showSkillsErr(msg) {
@@ -1662,6 +2050,20 @@
       window.open(src, "_blank", "noopener,noreferrer");
     });
   }
+  if (artifactFullscreen) {
+    artifactFullscreen.addEventListener("click", function () {
+      var el = artifactPaper || artifactFrame;
+      if (!el) return;
+      var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+      if (!req) {
+        appendLive("\n[artifact] Fullscreen API unavailable\n");
+        return;
+      }
+      Promise.resolve(req.call(el)).catch(function (err) {
+        appendLive("\n[artifact] Fullscreen: " + (err && err.message ? err.message : err) + "\n");
+      });
+    });
+  }
   if (artifactResize && shellEl) {
     artifactResize.addEventListener("pointerdown", function (e) {
       if (artifactViewMode === "overlay" || !artifactPane || artifactPane.hidden) return;
@@ -1796,6 +2198,78 @@
     closeGate();
   });
 
+  function onBgColorInput() {
+    applyThemeBg(bgLightEl && bgLightEl.value, bgDarkEl && bgDarkEl.value);
+  }
+  function onBgColorCommit() {
+    persistThemeBg();
+  }
+  if (bgLightEl) {
+    bgLightEl.addEventListener("input", onBgColorInput);
+    bgLightEl.addEventListener("change", onBgColorCommit);
+  }
+  if (bgDarkEl) {
+    bgDarkEl.addEventListener("input", onBgColorInput);
+    bgDarkEl.addEventListener("change", onBgColorCommit);
+  }
+  if (bgResetBtn) {
+    bgResetBtn.addEventListener("click", function () {
+      applyThemeBg(BG_LIGHT_DEFAULT, BG_DARK_DEFAULT);
+      persistThemeBg();
+    });
+  }
+
+  if (workspaceToggle) {
+    workspaceToggle.addEventListener("click", function () {
+      var open = workspaceMenu && workspaceMenu.hidden;
+      if (open) loadWorkspaces();
+      setWorkspaceMenuOpen(!!open);
+    });
+  }
+  if (workspaceSearch) {
+    workspaceSearch.addEventListener("input", function () {
+      renderWorkspaceList(workspaceSearch.value);
+    });
+  }
+  if (workspaceOpenBtn) {
+    workspaceOpenBtn.addEventListener("click", function () {
+      openWorkspacePath(workspacePath && workspacePath.value);
+    });
+  }
+  if (workspacePath) {
+    workspacePath.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        openWorkspacePath(workspacePath.value);
+      }
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (!workspaceMenu || workspaceMenu.hidden) return;
+    var t = e.target;
+    if (workspaceSwitchContains(t)) return;
+    setWorkspaceMenuOpen(false);
+  });
+  function workspaceSwitchContains(el) {
+    var root = document.getElementById("workspace-switch");
+    return root && el && root.contains(el);
+  }
+  if (chaptersToggle) {
+    chaptersToggle.addEventListener("click", function () {
+      if (!chaptersFlyout) return;
+      var open = chaptersFlyout.hidden;
+      chaptersFlyout.hidden = !open;
+      chaptersToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) renderChapters();
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (!chaptersFlyout || chaptersFlyout.hidden) return;
+    var left = chaptersToggle && chaptersToggle.parentElement;
+    if (left && left.contains(e.target)) return;
+    closeChaptersFlyout();
+  });
+
   settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {
     btn.addEventListener("click", function () {
       setSettingsTab(btn.getAttribute("data-tab"));
@@ -1805,13 +2279,14 @@
   saveSettingsBtn.addEventListener("click", saveAgentSettings);
 
   newChatBtn.addEventListener("click", function () {
-    if (!connected || agentState === "running" || agentState === "awaiting_approval") return;
-    if (!window.confirm("Start a new chat? The current session will be archived.")) return;
+    if (!connected || agentState === "running" || agentState === "awaiting_approval" || agentState === "compacting") return;
+    if (!window.confirm("Start a new thread in this workspace?")) return;
     newChatBtn.disabled = true;
-    fetch(apiURL("/api/newchat"), { method: "POST", headers: headers() })
+    fetch(apiURL("/api/threads"), { method: "POST", headers: headers() })
       .then(function (r) {
-        return r.text().then(function (t) {
-          if (!r.ok) throw new Error(t || r.status);
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
         });
       })
       .then(function () {
@@ -1824,10 +2299,13 @@
         renderChapters();
         renderThread();
         setState("idle");
+        return loadThreads();
+      })
+      .then(function () {
         msg.focus();
       })
       .catch(function (err) {
-        appendLive("\n[newchat] " + err + "\n");
+        appendLive("\n[thread] " + err + "\n");
       })
       .finally(function () {
         newChatBtn.disabled = false;
@@ -2080,6 +2558,7 @@
       qSecret = new URLSearchParams(window.location.search).get("access_secret") || "";
     } catch (e) {}
     var prefs = loadPrefs();
+    applyThemeBg(prefs.bgLight || BG_LIGHT_DEFAULT, prefs.bgDark || BG_DARK_DEFAULT);
 
     // Desktop / resume path: secret in URL → enter session immediately.
     if (qSecret) {

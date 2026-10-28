@@ -25,9 +25,14 @@
 | `GET` | `/assets/*` | no | CSS/JS |
 | `GET` | `/files/{token}` | capability token | Shared file download (see `05-file-shares.md`); no access secret |
 | `GET` | `/api/health` | yes | Liveness + build/mode info |
-| `GET` | `/api/session` | yes | Session view: `messages`, `chapters` (task-level history index), `working_state`, legacy `lines` |
+| `GET` | `/api/session` | yes | Session view: `messages`, `chapters`, `working_state`, `workspace_id`, `workspace_root`, `thread_id`, legacy `lines` |
+| `GET` | `/api/workspaces` | yes | Host: list workspaces + `current` (attached) + `running` |
+| `POST` | `/api/workspaces/open` | yes | Host: register folder, ensure worker, attach `{ "path" }` → `{ "relaunch": false }` |
+| `POST` | `/api/workspaces/switch` | yes | Host: ensure worker + attach `{ "id" }` → `{ "relaunch": false }` |
+| `GET`/`POST` | `/api/threads` | yes | List threads / create thread in current workspace |
+| `POST` | `/api/threads/switch` | yes | In-process thread switch `{ "id" }` |
 | `POST` | `/api/message` | yes | Send user instruction `{ "text": "..." }` |
-| `POST` | `/api/newchat` | yes | Archive current journal and start a fresh chat |
+| `POST` | `/api/newchat` | yes | New thread in workspace (or legacy archive when no workspace) |
 | `GET`/`PUT` | `/api/settings` | yes | Runtime agent knobs (model, mode, reasoning, web, autopilot, max_steps, context_limit, voice_model, `base_url`) plus write-only `api_key` / `openai_api_key`; GET exposes only `api_key_set` / `openai_api_key_set`. See `04-auth-and-settings.md`. |
 | `POST` | `/api/transcribe` | yes | Multipart `audio` file → `{ "text": "..." }` (OpenAI transcription) |
 | `GET` | `/events` | yes | SSE stream of agent events |

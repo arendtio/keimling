@@ -77,6 +77,20 @@ func newAppServer(opts appServerOpts) *appServer {
 					return
 				}
 				s.hub.Broadcast("line", map[string]string{"text": text})
+			case "compaction":
+				var payload map[string]any
+				if json.Unmarshal([]byte(text), &payload) == nil {
+					s.hub.Broadcast("compaction", payload)
+					return
+				}
+				s.hub.Broadcast("line", map[string]string{"text": text})
+			case "thread":
+				var payload map[string]any
+				if json.Unmarshal([]byte(text), &payload) == nil {
+					s.hub.Broadcast("thread", payload)
+					return
+				}
+				s.hub.Broadcast("line", map[string]string{"text": text})
 			default:
 				s.hub.Broadcast("line", map[string]string{"text": text})
 			}
@@ -99,7 +113,13 @@ func newAppServer(opts appServerOpts) *appServer {
 	})
 	s.mux.Handle("/api/health", s.requireSecret(http.HandlerFunc(s.handleHealth)))
 	s.mux.Handle("/api/session", s.requireSecret(http.HandlerFunc(s.handleSession)))
+	s.mux.Handle("/api/workspaces", s.requireSecret(http.HandlerFunc(s.handleWorkspaces)))
+	s.mux.Handle("/api/workspaces/open", s.requireSecret(http.HandlerFunc(s.handleWorkspaceOpen)))
+	s.mux.Handle("/api/workspaces/switch", s.requireSecret(http.HandlerFunc(s.handleWorkspaceSwitch)))
+	s.mux.Handle("/api/threads", s.requireSecret(http.HandlerFunc(s.handleThreads)))
+	s.mux.Handle("/api/threads/switch", s.requireSecret(http.HandlerFunc(s.handleThreadSwitch)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
+	s.mux.Handle("/api/compact", s.requireSecret(http.HandlerFunc(s.handleCompact)))
 	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
 	s.mux.Handle("/api/skills/add", s.requireSecret(http.HandlerFunc(s.handleSkillsAdd)))
 	s.mux.Handle("/api/skills/search", s.requireSecret(http.HandlerFunc(s.handleSkillsSearch)))
@@ -172,21 +192,198 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"model":         s.agent.Cfg.Model,
-		"mode":          s.agent.Cfg.Mode,
-		"reasoning":     s.agent.Cfg.Reasoning,
-		"web":           s.agent.Cfg.Web,
-		"autopilot":     s.agent.Cfg.Autopilot,
-		"max_steps":     s.agent.Cfg.MaxSteps,
-		"context_limit": s.agent.Cfg.ContextLimit,
-		"voice_model":   s.agent.Cfg.VoiceModel,
-		"lines":         sessionTranscript(uiHistory, 200),
-		"messages":      sessionMessages(uiHistory, 120),
-		"chapters":      sessionChapters(path),
-		"working_state": sessionWorkingState(path),
-		"busy":          s.isBusy(),
-		"voice":         s.voiceAvailable(),
+		"model":          s.agent.Cfg.Model,
+		"mode":           s.agent.Cfg.Mode,
+		"reasoning":      s.agent.Cfg.Reasoning,
+		"web":            s.agent.Cfg.Web,
+		"autopilot":      s.agent.Cfg.Autopilot,
+		"max_steps":      s.agent.Cfg.MaxSteps,
+		"context_limit":  s.agent.Cfg.ContextLimit,
+		"voice_model":    s.agent.Cfg.VoiceModel,
+		"workspace_id":   s.agent.Cfg.WorkspaceID,
+		"workspace_root": s.agent.Cfg.WorkspaceRoot,
+		"thread_id":      s.agent.Cfg.ThreadID,
+		"lines":          sessionTranscript(uiHistory, 200),
+		"messages":       sessionMessages(uiHistory, 120),
+		"chapters":       sessionChapters(path),
+		"working_state":  sessionWorkingState(path),
+		"busy":           s.isBusy(),
+		"voice":          s.voiceAvailable(),
+		"state":          s.agentState(),
 	})
+}
+
+func (s *appServer) agentState() string {
+	if s.isBusy() {
+		return "running"
+	}
+	return "idle"
+}
+
+func (s *appServer) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	list, err := listWorkspaces()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cur := ""
+	if s.agent != nil {
+		cur = s.agent.Cfg.WorkspaceID
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"current":    cur,
+		"workspaces": list,
+	})
+}
+
+func (s *appServer) handleWorkspaceOpen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	ws, err := ensureWorkspaceForRoot(body.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.respondWorkspaceSwitch(w, ws.ID)
+}
+
+func (s *appServer) handleWorkspaceSwitch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	if _, err := readWorkspaceMeta(strings.TrimSpace(body.ID)); err != nil {
+		http.Error(w, "unknown workspace", http.StatusNotFound)
+		return
+	}
+	s.respondWorkspaceSwitch(w, strings.TrimSpace(body.ID))
+}
+
+func (s *appServer) respondWorkspaceSwitch(w http.ResponseWriter, id string) {
+	cfgPath := ""
+	if s.agent != nil {
+		cfgPath = s.agent.Cfg.ConfigPath
+		if id == s.agent.Cfg.WorkspaceID {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id, "relaunch": false})
+			return
+		}
+	}
+	_ = mergeGuiPrefsWorkspace(cfgPath, id)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":       true,
+		"id":       id,
+		"relaunch": true,
+	})
+}
+
+func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil || s.agent.Cfg.WorkspaceID == "" {
+		http.Error(w, "no workspace", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		list, err := listThreads(s.agent.Cfg.WorkspaceID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Annotate active thread with live agent state.
+		state := "idle"
+		s.mu.Lock()
+		if s.busy {
+			state = "running"
+		}
+		s.mu.Unlock()
+		for i := range list {
+			if list[i].ID == s.agent.Cfg.ThreadID {
+				list[i].Active = true
+				// Title stays id for now; status via separate field in JSON wrapper.
+			} else {
+				list[i].Active = false
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"workspace_id": s.agent.Cfg.WorkspaceID,
+			"current":      s.agent.Cfg.ThreadID,
+			"state":        state,
+			"threads":      list,
+		})
+	case http.MethodPost:
+		s.mu.Lock()
+		if s.busy {
+			s.mu.Unlock()
+			http.Error(w, "agent busy", http.StatusConflict)
+			return
+		}
+		s.mu.Unlock()
+		if err := s.agent.NewChat(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":        true,
+			"thread_id": s.agent.Cfg.ThreadID,
+		})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		http.Error(w, "agent busy", http.StatusConflict)
+		return
+	}
+	s.mu.Unlock()
+	if err := s.agent.SwitchThread(strings.TrimSpace(body.ID)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": s.agent.Cfg.ThreadID})
 }
 
 func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
@@ -206,6 +403,56 @@ func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
 		"markdown": c.RenderMarkdown(),
 		"budget":   b,
 	})
+}
+
+func (s *appServer) handleCompact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Guidance string `json:"guidance"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
+	}
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		http.Error(w, "agent busy", http.StatusConflict)
+		return
+	}
+	s.busy = true
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.mu.Unlock()
+
+	s.hub.Broadcast("status", map[string]string{"state": "compacting"})
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.busy = false
+			s.cancel = nil
+			s.mu.Unlock()
+			s.hub.Broadcast("status", map[string]string{"state": "idle"})
+		}()
+		if err := s.agent.compactContext(ctx, "hard", body.Guidance); err != nil && ctx.Err() == nil {
+			s.hub.Broadcast("compaction", map[string]any{
+				"phase":   "error",
+				"message": err.Error(),
+				"done":    true,
+				"error":   err.Error(),
+			})
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true})
 }
 
 func (s *appServer) handleSkills(w http.ResponseWriter, r *http.Request) {
@@ -829,12 +1076,42 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(p)
 	case http.MethodPut, http.MethodPatch:
-		var body guiPrefs
+		var body struct {
+			Connect      *string `json:"connect"`
+			AccessSecret *string `json:"access_secret"`
+			BgLight      *string `json:"bg_light"`
+			BgDark       *string `json:"bg_dark"`
+			WorkspaceID  *string `json:"workspace_id"`
+		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		if err := mergeGuiPrefsConnect(path, body.Connect, body.AccessSecret); err != nil {
+		if err := updateGuiPrefs(path, func(p *guiPrefs) {
+			if body.Connect != nil {
+				p.Connect = strings.TrimSpace(*body.Connect)
+				if p.Connect == "" {
+					p.AccessSecret = ""
+				} else if body.AccessSecret != nil {
+					p.AccessSecret = strings.TrimSpace(*body.AccessSecret)
+				}
+			} else if body.AccessSecret != nil {
+				p.AccessSecret = strings.TrimSpace(*body.AccessSecret)
+			}
+			if body.BgLight != nil {
+				if c, ok := normalizeBgColor(*body.BgLight); ok {
+					p.BgLight = c
+				}
+			}
+			if body.BgDark != nil {
+				if c, ok := normalizeBgColor(*body.BgDark); ok {
+					p.BgDark = c
+				}
+			}
+			if body.WorkspaceID != nil {
+				p.WorkspaceID = strings.TrimSpace(*body.WorkspaceID)
+			}
+		}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

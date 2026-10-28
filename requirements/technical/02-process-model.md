@@ -5,32 +5,36 @@
 **The agent server is the source of truth and the UI host.**  
 Whatever you see in the WebView is the same HTML/CSS/JS the server would serve to a browser. The WebView does not ship a second UI copy for remote sessions.
 
+## Workspaces
+
+A **host** process serves the UI and proxies to **worker** OS processes (one per workspace, CWD = root). Switching workspace **reattaches** the UI; other workers keep running until the host exits. See `requirements/features/02-workspaces-and-threads.md`.
+
 ## Recommended topology
 
 ```
-┌─────────────────────────────┐
-│  Agent host (server mode    │
-│  or local embedded agent)   │
-│  - agent loop + tools       │
-│  - embed.FS UI              │
-│  - HTTP + WS API (no TLS)   │
-│  - auth secret              │
-└─────────────▲───────────────┘
+┌──────────────────────────────────┐
+│  Host (UI + workspace API +      │
+│  reverse-proxy to attached       │
+│  worker)                         │
+│    ├── Worker A (workspace A)    │
+│    └── Worker B (workspace B)    │
+└─────────────▲────────────────────┘
               │ same origin / same UI
      ┌────────┴────────┬──────────────────┐
      │                 │                  │
- CLI client      WebView client     Phone/browser
- (API only)   (Navigate to URL)    (Navigate to URL)
+ CLI client*     WebView client     Phone/browser
 ```
+
+\*CLI without host still runs a single in-process agent for the launch CWD.
 
 Optional: TLS reverse proxy in front of `--listen` for remote exposure.
 
 ### Local interactive use (auto / ui / cli without remote)
 
-1. Start an **embedded agent server** on `127.0.0.1` with an ephemeral port and a short-lived local token.
-2. **GUI path:** open WebView → `Navigate(http://127.0.0.1:<port>/…)`.
-3. **CLI path:** talk to the same localhost API (no WebView).
-4. When the client exits, shut down the embedded server (unless later we add “detach server”; not MVP).
+1. Start a **host** on `127.0.0.1` with an ephemeral port and a short-lived local token; spawn a worker for the initial workspace.
+2. **GUI path:** open WebView → host URL; workspace switch reattaches proxy, no relaunch.
+3. **CLI path:** in-process agent for the launch workspace (no multi-worker host).
+4. When the host exits, all workers are stopped.
 
 ### Remote attach
 

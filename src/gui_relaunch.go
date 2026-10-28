@@ -38,12 +38,37 @@ func filterConnectArgs(args []string) []string {
 	return out
 }
 
+func filterWorkspaceArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--workspace" || a == "-workspace":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+		case strings.HasPrefix(a, "--workspace=") || strings.HasPrefix(a, "-workspace="):
+			// skip
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func relaunchLocalGUI() error {
+	return relaunchLocalGUIWorkspace("")
+}
+
+func relaunchLocalGUIWorkspace(workspaceID string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	args := filterConnectArgs(os.Args[1:])
+	args := filterWorkspaceArgs(filterConnectArgs(os.Args[1:]))
+	if id := strings.TrimSpace(workspaceID); id != "" {
+		args = append([]string{"--workspace", id}, args...)
+	}
 	cmd := exec.Command(exe, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -59,9 +84,16 @@ func relaunchLocalGUI() error {
 // scheduleRelaunchLocal clears remembered remote connect and starts a new local UI process.
 func scheduleRelaunchLocal(configPath string, terminate func()) {
 	_ = mergeGuiPrefsConnect(configPath, "", "")
+	scheduleRelaunchWorkspace(configPath, "", terminate)
+}
+
+func scheduleRelaunchWorkspace(configPath, workspaceID string, terminate func()) {
+	if id := strings.TrimSpace(workspaceID); id != "" {
+		_ = mergeGuiPrefsWorkspace(configPath, id)
+	}
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		if err := relaunchLocalGUI(); err != nil {
+		if err := relaunchLocalGUIWorkspace(workspaceID); err != nil {
 			fmt.Fprintln(os.Stderr, "keimling: could not relaunch local UI:", err)
 			return
 		}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -56,49 +55,37 @@ findings (string array), open_questions (string array), constraints (string arra
 Merge durable facts into findings/constraints/goal/plan; clear or shrink recent after folding.
 Do not invent facts. Keep findings terse. English. No markdown fences.`
 
-	text, err := func() (string, error) {
-		started := time.Now()
-		finished := make(chan struct{})
-		var wg sync.WaitGroup
-		wg.Add(1)
-		fmt.Print("\r\033[2K\033[36m◌\033[0m Refreshing charter… 0s")
-		go func() {
-			defer wg.Done()
-			tick := time.NewTicker(time.Second)
-			defer tick.Stop()
-			for {
-				select {
-				case <-finished:
-					return
-				case <-tick.C:
-					fmt.Printf("\r\033[2K\033[36m◌\033[0m Refreshing charter… %s", time.Since(started).Truncate(time.Second))
-				}
-			}
-		}()
+	a.reportCompaction("prepare", fmt.Sprintf("folding %d events into charter", len(material)), time.Now(), false, nil)
+
+	var text string
+	err := a.withCompactionProgress("model", "refreshing charter with model", func() error {
 		out, e := a.Client.compactionAsk(ctx, a.compactionModel(), instr, body.String(), 4096)
-		close(finished)
-		wg.Wait()
-		fmt.Print("\r\033[2K")
-		return out, e
-	}()
+		text = out
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("charter refresh: %w", err)
 	}
+	applyStarted := time.Now()
+	a.reportCompaction("apply", "writing charter and shrinking tail", applyStarted, false, nil)
 	next, err := parseCharterJSON(text)
 	if err != nil {
+		a.reportCompaction("apply", "parse charter", applyStarted, true, err)
 		return fmt.Errorf("charter refresh parse: %w", err)
 	}
 	a.Charter = next
 	if err := a.persistCharter(); err != nil {
+		a.reportCompaction("apply", "persist charter", applyStarted, true, err)
 		return err
 	}
 	tail := a.History[end:]
 	if err := a.checkpoint(tail, "charter"); err != nil {
+		a.reportCompaction("apply", "checkpoint", applyStarted, true, err)
 		return err
 	}
 	_ = a.updateHistoryIndex("") // UI chapter bookmarks only
 	afterEst := a.contextOccupancyEstimate()
-	fmt.Printf("Charter refresh: ~%d → ~%d tokens (model context)\n", beforeEst, afterEst)
+	a.reportCompaction("done", fmt.Sprintf("charter refresh ~%d → ~%d tokens", beforeEst, afterEst), applyStarted, true, nil)
 	fmt.Println(a.Charter.RenderMarkdown())
 	return nil
 }

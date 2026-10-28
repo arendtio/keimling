@@ -20,6 +20,39 @@ type guiPrefs struct {
 	AccessSecret string `json:"access_secret,omitempty"`
 	WindowWidth  int    `json:"window_width,omitempty"`
 	WindowHeight int    `json:"window_height,omitempty"`
+	BgLight      string `json:"bg_light,omitempty"` // #rrggbb page background (light)
+	BgDark       string `json:"bg_dark,omitempty"`  // #rrggbb page background (dark)
+	WorkspaceID  string `json:"workspace_id,omitempty"`
+}
+
+// normalizeBgColor accepts #rgb / #rrggbb (case-insensitive); empty clears to default.
+func normalizeBgColor(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", true
+	}
+	if !strings.HasPrefix(s, "#") {
+		return "", false
+	}
+	hex := strings.ToLower(s[1:])
+	switch len(hex) {
+	case 3:
+		for _, c := range hex {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				return "", false
+			}
+		}
+		return "#" + string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]}), true
+	case 6:
+		for _, c := range hex {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				return "", false
+			}
+		}
+		return "#" + hex, true
+	default:
+		return "", false
+	}
 }
 
 func guiPrefsPath(configPath string) string {
@@ -89,6 +122,12 @@ func mergeGuiPrefsConnect(configPath, connect, secret string) error {
 		} else {
 			p.AccessSecret = strings.TrimSpace(secret)
 		}
+	})
+}
+
+func mergeGuiPrefsWorkspace(configPath, workspaceID string) error {
+	return updateGuiPrefs(configPath, func(p *guiPrefs) {
+		p.WorkspaceID = strings.TrimSpace(workspaceID)
 	})
 }
 

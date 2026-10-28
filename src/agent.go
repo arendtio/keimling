@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -136,6 +137,13 @@ func (a *Agent) repairInterruptedCalls() error {
 
 func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) error {
 	defer func() { _ = a.updateHistoryIndex("") }()
+	if a.Cfg.WorkspaceID != "" && a.Cfg.ThreadID != "" {
+		titleCtx := ctx
+		if a.SessionCtx != nil {
+			titleCtx = a.SessionCtx
+		}
+		go a.maybeGenerateThreadTitle(titleCtx, message)
+	}
 	if message != "" {
 		if err := a.add(map[string]any{"role": "user", "content": message}); err != nil {
 			return err
@@ -708,7 +716,22 @@ func (a *Agent) NewChat() error {
 	if a.Client != nil {
 		a.Client.LastMainUsage = MainUsage{}
 	}
-	if err := a.Journal.NewChat(); err != nil {
+	if a.Cfg.WorkspaceID != "" {
+		th, session, err := createThread(a.Cfg.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if a.Journal != nil {
+			_ = a.Journal.Close()
+		}
+		j, err := OpenJournal(session, false)
+		if err != nil {
+			return err
+		}
+		a.Journal = j
+		a.Cfg.SessionPath = session
+		a.Cfg.ThreadID = th.ID
+	} else if err := a.Journal.NewChat(); err != nil {
 		return err
 	}
 	a.History = nil
@@ -719,6 +742,52 @@ func (a *Agent) NewChat() error {
 	a.ResumeAvailable = false
 	_ = os.Remove(indexPath(a.Cfg.SessionPath))
 	_ = os.Remove(charterPath(a.Cfg.SessionPath))
+	if a.Shares != nil {
+		a.Shares.Clear()
+	}
+	if a.Artifacts != nil {
+		a.Artifacts.Clear()
+	}
+	return nil
+}
+
+// SwitchThread loads another thread in the same workspace (same process/CWD).
+func (a *Agent) SwitchThread(threadID string) error {
+	threadID = strings.TrimSpace(threadID)
+	if a.Cfg.WorkspaceID == "" || threadID == "" {
+		return fmt.Errorf("thread switch requires workspace")
+	}
+	if threadID == a.Cfg.ThreadID {
+		return nil
+	}
+	session := threadSessionPath(a.Cfg.WorkspaceID, threadID)
+	if _, err := os.Stat(filepath.Dir(session)); err != nil {
+		return fmt.Errorf("unknown thread %q", threadID)
+	}
+	if a.Compaction != nil {
+		a.Compaction.cancel()
+		a.Compaction = nil
+	}
+	if a.Journal != nil {
+		_ = a.Journal.Close()
+	}
+	j, err := OpenJournal(session, true)
+	if err != nil {
+		return err
+	}
+	a.Journal = j
+	a.History = j.History
+	a.Cfg.SessionPath = session
+	a.Cfg.ThreadID = threadID
+	_ = writeActiveThreadID(a.Cfg.WorkspaceID, threadID)
+	if ch, err := loadCharter(session); err == nil {
+		a.Charter = ch
+	} else {
+		a.Charter = &Charter{Version: charterVersion}
+	}
+	a.Plan = nil
+	a.TaskActive = false
+	a.LastTaskMessage, a.ResumeAvailable = pendingTask(session)
 	if a.Shares != nil {
 		a.Shares.Clear()
 	}

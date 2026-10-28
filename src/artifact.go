@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -83,7 +85,13 @@ func (a *Agent) showArtifact(argsJSON string) string {
 	if base := strings.TrimSpace(a.Cfg.PublicURL); base != "" {
 		a.Shares.SetPublicBase(base)
 	}
-	token, url, err := a.Shares.Register(x.Path, "view")
+	storePath := strings.TrimSpace(x.Path)
+	if a.Cfg.WorkspaceID != "" {
+		if copied, err := persistWorkspaceArtifact(a.Cfg.WorkspaceID, x.Path); err == nil {
+			storePath = copied
+		}
+	}
+	token, url, err := a.Shares.Register(storePath, "view")
 	if err != nil {
 		return "show_artifact error: " + err.Error()
 	}
@@ -94,7 +102,7 @@ func (a *Agent) showArtifact(argsJSON string) string {
 	art := Artifact{
 		ID:      token,
 		Title:   title,
-		Path:    x.Path,
+		Path:    storePath,
 		URL:     url,
 		Token:   token,
 		Created: time.Now().UTC(),
@@ -106,4 +114,35 @@ func (a *Agent) showArtifact(argsJSON string) string {
 		return fmt.Sprintf("artifact shown: %s\nurl: %s\nThe GUI opens this in the artifact panel (sandboxed iframe). Prefer self-contained HTML/CSS/JS.", title, url)
 	}
 	return fmt.Sprintf("artifact shown: %s\npath: %s\nGUI clients open /files/%s in the artifact panel. Prefer self-contained HTML.", title, url, token)
+}
+
+func persistWorkspaceArtifact(workspaceID, src string) (string, error) {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return "", err
+	}
+	in, err := os.Open(abs)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	dir := workspaceArtifactsDir(workspaceID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	base := filepath.Base(abs)
+	dst := filepath.Join(dir, fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102-150405"), base))
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return "", err
+	}
+	return dst, nil
 }

@@ -17,6 +17,8 @@
       <div class="settings-tabs" id="settings-tabs" hidden role="tablist" aria-label="Settings sections">
         <button type="button" class="settings-tab active" data-tab="connection" role="tab" aria-selected="true">Connection</button>
         <button type="button" class="settings-tab" data-tab="agent" role="tab" aria-selected="false">Agent</button>
+        <button type="button" class="settings-tab" data-tab="skills" role="tab" aria-selected="false">Skills</button>
+        <button type="button" class="settings-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
       </div>
 
       <div id="pane-connection" class="settings-pane" role="tabpanel">
@@ -40,6 +42,16 @@
           <input id="secret" type="password" autocomplete="off">
         </label>
         <p id="local-hint" class="hint" hidden>Local embedded agents do not need a secret — continue to resume.</p>
+
+        <p class="settings-section-title">Appearance</p>
+        <p class="hint">Page background for light and dark (follows the system color scheme). Defaults match KDE Breeze.</p>
+        <label class="color-field">Light background
+          <input id="bg-light" type="color" value="#eff0f1" title="Light background">
+        </label>
+        <label class="color-field">Dark background
+          <input id="bg-dark" type="color" value="#202326" title="Dark background">
+        </label>
+        <button type="button" id="bg-reset" class="ghost">Reset backgrounds</button>
       </div>
 
       <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
@@ -96,6 +108,16 @@
         </label>
       </div>
 
+      <div id="pane-skills" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">Skills are managed globally (user and project installs). Open the manager to search, preview, install, or update.</p>
+        <button type="button" id="open-skills">Manage skills…</button>
+      </div>
+
+      <div id="pane-mcp" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">MCP servers are configured globally for this Keimling install. Tools appear as <code>mcp__server__tool</code>.</p>
+        <button type="button" id="open-mcp">Manage MCP servers…</button>
+      </div>
+
       <div class="gate-actions">
         <button id="gate-cancel" type="button" class="ghost" hidden>Cancel</button>
         <button id="save-settings" type="button" hidden>Save agent settings</button>
@@ -113,20 +135,35 @@
             <img class="brand-mark" src="/assets/keimling.svg" alt="Keimling">
             <span class="brand-name">Keimling</span>
           </p>
-          <p class="meta"><span id="model">—</span> · <span id="mode">—</span></p>
+          <div class="workspace-switch" id="workspace-switch">
+            <button type="button" id="workspace-toggle" class="workspace-toggle" aria-expanded="false" aria-controls="workspace-menu">
+              <span id="workspace-label" class="workspace-label">Workspace</span>
+              <span class="workspace-caret" aria-hidden="true">▾</span>
+            </button>
+            <div id="workspace-menu" class="workspace-menu" hidden>
+              <input id="workspace-search" type="search" placeholder="Search workspaces…" autocomplete="off">
+              <ul id="workspace-list" class="workspace-list" role="listbox" aria-label="Workspaces"></ul>
+              <div class="workspace-menu-actions">
+                <label class="workspace-open-path">
+                  <span>Open folder</span>
+                  <input id="workspace-path" type="text" placeholder="/path/to/project" autocomplete="off">
+                </label>
+                <button type="button" id="workspace-open-btn" class="ghost wide">Open</button>
+              </div>
+            </div>
+          </div>
+          <p class="meta workspace-meta"><span id="workspace-root" title="">—</span></p>
         </div>
 
-        <details class="block chapters-block" open>
-          <summary>Chapters</summary>
-          <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
-        </details>
+        <div class="threads-block">
+          <div class="threads-head">
+            <span class="settings-section-title">Threads</span>
+            <button type="button" id="new-chat" class="ghost threads-new" title="New thread">New</button>
+          </div>
+          <nav id="thread-list" class="thread-list" aria-label="Threads"></nav>
+        </div>
 
         <div class="sidebar-foot">
-          <button type="button" id="open-skills" class="ghost wide">Skills</button>
-          <button type="button" id="open-mcp" class="ghost wide">MCP</button>
-          <button type="button" id="open-artifacts" class="ghost wide">Artifacts</button>
-          <button type="button" id="open-context" class="ghost wide">Context</button>
-          <button type="button" id="new-chat" class="ghost wide">New chat</button>
           <button type="button" id="open-connection" class="ghost wide">Settings</button>
         </div>
       </aside>
@@ -226,6 +263,10 @@
             <div class="budget-meta"><span id="budget-label">—</span></div>
             <div class="budget-track"><div id="budget-fill" class="budget-fill"></div></div>
           </div>
+          <div class="skills-row" style="margin: 0.35rem 0 0.75rem">
+            <button type="button" id="context-compact-btn">Compact</button>
+            <span id="context-compact-status" class="hint"></span>
+          </div>
           <div class="context-panes">
             <section><h3>Goal</h3><pre id="ctx-goal" class="context-body"></pre></section>
             <section><h3>Plan</h3><pre id="ctx-plan" class="context-body"></pre></section>
@@ -239,6 +280,19 @@
 
       <main class="main">
         <div class="column">
+          <header class="paper-toolbar">
+            <div class="paper-toolbar-left">
+              <button type="button" id="chapters-toggle" class="ghost" aria-expanded="false" aria-controls="chapters-flyout">Chapters</button>
+              <div id="chapters-flyout" class="chapters-flyout" hidden>
+                <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
+              </div>
+            </div>
+            <div class="paper-toolbar-right">
+              <button type="button" id="open-context" class="ghost">Context</button>
+              <button type="button" id="open-artifacts" class="ghost">Artifacts</button>
+            </div>
+          </header>
+
           <details id="working-wrap" class="block" hidden>
             <summary>Working state</summary>
             <pre id="working" class="block-body"></pre>
@@ -268,6 +322,9 @@
           </div>
 
           <form id="composer" class="composer">
+            <p class="composer-meta" title="Model for this thread (change in Settings → Agent)">
+              <span id="model">—</span><span class="composer-meta-sep"> · </span><span id="mode">—</span>
+            </p>
             <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
             <div class="composer-actions">
               <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
@@ -286,12 +343,13 @@
           <div class="artifact-actions">
             <button type="button" id="artifact-mode-dock" class="ghost" title="Dock beside chat" hidden>Dock</button>
             <button type="button" id="artifact-mode-overlay" class="ghost" title="Focus overlay">Focus</button>
+            <button type="button" id="artifact-fullscreen" class="ghost" title="Fullscreen (presentation)">Fullscreen</button>
             <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab">Open</button>
             <button type="button" id="artifact-close" class="ghost" aria-label="Close">Close</button>
           </div>
         </header>
-        <div class="artifact-paper">
-          <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" referrerpolicy="no-referrer"></iframe>
+        <div class="artifact-paper" id="artifact-paper">
+          <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
         </div>
         <details class="artifact-history-wrap">
           <summary>Session artifacts</summary>

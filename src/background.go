@@ -49,7 +49,22 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 	model := a.compactionModel()
 	baseURL := a.Client.BaseURL
 	curJSON, _ := json.MarshalIndent(a.ensureCharter(), "", "  ")
+	started := job.started
+	a.reportCompaction("background", fmt.Sprintf("background refresh (%d events)", len(snapshot)), started, false, nil)
 	go func() {
+		tickDone := make(chan struct{})
+		go func() {
+			tick := time.NewTicker(time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-tickDone:
+					return
+				case <-tick.C:
+					a.reportCompaction("background", "background model refresh", started, false, nil)
+				}
+			}
+		}()
 		client := NewClient(key)
 		client.BaseURL = baseURL
 		var body strings.Builder
@@ -69,18 +84,21 @@ goal (string), plan (array of {step,status:pending|in_progress|done}), position 
 findings (string array), open_questions (string array), constraints (string array), recent (string array).
 Merge durable facts; clear or shrink recent after folding. Do not invent facts. English. No markdown fences.`
 		text, err := client.compactionAsk(jobCtx, model, instr, body.String(), 4096)
+		close(tickDone)
 		if err != nil {
+			a.reportCompaction("background", "background refresh", started, true, err)
 			job.done <- compactionResult{err: err, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
 			return
 		}
 		next, parseErr := parseCharterJSON(text)
 		if parseErr != nil {
+			a.reportCompaction("background", "background refresh parse", started, true, parseErr)
 			job.done <- compactionResult{err: parseErr, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
 			return
 		}
+		a.reportCompaction("background", "background refresh ready to apply", started, true, nil)
 		job.done <- compactionResult{charter: next, end: end, inputTokens: client.InputTokens, outputTokens: client.OutputTokens}
 	}()
-	fmt.Println("◌ Background charter refresh started")
 	return true
 }
 
@@ -124,7 +142,7 @@ func (a *Agent) adoptCompaction(job *compactionJob, result compactionResult) err
 	a.Client.InputTokens += result.inputTokens
 	a.Client.OutputTokens += result.outputTokens
 	after := a.contextOccupancyEstimate()
-	fmt.Printf("◈ Background charter refresh applied (%s) · ~%d → ~%d tokens\n", time.Since(job.started).Truncate(time.Second), before, after)
+	a.reportCompaction("done", fmt.Sprintf("background applied · ~%d → ~%d tokens", before, after), job.started, true, nil)
 	return nil
 }
 
