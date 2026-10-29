@@ -48,6 +48,10 @@ func privatePath(path string) bool {
 	return false
 }
 func executeTool(ctx context.Context, name, args string) string {
+	return executeToolWithEnv(ctx, name, args, nil)
+}
+
+func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []string) string {
 	switch name {
 	case "exec":
 		var x struct {
@@ -78,9 +82,12 @@ func executeTool(ctx context.Context, name, args string) string {
 		defer cancel()
 		shell := selectedShell()
 		if x.Interactive && !nonInteractiveDiagnostic(x.Command) {
-			return interactiveExec(runCtx, shell, x.Command, time.Duration(x.TimeoutSeconds)*time.Second)
+			return interactiveExec(runCtx, shell, x.Command, time.Duration(x.TimeoutSeconds)*time.Second, extraEnv...)
 		}
 		cmd := exec.Command(shell, "-c", x.Command)
+		if len(extraEnv) > 0 {
+			cmd.Env = append(os.Environ(), extraEnv...)
+		}
 		// sudo prompts use /dev/tty during a separate credential refresh.
 		if commandUsesSudo(x.Command) {
 			if err := authorizeSudo(ctx); err != nil {

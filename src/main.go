@@ -483,7 +483,7 @@ func main() {
 	}
 	defer journal.Close()
 	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
-	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager()}
+	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
 	} else {
@@ -492,6 +492,17 @@ func main() {
 	a.Client.BaseURL = resolvedURL
 	if c.PublicURL != "" {
 		a.Shares.SetPublicBase(c.PublicURL)
+	}
+	if err := a.Credentials.TryUnlockFromEnv(); err != nil {
+		fmt.Fprintln(os.Stderr, "credential vault:", err)
+		os.Exit(1)
+	}
+	if a.Credentials.Exists() && !a.Credentials.Unlocked() {
+		if err := promptUnlockCredentials(a.Credentials); err != nil {
+			fmt.Fprintln(os.Stderr, "credential vault:", err)
+			// Non-fatal for headless without password: tools needing secrets will fail until unlock via API.
+			fmt.Fprintln(os.Stderr, "continuing with vault locked; unlock via Settings or KEIMLING_VAULT_PASSWORD")
+		}
 	}
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	a.SessionCtx = sessionCtx

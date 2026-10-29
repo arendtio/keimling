@@ -82,8 +82,33 @@
   var settingsTabs = document.getElementById("settings-tabs");
   var paneConnection = document.getElementById("pane-connection");
   var paneAgent = document.getElementById("pane-agent");
+  var paneSecrets = document.getElementById("pane-secrets");
   var paneSkills = document.getElementById("pane-skills");
   var paneMcp = document.getElementById("pane-mcp");
+  var vaultStatusEl = document.getElementById("vault-status");
+  var vaultUnlockEl = document.getElementById("vault-unlock");
+  var vaultBodyEl = document.getElementById("vault-body");
+  var vaultPasswordEl = document.getElementById("vault-password");
+  var vaultUnlockBtn = document.getElementById("vault-unlock-btn");
+  var vaultCreateBtn = document.getElementById("vault-create-btn");
+  var credentialListEl = document.getElementById("credential-list");
+  var credentialNewBtn = document.getElementById("credential-new");
+  var credentialEditor = document.getElementById("credential-editor");
+  var credEditName = document.getElementById("cred-edit-name");
+  var credEditDescription = document.getElementById("cred-edit-description");
+  var credEditType = document.getElementById("cred-edit-type");
+  var credEditService = document.getElementById("cred-edit-service");
+  var credEditTools = document.getElementById("cred-edit-tools");
+  var credEditInject = document.getElementById("cred-edit-inject");
+  var credEditInjectEnv = document.getElementById("cred-edit-inject-env");
+  var credEditSecret = document.getElementById("cred-edit-secret");
+  var credEditHint = document.getElementById("cred-edit-hint");
+  var credEditCancel = document.getElementById("cred-edit-cancel");
+  var credEditSave = document.getElementById("cred-edit-save");
+  var credEditDelete = document.getElementById("cred-edit-delete");
+  var credentialsCache = [];
+  var editingCredentialID = null;
+  var vaultUnlocked = false;
   var saveSettingsBtn = document.getElementById("save-settings");
   var gateCancelBtn = document.getElementById("gate-cancel");
   var gateManage = false;
@@ -755,10 +780,174 @@
     });
     if (paneConnection) paneConnection.hidden = tab !== "connection";
     if (paneAgent) paneAgent.hidden = tab !== "models";
+    if (paneSecrets) paneSecrets.hidden = tab !== "secrets";
     if (paneSkills) paneSkills.hidden = tab !== "skills";
     if (paneMcp) paneMcp.hidden = tab !== "mcp";
     saveSettingsBtn.hidden = tab !== "models";
     connectBtn.hidden = tab !== "connection";
+    if (tab === "secrets" && connected) loadCredentialsUI();
+  }
+
+  function applyVaultPayload(j) {
+    var vault = (j && j.vault) || {};
+    vaultUnlocked = !!vault.unlocked;
+    credentialsCache = (j && j.credentials) || [];
+    if (vaultStatusEl) {
+      if (!vault.exists) vaultStatusEl.textContent = "No vault yet — create one to store secrets.";
+      else if (!vault.unlocked) vaultStatusEl.textContent = "Vault locked (unlock lasts for this process).";
+      else vaultStatusEl.textContent = "Vault unlocked · " + (vault.count || credentialsCache.length) + " credential(s).";
+    }
+    if (vaultUnlockEl) vaultUnlockEl.hidden = vaultUnlocked;
+    if (vaultBodyEl) vaultBodyEl.hidden = !vaultUnlocked;
+    if (vaultCreateBtn) vaultCreateBtn.hidden = !!vault.exists || vaultUnlocked;
+    if (vaultUnlockBtn) vaultUnlockBtn.hidden = !vault.exists || vaultUnlocked;
+    renderCredentialList();
+  }
+
+  function loadCredentialsUI() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/credentials"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
+          applyVaultPayload(j);
+        });
+      })
+      .catch(function (e) {
+        if (vaultStatusEl) vaultStatusEl.textContent = String(e);
+      });
+  }
+
+  function unlockVault(create) {
+    var pw = vaultPasswordEl ? vaultPasswordEl.value : "";
+    if (!pw) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Master password required";
+      return;
+    }
+    fetch(apiURL("/api/credentials/unlock"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ password: pw, create: !!create }),
+    })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = {};
+          try { j = JSON.parse(t); } catch (e) {}
+          if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
+          if (vaultPasswordEl) vaultPasswordEl.value = "";
+          applyVaultPayload(j);
+        });
+      })
+      .catch(function (e) {
+        gateErr.hidden = false;
+        gateErr.style.color = "";
+        gateErr.textContent = String(e);
+      });
+  }
+
+  function renderCredentialList() {
+    if (!credentialListEl) return;
+    credentialListEl.innerHTML = "";
+    if (!credentialsCache.length) {
+      var empty = document.createElement("li");
+      empty.className = "hint";
+      empty.textContent = "No credentials yet";
+      credentialListEl.appendChild(empty);
+      return;
+    }
+    credentialsCache.forEach(function (c) {
+      var li = document.createElement("li");
+      var pick = document.createElement("button");
+      pick.type = "button";
+      pick.className = "profile-pick";
+      pick.innerHTML = esc(c.name || c.id) +
+        '<span class="profile-meta">' + esc((c.type || "") + (c.service ? " · " + c.service : "")) + "</span>";
+      pick.addEventListener("click", function () { openCredentialEditor(c); });
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost profile-edit-btn";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () { openCredentialEditor(c); });
+      li.appendChild(pick);
+      li.appendChild(edit);
+      credentialListEl.appendChild(li);
+    });
+  }
+
+  function openCredentialEditor(c) {
+    editingCredentialID = c ? c.id : "";
+    if (credentialEditor) credentialEditor.hidden = false;
+    if (credEditName) credEditName.value = c ? (c.name || "") : "";
+    if (credEditDescription) credEditDescription.value = c ? (c.description || "") : "";
+    if (credEditType) credEditType.value = (c && c.type) || "password";
+    if (credEditService) credEditService.value = c ? (c.service || "") : "";
+    if (credEditTools) credEditTools.value = c && c.allowed_tools ? c.allowed_tools.join(", ") : "";
+    if (credEditInject) credEditInject.value = c ? (c.inject_arg || "") : "";
+    if (credEditInjectEnv) credEditInjectEnv.value = c ? (c.inject_env || "") : "";
+    if (credEditSecret) {
+      credEditSecret.value = "";
+      credEditSecret.placeholder = c && c.secret_set ? "Set — leave blank to keep" : "Secret value (or PEM for ssh_key)";
+    }
+    if (credEditDelete) credEditDelete.hidden = !c;
+    if (credEditHint) {
+      credEditHint.textContent = "For exec use {{keimling:<id>}} in commands; inject_env is the vault-defined env name. ssh_key uses an ephemeral ssh-agent. MCP uses inject arg.";
+    }
+  }
+
+  function closeCredentialEditor() {
+    editingCredentialID = null;
+    if (credentialEditor) credentialEditor.hidden = true;
+  }
+
+  function saveCredentialEditor() {
+    var tools = (credEditTools && credEditTools.value || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    var body = {
+      name: credEditName ? credEditName.value.trim() : "",
+      description: credEditDescription ? credEditDescription.value.trim() : "",
+      type: credEditType ? credEditType.value : "password",
+      service: credEditService ? credEditService.value.trim() : "",
+      allowed_tools: tools,
+      inject_arg: credEditInject ? credEditInject.value.trim() : "",
+      inject_env: credEditInjectEnv ? credEditInjectEnv.value.trim() : "",
+    };
+    var secret = credEditSecret ? credEditSecret.value : "";
+    var isNew = !editingCredentialID;
+    if (isNew || secret) body.secret = secret;
+    var url = apiURL(isNew ? "/api/credentials" : "/api/credentials/" + encodeURIComponent(editingCredentialID));
+    var method = isNew ? "POST" : "PUT";
+    fetch(url, { method: method, headers: headers(), body: JSON.stringify(body) })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = {};
+          try { j = JSON.parse(t); } catch (e) {}
+          if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
+          closeCredentialEditor();
+          return loadCredentialsUI();
+        });
+      })
+      .catch(function (e) {
+        gateErr.hidden = false;
+        gateErr.textContent = String(e);
+      });
+  }
+
+  function deleteCredentialEditor() {
+    if (!editingCredentialID) return;
+    if (!window.confirm("Delete this credential?")) return;
+    fetch(apiURL("/api/credentials/" + encodeURIComponent(editingCredentialID)), {
+      method: "DELETE",
+      headers: headers(),
+    })
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+        closeCredentialEditor();
+        return loadCredentialsUI();
+      })
+      .catch(function (e) {
+        gateErr.hidden = false;
+        gateErr.textContent = String(e);
+      });
   }
 
   function syncHiddenProviderFields() {
@@ -2621,6 +2810,12 @@
   if (connEditCancel) connEditCancel.addEventListener("click", closeConnectionEditor);
   if (connEditSave) connEditSave.addEventListener("click", saveConnectionEditor);
   if (connEditDelete) connEditDelete.addEventListener("click", deleteConnectionEditor);
+  if (vaultUnlockBtn) vaultUnlockBtn.addEventListener("click", function () { unlockVault(false); });
+  if (vaultCreateBtn) vaultCreateBtn.addEventListener("click", function () { unlockVault(true); });
+  if (credentialNewBtn) credentialNewBtn.addEventListener("click", function () { openCredentialEditor(null); });
+  if (credEditCancel) credEditCancel.addEventListener("click", closeCredentialEditor);
+  if (credEditSave) credEditSave.addEventListener("click", saveCredentialEditor);
+  if (credEditDelete) credEditDelete.addEventListener("click", deleteCredentialEditor);
   if (providerNewBtn) providerNewBtn.addEventListener("click", function () {
     openProviderEditor(null);
   });
@@ -3578,6 +3773,7 @@
     btn.addEventListener("click", function () {
       setSettingsTab(btn.getAttribute("data-tab"));
       if ((btn.getAttribute("data-tab") === "models" || btn.getAttribute("data-tab") === "agent") && connected) loadAgentSettings();
+      if (btn.getAttribute("data-tab") === "secrets" && connected) loadCredentialsUI();
     });
   });
   saveSettingsBtn.addEventListener("click", saveAgentSettings);

@@ -94,7 +94,7 @@ func softSuspicion(name, args string) (SoftSuspicion, bool) {
 // forceApproval is the non-bypassable floor. Soft regex hits are NOT returned here;
 // they go through the review model instead.
 func forceApproval(name, args string) (bool, string) {
-	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "set_alarm" || name == "list_alarms" || name == "cancel_alarm" || name == "list_agents" || name == "allow_peer" || name == "message_agent" {
+	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "set_alarm" || name == "list_alarms" || name == "cancel_alarm" || name == "list_agents" || name == "allow_peer" || name == "message_agent" || name == "list_credentials" {
 		return false, ""
 	}
 	if isMCPTool(name) {
@@ -288,7 +288,7 @@ func destructiveFlag(args []string) bool {
 // the reviewer or the user.
 func autoApproved(name, args string) bool {
 	switch name {
-	case "activate_skill", "read_skill_file":
+	case "activate_skill", "read_skill_file", "list_credentials":
 		return true
 	case "show_artifact":
 		var a struct {
@@ -391,9 +391,20 @@ func (c *Client) Review(ctx context.Context, model, policy, tool, args, cwd stri
 	if suspicion != nil && suspicion.ID != "" {
 		softBlock = fmt.Sprintf("\nSOFT RULE HIT (heuristic — clear false positives with approve):\n- id: %s\n- detects: %s\n- note: %s\n", suspicion.ID, suspicion.Description, suspicion.Reason)
 	}
+	user := fmt.Sprintf("Review this proposed tool call. cwd=%q\ntool=%q\narguments=%s%s\nReturn only JSON: {\"decision\":\"approve\" or \"ask\",\"reason\":\"short English reason\"}.", cwd, tool, args, softBlock)
+	return c.reviewJSONDecision(ctx, model, rules, user)
+}
+
+func (c *Client) reviewJSONDecision(ctx context.Context, model, instructions, userContent string) (Verdict, error) {
+	if c == nil {
+		return Verdict{}, fmt.Errorf("no client")
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "gpt-5"
+	}
 	payload := map[string]any{
-		"model": model, "store": false, "instructions": rules,
-		"input": []map[string]any{{"role": "user", "content": fmt.Sprintf("Review this proposed tool call. cwd=%q\ntool=%q\narguments=%s%s\nReturn only JSON: {\"decision\":\"approve\" or \"ask\",\"reason\":\"short English reason\"}.", cwd, tool, args, softBlock)}},
+		"model": model, "store": false, "instructions": instructions,
+		"input": []map[string]any{{"role": "user", "content": userContent}},
 		"text":  map[string]any{"format": map[string]any{"type": "json_schema", "name": "approval", "strict": true, "schema": map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"approve", "ask"}}, "reason": map[string]any{"type": "string"}}, "required": []string{"decision", "reason"}, "additionalProperties": false}}},
 	}
 	b, _ := json.Marshal(payload)

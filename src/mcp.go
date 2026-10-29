@@ -218,7 +218,14 @@ func mcpToolDefinition(exposed string, tool mcp.Tool) map[string]any {
 	} else {
 		desc = desc + " (MCP)"
 	}
+	desc += " Optional credential_id selects a Keimling vault secret (never pass raw secrets)."
 	params := schemaToParams(tool.InputSchema)
+	if props, ok := params["properties"].(map[string]any); ok {
+		props["credential_id"] = map[string]any{
+			"type":        "string",
+			"description": "Keimling credential id from list_credentials for this tool; omit to auto-pick when exactly one is allowed",
+		}
+	}
 	return map[string]any{
 		"type":        "function",
 		"name":        exposed,

@@ -8,6 +8,33 @@ import (
 	"time"
 )
 
+func (a *Agent) credentialToolDefs() []map[string]any {
+	return []map[string]any{
+		toolDef("list_credentials", "List Keimling vault credentials allowed for a tool. Returns metadata only (never secrets). Pass the exact tool name (e.g. exec or mcp__server__tool). For exec, use placeholders {{keimling:<id>}} in the command; inject_env names come from the vault; type ssh_key uses an ephemeral ssh-agent.", map[string]any{"tool": map[string]any{"type": "string", "description": "Tool name to list credentials for"}}, "tool"),
+	}
+}
+
+func (a *Agent) listCredentialsTool(argsJSON string) string {
+	var x struct {
+		Tool string `json:"tool"`
+	}
+	if err := decodeArgs(argsJSON, &x); err != nil {
+		return "list_credentials error: " + err.Error()
+	}
+	if a == nil || a.Credentials == nil {
+		return "list_credentials error: vault unavailable"
+	}
+	list, err := a.Credentials.ListForTool(x.Tool)
+	if err != nil {
+		return "list_credentials error: " + err.Error()
+	}
+	b, err := json.Marshal(map[string]any{"credentials": list})
+	if err != nil {
+		return "list_credentials error: " + err.Error()
+	}
+	return string(b)
+}
+
 func (a *Agent) agentExtraTools() []map[string]any {
 	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		return nil

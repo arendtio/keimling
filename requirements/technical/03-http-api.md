@@ -49,6 +49,9 @@
 | `GET`/`PUT` | `/api/settings` | yes | Runtime knobs (mode, web, autopilot, max_steps, context_limit, voice_model) plus `model_providers` / `active_model_provider_id` (mirrored to legacy `base_url` / `model` / `api_key`); write-only keys; GET exposes `api_key_set` / `openai_api_key_set` and per-provider `api_key_set`. See `04-auth-and-settings.md`. |
 | `GET`/`PUT` | `/api/gui-prefs` | yes | Desktop UI prefs + **server** `connections[]` / `active_connection_id` (legacy `connect` / `access_secret`). |
 | `GET`/`PUT` | `/api/client-connections` | yes | **Machine** connection book (`connections.json` next to config). Prefer native bridge when the UI origin is a remote agent. |
+| `GET`/`POST` | `/api/credentials` | yes | List credential metadata / create (vault must be unlocked). Secrets write-only. |
+| `POST` | `/api/credentials/unlock` | yes | Unlock or create vault `{ password, create? }` for process lifetime. |
+| `PUT`/`DELETE` | `/api/credentials/{id}` | yes | Update (optional new secret) / delete. |
 | `POST` | `/api/transcribe` | yes | Multipart `audio` file → `{ "text": "..." }` (OpenAI transcription) |
 | `GET` | `/events` | yes | SSE stream of agent events |
 

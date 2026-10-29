@@ -17,6 +17,7 @@
       <div class="settings-tabs" id="settings-tabs" hidden role="tablist" aria-label="Settings sections">
         <button type="button" class="settings-tab active" data-tab="connection" role="tab" aria-selected="true">Connection</button>
         <button type="button" class="settings-tab" data-tab="models" role="tab" aria-selected="false">Models</button>
+        <button type="button" class="settings-tab" data-tab="secrets" role="tab" aria-selected="false">Secrets</button>
         <button type="button" class="settings-tab" data-tab="skills" role="tab" aria-selected="false">Skills</button>
         <button type="button" class="settings-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
       </div>
@@ -151,6 +152,62 @@
         <label>Context limit
           <input id="set-context-limit" type="number" min="1000" step="1000">
         </label>
+      </div>
+
+      <div id="pane-secrets" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">Encrypted credential vault for MCP tools. The model never sees secret values. Unlock lasts until this Keimling process exits.</p>
+        <p id="vault-status" class="hint">Vault status…</p>
+        <div id="vault-unlock" class="profile-editor" hidden>
+          <label>Master password
+            <input id="vault-password" type="password" autocomplete="current-password">
+          </label>
+          <div class="skills-row">
+            <button type="button" id="vault-unlock-btn">Unlock</button>
+            <button type="button" id="vault-create-btn" class="ghost" hidden>Create vault</button>
+          </div>
+        </div>
+        <div id="vault-body" hidden>
+          <p class="settings-section-title">Credentials</p>
+          <ul id="credential-list" class="profile-list" aria-label="Credentials"></ul>
+          <button type="button" id="credential-new" class="ghost wide">New credential…</button>
+          <div id="credential-editor" class="profile-editor" hidden>
+            <label>Name
+              <input id="cred-edit-name" type="text" autocomplete="off">
+            </label>
+            <label>Description
+              <input id="cred-edit-description" type="text" autocomplete="off">
+            </label>
+            <label>Type
+              <select id="cred-edit-type">
+                <option value="password">password</option>
+                <option value="api_key">api_key</option>
+                <option value="token">token</option>
+                <option value="ssh_key">ssh_key</option>
+              </select>
+            </label>
+            <label>Service / domain
+              <input id="cred-edit-service" type="text" autocomplete="off" placeholder="chat.example.org">
+            </label>
+            <label>Allowed tools (comma-separated)
+              <input id="cred-edit-tools" type="text" autocomplete="off" placeholder="exec, mcp__xmpp__send_message">
+            </label>
+            <label>Inject as MCP argument
+              <input id="cred-edit-inject" type="text" autocomplete="off" placeholder="password">
+            </label>
+            <label>Inject as exec env name
+              <input id="cred-edit-inject-env" type="text" autocomplete="off" placeholder="GITHUB_TOKEN">
+            </label>
+            <label>Secret
+              <input id="cred-edit-secret" type="password" autocomplete="off" placeholder="">
+            </label>
+            <p id="cred-edit-hint" class="hint"></p>
+            <div class="skills-row">
+              <button type="button" id="cred-edit-cancel" class="ghost">Cancel</button>
+              <button type="button" id="cred-edit-save">Save</button>
+              <button type="button" id="cred-edit-delete" class="ghost danger" hidden>Delete</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div id="pane-skills" class="settings-pane" hidden role="tabpanel">

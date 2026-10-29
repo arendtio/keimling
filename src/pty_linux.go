@@ -43,7 +43,7 @@ func openPTY() (*os.File, *os.File, error) {
 // interactiveExec gives the foreground child exclusive use of the terminal.
 // The child owns its PTY slave, while this process forwards bytes via its master.
 // No background reader is started, and original fd flags/termios are restored.
-func interactiveExec(ctx context.Context, shell, command string, timeout time.Duration) string {
+func interactiveExec(ctx context.Context, shell, command string, timeout time.Duration, extraEnv ...string) string {
 	if !isTerminal(os.Stdin.Fd()) {
 		return "interactive execution unavailable: stdin is not a terminal"
 	}
@@ -59,6 +59,9 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 		_ = ioctl(slave.Fd(), syscall.TIOCSWINSZ, uintptr(unsafe.Pointer(&ws[0])))
 	}
 	cmd := exec.Command(shell, "-c", command)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	old, err := getTermios(os.Stdin.Fd())

@@ -42,6 +42,8 @@ type Agent struct {
 	Shares *fileShareHub
 	// Artifacts are HTML/viewable files opened in the GUI panel via show_artifact.
 	Artifacts *artifactHub
+	// Credentials is the process-lifetime credential vault (nil = disabled).
+	Credentials *CredentialBroker
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -334,7 +336,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				}
 			}
 		}()
-		extraTools := append(a.mcpToolDefs(), a.agentExtraTools()...)
+		extraTools := append(a.mcpToolDefs(), a.credentialToolDefs()...)
+		extraTools = append(extraTools, a.agentExtraTools()...)
 		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock(), extraTools)
 		close(finished)
 		statusWG.Wait()
@@ -410,7 +413,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				if item.Name != "finish_task" && item.Name != "update_plan" {
 					a.println(renderToolCall(item.Name, item.Arguments))
 				}
-				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate" || item.Name == "change_workspace" || item.Name == "set_alarm" || item.Name == "list_alarms" || item.Name == "cancel_alarm" || item.Name == "list_agents" || item.Name == "allow_peer" || item.Name == "message_agent"
+				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate" || item.Name == "change_workspace" || item.Name == "set_alarm" || item.Name == "list_alarms" || item.Name == "cancel_alarm" || item.Name == "list_agents" || item.Name == "allow_peer" || item.Name == "message_agent" || item.Name == "list_credentials"
 				reason := ""
 				if a.Cfg.Mode == "auto" && !allowed {
 					if forced, why := forceApproval(item.Name, item.Arguments); forced {
@@ -439,7 +442,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						}
 					}
 				}
-				if a.Cfg.Mode == "ask" && (item.Name == "read_file" || item.Name == "activate_skill" || item.Name == "read_skill_file" || item.Name == "show_artifact") {
+				if a.Cfg.Mode == "ask" && (item.Name == "read_file" || item.Name == "activate_skill" || item.Name == "read_skill_file" || item.Name == "show_artifact" || item.Name == "list_credentials") {
 					allowed = true
 				}
 				if reason != "" {
@@ -551,6 +554,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						result = a.allowPeer(item.Arguments)
 					} else if item.Name == "message_agent" {
 						result = a.messageAgent(item.Arguments)
+					} else if item.Name == "list_credentials" {
+						result = a.listCredentialsTool(item.Arguments)
 					} else if item.Name == "show_artifact" {
 						result = a.showArtifact(item.Arguments)
 					} else if item.Name == "search_history" {
@@ -606,19 +611,41 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 							}
 						}
 					} else if isMCPTool(item.Name) {
-						result = a.ensureMCP().Call(ctx, item.Name, item.Arguments)
+						argsJSON := item.Arguments
+						secret := ""
+						credErr := error(nil)
+						if a.Credentials != nil {
+							var prepared string
+							prepared, secret, credErr = a.Credentials.prepareToolArgs(item.Name, item.Arguments)
+							if credErr == nil {
+								argsJSON = prepared
+							}
+						}
+						if credErr != nil {
+							result = "credential error: " + credErr.Error()
+						} else {
+							result = a.ensureMCP().Call(ctx, item.Name, argsJSON)
+							result = redactSecret(result, secret)
+						}
 						a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
 					} else {
+						run := func() string {
+							if item.Name == "exec" {
+								return a.runExecWithCredentials(ctx, item.Arguments)
+							}
+							return executeTool(ctx, item.Name, item.Arguments)
+						}
 						if a.Control != nil && toolNeedsTerminal(item.Name, item.Arguments) {
 							a.Control.takeTerminal()
-							result = executeTool(ctx, item.Name, item.Arguments)
+							result = run()
 							a.Control.releaseTerminal()
 						} else {
-							result = executeTool(ctx, item.Name, item.Arguments)
+							result = run()
 						}
 						if item.Name == "exec" {
 							rawExecResult = result
 							result = a.filterExecResult(ctx, message, item.Arguments, result)
+							result = redactAllSecrets(result, parseExecSecretsForRedact(a, item.Arguments))
 						}
 					}
 				}
