@@ -49,10 +49,10 @@ cd src && CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -tags webkitgtk_41 -
 
 | Command | Purpose |
 | --- | --- |
-| `docker build -t keimling .` | Multi-stage image: static `nogui` binary on Debian slim (shell + basic tools), listens on `0.0.0.0:7420` |
+| `docker build -t keimling .` | Multi-stage image: static `nogui` binary on Debian slim + agent toolchain, listens on `0.0.0.0:7420` |
 | `docker run --rm -p 7420:7420 -e OPENAI_API_KEY -e KEIMLING_SECRET -v keimling-data:/data keimling` | Run HTTP agent (put TLS on your reverse proxy) |
 
-The image `CMD` is `--server --listen 0.0.0.0:7420`. State and CWD are `/data` (`HOME` + `WORKDIR`, uid `65532`). Mount the volume on `/data`. Secrets: `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`, `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE` (Compose secrets). Includes bash/coreutils so `exec` works; no WebKit/GUI.
+The image `CMD` is `--server --listen 0.0.0.0:7420`. State and CWD are `/data` (`HOME` + `WORKDIR`, uid `65532`). Mount the volume on `/data`. Secrets: `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`, `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE` (Compose secrets). Runtime toolchain for `exec`: bash, curl, git, openssh-client, build-essential (make/gcc), Go (`golang-go`), Node (`nodejs`/`npm`), Python 3 + pip/venv, wget/jq/unzip — all from Debian apt except the Keimling binary. Go/npm/pip caches use `/tmp` (not persisted on the data volume). No WebKit/GUI.
 
 ## Spike / demos
 

@@ -10,13 +10,14 @@
 #
 # Persist at /data (uid 65532): HOME, WORKDIR, and named-volume mount. Bind mounts
 # must be writable by 65532 (or chown). Agent-created relative paths stay on the volume.
+# Toolchain caches stay on /tmp (ephemeral) — not on the data volume.
 # Secrets: OPENAI_API_KEY[_FILE], KEIMLING_SECRET[_FILE] (also KEIMLING_ACCESS_SECRET / ACCESS_SECRET).
 # Override listen / flags after the image name; ENTRYPOINT is the binary.
 #
-# Runtime is Debian slim (not distroless): the agent exec tool needs /bin/bash and
-# basic Unix utilities inside the container.
+# Runtime is Debian slim (not distroless): the agent exec tool needs a usable
+# Unix toolchain (shell, git/ssh, make/gcc, Go, Python, Node) inside the container.
 
-# ---- build (static, server-only) ----
+# ---- build keimling binary only ----
 FROM golang:1.26-bookworm AS build
 
 WORKDIR /src
@@ -35,25 +36,44 @@ LABEL org.opencontainers.image.title="keimling" \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bash \
+      build-essential \
       ca-certificates \
       coreutils \
       curl \
       findutils \
       gawk \
       git \
+      golang-go \
       grep \
+      jq \
+      nodejs \
+      npm \
+      openssh-client \
+      pkg-config \
       procps \
+      python3 \
+      python3-pip \
+      python3-venv \
       sed \
+      unzip \
+      wget \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 65532 nonroot \
  && useradd --uid 65532 --gid 65532 --home-dir /data --no-create-home --shell /bin/bash nonroot \
  && mkdir -p /data \
- && chown 65532:65532 /data
+ && chown 65532:65532 /data \
+ && ln -sf python3 /usr/bin/python
 
 COPY --from=build /out/keimling /keimling
 
-# Sessions / index under $HOME; CWD is /data so relative file writes hit the volume.
-ENV HOME=/data
+# Sessions under $HOME=/data; toolchain caches intentionally ephemeral under /tmp.
+ENV HOME=/data \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    GOPATH=/tmp/go \
+    GOCACHE=/tmp/go-cache \
+    npm_config_cache=/tmp/npm-cache \
+    PIP_CACHE_DIR=/tmp/pip-cache \
+    XDG_CACHE_HOME=/tmp/cache
 WORKDIR /data
 USER nonroot:nonroot
 
