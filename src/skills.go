@@ -340,12 +340,19 @@ func (a *Agent) refreshSkills() {
 func (a *Agent) skillsCatalogBlock() string {
 	cat := a.ensureSkills().CatalogBlock()
 	instr := strings.TrimSpace(a.Cfg.AgentInstructions)
-	if instr == "" {
-		return cat
+	agents := ""
+	if a != nil {
+		agents = a.agentsMarkdownBlock()
 	}
-	block := "Agent definition instructions:\n" + instr
-	if cat == "" {
-		return block
+	var parts []string
+	if instr != "" {
+		parts = append(parts, "Agent definition instructions:\n"+instr)
 	}
-	return block + "\n\n" + cat
+	if agents != "" {
+		parts = append(parts, agents)
+	}
+	if cat != "" {
+		parts = append(parts, cat)
+	}
+	return strings.Join(parts, "\n\n")
 }

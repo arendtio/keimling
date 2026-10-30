@@ -64,15 +64,20 @@ Such capabilities may later live in an optional external MCP server. Unified-dif
 industry-standard edit/write surface; there is no backward-compatibility
 requirement for those names.
 
-## Skills and project instructions (planned)
+## Skills and project instructions
 
-A general skill loader with progressive disclosure is planned: only names and
-descriptions in context, full `SKILL.md` on demand via `load_skill`, and further
-references only when needed. Conventional location `~/.config/keimling/skills/`,
-plus project-local `./.keimling/skills/`. Skills may be embedded with
-`go:embed`, but no `systematic-debugging` skill is bundled. Skill instructions
-can never override approval or safety rules. Project instructions in `AGENTS.md`
-are respected, including directory and project scopes, and skills must not
-consume large amounts of system-prompt context.
+Skills use progressive disclosure: catalog names/descriptions in context, full
+`SKILL.md` via `activate_skill`, further files via `read_skill_file`. Locations:
+`~/.config/keimling/skills/` and project-local skill roots. Skill instructions
+can never override approval or safety rules.
 
-None of this is implemented yet in the current source tree.
+**AGENTS.md** (agents.md convention) is loaded into model instructions on each
+turn:
+
+1. Optional global file in the config directory (`AGENTS.override.md` or
+   `AGENTS.md` next to `config.json`, typically `~/.config/keimling/`).
+2. From the Git project root down to the process working directory, at most one
+   file per directory (`AGENTS.override.md` preferred over `AGENTS.md`).
+3. Concatenated broad→narrow (later wins on conflict). Combined body capped at
+   32 KiB. User instructions and Keimling safety/approval rules outrank
+   AGENTS.md.

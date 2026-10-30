@@ -36,9 +36,9 @@
   restructuring remains future work.
 - Complete, provider-independent discovery of context-window sizes remains
   unresolved.
-- Skill loading (`load_skill`, `~/.config/keimling/skills/`,
-  `./.keimling/skills/`) and `AGENTS.md` project instructions are designed but
-  not implemented yet.
+- Nested AGENTS.md progressive disclosure beyond the 32 KiB instruction budget
+  (on-demand load when editing a deep path) remains optional future work; the
+  root→CWD chain is already injected each turn.
 - A general Chat Completions adapter and an automatic IPv4 fallback are not
   mandatory core features.
 
