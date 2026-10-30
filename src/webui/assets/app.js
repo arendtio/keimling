@@ -218,8 +218,7 @@
   var chaptersEl = document.getElementById("chapters");
   var workingWrap = document.getElementById("working-wrap");
   var workingEl = document.getElementById("working");
-  var liveWrap = document.getElementById("live-wrap");
-  var liveOut = document.getElementById("live-out");
+  var uiFlash = document.getElementById("ui-flash");
   var stateEl = document.getElementById("state");
   var agentStatus = document.getElementById("agent-status");
   var progressDetail = document.getElementById("progress-detail");
@@ -1270,15 +1269,43 @@
     if (!busyish) stopping = false;
     approve.disabled = !waiting;
     deny.disabled = !waiting;
-    // While recording, Send means “stop + transcribe + send” (same as Enter in CLI).
-    send.disabled = !connected || busyish;
-    msg.disabled = !connected || busyish;
-    voiceBtn.disabled = !connected || !voiceOK || busyish;
+    // Allow typing/voice/sending while busy → server queues or steers (CLI-like).
+    // While recording, Send/Queue = stop mic + transcribe + send/queue.
+    send.disabled = !connected;
+    msg.disabled = !connected;
+    voiceBtn.disabled = !connected || !voiceOK;
     newChatBtn.disabled = !connected || busyish;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
+    if (send) {
+      if (recording && busyish) {
+        send.textContent = "Queue";
+        send.title = "Stop recording, transcribe, and queue";
+      } else if (recording) {
+        send.textContent = "Send";
+        send.title = "Stop recording, transcribe, and send";
+      } else if (busyish) {
+        send.textContent = "Queue";
+        send.title = "Queue for when the agent is idle (or steer the current run)";
+      } else {
+        send.textContent = "Send";
+        send.title = "Send message";
+      }
+    }
     if (stopBtn) {
       stopBtn.disabled = !connected || !busyish || stopping;
-      stopBtn.textContent = stopping ? "Stopping…" : "Stop";
+      stopBtn.textContent = stopping ? "Stopping…" : "Interrupt";
+      stopBtn.title = "Interrupt the running agent";
+    }
+    if (voiceBtn && recording) {
+      voiceBtn.textContent = "Done";
+      voiceBtn.title = busyish
+        ? "Finish recording into the composer (Queue to enqueue)"
+        : "Finish recording (Space = draft · Enter = send)";
+    } else if (voiceBtn && !recording) {
+      voiceBtn.textContent = "Mic";
+      voiceBtn.title = busyish
+        ? "Record a message to queue or steer"
+        : "Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send";
     }
     if (!waiting) hideApproval();
     if (currentAgentInstanceID && agentsCache.length) {
@@ -1290,10 +1317,6 @@
         }
       }
       renderAgentList();
-    }
-    if (agentState === "running" || agentState === "compacting" || waiting) {
-      liveWrap.hidden = false;
-      liveWrap.open = true;
     }
     if (threadListEl && currentThreadID) {
       threadsListState = agentState;
@@ -2278,28 +2301,68 @@
     var cmd = m.command || m.text || name;
     var wrap = document.createElement("details");
     wrap.className = "tool-line";
+    if (m.pending) wrap.className += " pending";
+    var filtered = !!m.filtered && !!(m.raw && m.raw !== m.result);
+    // Unfiltered: single output lives in "raw". Filtered: raw + model result.
+    var rawBody = filtered ? (m.raw || "") : (m.raw || m.result || "");
+    var filteredBody = filtered ? (m.result || "") : "";
+
     var summary = document.createElement("summary");
     summary.innerHTML =
-      '<span class="tool-line-ran">Ran</span> ' +
-      '<span class="tool-line-name">' + esc(name) + "</span> " +
-      '<code class="tool-line-cmd">' + esc(toolFirstLine(cmd)) + "</code>";
+      '<span class="tool-line-ran">Ran</span>' +
+      '<span class="tool-line-name">' + esc(name) + "</span>" +
+      '<code class="tool-line-cmd">' + esc(toolFirstLine(cmd)) + "</code>" +
+      (filtered ? '<span class="tool-line-funnel" title="Output filtered for model">▽</span>' : "") +
+      (m.pending ? '<span class="tool-line-pending">…</span>' : "");
     wrap.appendChild(summary);
 
-    var card = document.createElement("div");
-    card.className = "tool-card";
-    var html = '<div class="tool-name">' + esc(name) + '</div>';
-    html += '<div class="tool-head">' + esc(cmd) + "</div>";
-    if (m.result) {
-      html += "<details><summary>Result (model view)</summary>";
-      html += '<pre class="tool-body">' + window.ansiToHtml(m.result) + "</pre></details>";
+    var stack = document.createElement("div");
+    stack.className = "tool-stack";
+
+    var cmdBox = document.createElement("div");
+    cmdBox.className = "tool-box tool-box-cmd";
+    cmdBox.innerHTML =
+      '<div class="tool-box-label">Command</div>' +
+      '<pre class="tool-body">' + esc(cmd) + "</pre>";
+    stack.appendChild(cmdBox);
+
+    if (m.pending && !rawBody && !filteredBody) {
+      var pend = document.createElement("p");
+      pend.className = "tool-pending-hint";
+      pend.textContent = "Running…";
+      stack.appendChild(pend);
+    } else {
+      if (rawBody) {
+        var rawBox = document.createElement("div");
+        rawBox.className = "tool-box tool-box-raw";
+        rawBox.innerHTML =
+          '<div class="tool-box-label">Raw output</div>' +
+          '<pre class="tool-body">' + window.ansiToHtml(rawBody) + "</pre>";
+        stack.appendChild(rawBox);
+      }
+      if (filtered && filteredBody) {
+        var filtBox = document.createElement("div");
+        filtBox.className = "tool-box tool-box-filtered";
+        filtBox.innerHTML =
+          '<div class="tool-box-label">Filtered <span class="tool-line-funnel">▽</span></div>' +
+          '<pre class="tool-body">' + window.ansiToHtml(filteredBody) + "</pre>";
+        stack.appendChild(filtBox);
+      }
     }
-    if (m.raw && m.raw !== m.result) {
-      html += "<details><summary>Raw output</summary>";
-      html += '<pre class="tool-body">' + window.ansiToHtml(m.raw) + "</pre></details>";
-    }
-    card.innerHTML = html;
-    wrap.appendChild(card);
+    wrap.appendChild(stack);
     return wrap;
+  }
+
+  function highlightFences(html) {
+    if (typeof hljs === "undefined" || !hljs.highlightElement) return html;
+    var wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    wrap.querySelectorAll("pre code").forEach(function (block) {
+      try {
+        hljs.highlightElement(block);
+      } catch (e) {}
+    });
+    return wrap.innerHTML;
   }
 
   function renderAssistantHTML(text) {
@@ -2308,25 +2371,40 @@
       if (typeof marked !== "undefined" && marked.parse) {
         var html = marked.parse(raw, { async: false, gfm: true, breaks: true });
         if (typeof DOMPurify !== "undefined" && DOMPurify.sanitize) {
-          return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+          html = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
         }
-        return html;
+        return highlightFences(html);
       }
     } catch (e) {}
     return window.ansiToHtml(raw);
   }
 
-  function appendMessageNode(parent, m) {
+  function appendMessageNode(parent, m, prevRole) {
     if (m.role === "tool_group") {
       parent.appendChild(toolCard(m));
-      return;
+      return m.role;
     }
     var el = document.createElement("article");
-    el.className = "msg " + (m.role || "assistant");
-    var who = m.role === "user" ? "You" : m.role === "system" ? "System" : "Keimling";
-    var body = m.role === "assistant" ? renderAssistantHTML(m.text) : esc(m.text || "");
-    el.innerHTML = '<p class="who">' + esc(who) + '</p><div class="body">' + body + "</div>";
+    var role = m.role || "assistant";
+    // One monologue label for the whole assistant turn (text + tools + more text).
+    var continuation = role === "assistant" && (prevRole === "assistant" || prevRole === "tool_group");
+    el.className = "msg " + role + (continuation ? " continuation" : "") + (m.streaming ? " streaming" : "");
+    var who = role === "user" ? "You" : role === "system" ? "System" : "Keimling";
+    var body = role === "assistant" ? renderAssistantHTML(m.text) : esc(m.text || "");
+    if (continuation) {
+      el.innerHTML = '<div class="body">' + body + "</div>";
+    } else {
+      el.innerHTML = '<p class="who">' + esc(who) + '</p><div class="body">' + body + "</div>";
+    }
     parent.appendChild(el);
+    return role;
+  }
+
+  function appendMessageList(parent, list) {
+    var prev = "";
+    (list || []).forEach(function (m) {
+      prev = appendMessageNode(parent, m, prev) || prev;
+    });
   }
 
   function messagesInChapter(ch) {
@@ -2396,18 +2474,12 @@
       return wrap;
     }
 
-    if (items.length === 1) {
-      appendMessageNode(wrap, items[0]);
+    if (items.length <= 2) {
+      appendMessageList(wrap, items);
       return wrap;
     }
 
-    appendMessageNode(wrap, items[0]);
-
-    if (items.length === 2) {
-      appendMessageNode(wrap, items[1]);
-      return wrap;
-    }
-
+    appendMessageNode(wrap, items[0], "");
     var mid = items.slice(1, -1);
     var fold = document.createElement("details");
     fold.className = "chapter-fold";
@@ -2415,11 +2487,10 @@
     fold.innerHTML = "<summary>" + esc(label) + "</summary>";
     var inner = document.createElement("div");
     inner.className = "chapter-fold-body";
-    mid.forEach(function (m) { appendMessageNode(inner, m); });
+    appendMessageList(inner, mid);
     fold.appendChild(inner);
     wrap.appendChild(fold);
-
-    appendMessageNode(wrap, items[items.length - 1]);
+    appendMessageNode(wrap, items[items.length - 1], mid[mid.length - 1] ? mid[mid.length - 1].role : items[0].role);
     return wrap;
   }
 
@@ -2457,38 +2528,137 @@
       var sum = activeChapter.summary ? "\n\n" + activeChapter.summary : "";
       head.innerHTML = '<p class="who">Chapter</p><div class="body">' + esc(activeChapter.title + sum) + "</div>";
       thread.appendChild(head);
-      messages.forEach(function (m) {
-        if (!inChapter(m)) return;
-        appendMessageNode(thread, m);
-      });
+      appendMessageList(thread, messages.filter(inChapter));
       stickScrollIfNearBottom(stick);
       return;
     }
 
-    // All activity: scroll chapters as top-level units (first + last visible, middle folded).
+    // Chapters first; live/tail messages (no event / outside ranges) after so activity stays visible at the bottom.
     if (chapters.length) {
-      var outside = messagesOutsideChapters();
-      outside.forEach(function (m) { appendMessageNode(thread, m); });
       chapters.forEach(function (ch) {
         thread.appendChild(renderChapterOverview(ch));
       });
+      appendMessageList(thread, messagesOutsideChapters());
       stickScrollIfNearBottom(stick);
       return;
     }
 
-    messages.forEach(function (m) { appendMessageNode(thread, m); });
+    appendMessageList(thread, messages);
     stickScrollIfNearBottom(stick);
   }
 
   function appendLive(text) {
-    var stick = nearBottom();
-    liveWrap.hidden = false;
-    liveOut.insertAdjacentHTML("beforeend", window.ansiToHtml(text));
-    stickScrollIfNearBottom(stick);
+    // Client-side diagnostics only — not part of the transcript.
+    if (!uiFlash) return;
+    uiFlash.hidden = false;
+    uiFlash.textContent = String(text || "").replace(/^\s+|\s+$/g, "").slice(0, 240);
   }
 
   function clearLive() {
-    liveOut.innerHTML = "";
+    if (uiFlash) {
+      uiFlash.hidden = true;
+      uiFlash.textContent = "";
+    }
+  }
+
+  function paintTranscript() {
+    renderThread();
+  }
+
+  // Patch only the open streaming bubble — full rebuild per token freezes the UI.
+  function patchStreamingBubble() {
+    var last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || !last.streaming) {
+      paintTranscript();
+      return;
+    }
+    var nodes = thread.querySelectorAll(".msg.assistant.streaming");
+    var el = nodes.length ? nodes[nodes.length - 1] : null;
+    if (!el) {
+      paintTranscript();
+      return;
+    }
+    var body = el.querySelector(".body");
+    if (!body) {
+      paintTranscript();
+      return;
+    }
+    var stick = nearBottom();
+    // Lightweight during stream: plain text; markdown applied on replace/final paint.
+    body.textContent = last.text || "";
+    stickScrollIfNearBottom(stick);
+  }
+
+  function handleStructuredMessage(payload) {
+    var text = payload.text || "";
+    var role = payload.role || "assistant";
+    if (payload.delta) {
+      var last = messages[messages.length - 1];
+      if (last && last.role === "assistant" && last.streaming) {
+        last.text = (last.text || "") + text;
+        patchStreamingBubble();
+      } else {
+        messages.push({ role: "assistant", text: text, streaming: true });
+        paintTranscript();
+      }
+      return;
+    }
+    if (payload.replace) {
+      var stream = messages[messages.length - 1];
+      if (stream && stream.role === "assistant" && stream.streaming) {
+        stream.text = text;
+        delete stream.streaming;
+      } else if (String(text).trim()) {
+        messages.push({ role: role, text: text });
+      }
+      paintTranscript();
+      return;
+    }
+    // Drop an unfinished stream bubble if a full message arrives.
+    if (messages.length && messages[messages.length - 1].streaming) {
+      messages.pop();
+    }
+    if (!String(text).trim()) return;
+    messages.push({ role: role, text: text });
+    paintTranscript();
+  }
+
+  function handleStructuredTool(payload) {
+    if (payload.phase === "start") {
+      // Finalize any open stream so tool sits in the monologue correctly.
+      var open = messages[messages.length - 1];
+      if (open && open.streaming) delete open.streaming;
+      messages.push({
+        role: "tool_group",
+        name: payload.name || "tool",
+        command: payload.command || payload.name || "tool",
+        result: "",
+        raw: "",
+        pending: true,
+      });
+      // Collapsed by default (no approval) — avoids expand/collapse scroll jump.
+      paintTranscript();
+      return;
+    }
+    if (payload.phase !== "result") return;
+    var resultMsg = {
+      role: "tool_group",
+      name: payload.name || "tool",
+      command: payload.command || payload.name || "tool",
+      result: payload.result || "",
+      raw: payload.filtered ? (payload.raw || "") : "",
+      filtered: !!payload.filtered,
+      pending: false,
+    };
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "tool_group" && messages[i].pending && messages[i].name === resultMsg.name) {
+        messages[i] = resultMsg;
+        paintTranscript();
+        return;
+      }
+    }
+    messages.push(resultMsg);
+    paintTranscript();
   }
 
   function applySession(j) {
@@ -2524,11 +2694,7 @@
     renderChapters();
     renderThread();
     setState(j.busy ? "running" : (j.state || "idle"));
-    if (!j.busy) {
-      clearLive();
-      liveWrap.hidden = true;
-      liveWrap.open = false;
-    }
+    if (!j.busy) clearLive();
   }
 
   function loadSession() {
@@ -2565,7 +2731,9 @@
               if (!data) return;
               var payload = {};
               try { payload = JSON.parse(data); } catch (e) {}
-              if (ev === "line" && payload.text) appendLive(payload.text);
+              // Agent "line" events are for CLI attach; GUI uses structured message/tool.
+              if (ev === "message") handleStructuredMessage(payload);
+              if (ev === "tool") handleStructuredTool(payload);
               if (ev === "approval") showApproval(payload);
               if (ev === "progress") updateProgress(payload);
               if (ev === "artifact") showArtifact(payload);
@@ -2574,7 +2742,10 @@
               if (ev === "status" && payload.state) {
                 setState(payload.state);
                 if (payload.state === "idle") {
-                  loadSession().catch(function () {});
+                  // Authoritative journal replaces the live transcript projection.
+                  loadSession()
+                    .then(function () { clearLive(); })
+                    .catch(function () {});
                   if (contextDialog && contextDialog.open) openContextDialog();
                 }
               }
@@ -3864,7 +4035,6 @@
         chapters = [];
         activeChapter = null;
         clearLive();
-        liveWrap.hidden = true;
         hideApproval();
         return loadSession();
       })
@@ -3891,8 +4061,7 @@
     if (!text) return;
     send.disabled = true;
     clearLive();
-    liveWrap.hidden = false;
-    liveWrap.open = true;
+    var wasBusy = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
     fetch(apiURL("/api/message"), {
       method: "POST",
       headers: headers(),
@@ -3909,16 +4078,22 @@
       .then(function (j) {
         msg.value = "";
         messages.push({ role: "user", text: text });
-        renderThread();
         if (j && j.queued) {
-          appendLive("\n[queued — will run when the agent is idle]\n");
+          messages.push({
+            role: "system",
+            text: wasBusy
+              ? "Queued — steers the current run or runs when idle."
+              : "Queued — will run when the agent is idle.",
+          });
         } else {
           setState("running");
         }
+        renderThread();
+        setState(agentState); // refresh Send/Queue label + enabled state
       })
       .catch(function (err) {
         appendLive("\n[send] " + err + "\n");
-        send.disabled = false;
+        setState(agentState);
       });
   }
 
@@ -4037,7 +4212,8 @@
   }
 
   function canUseVoice() {
-    return connected && voiceOK && agentState !== "running" && agentState !== "awaiting_approval";
+    // Allowed while the agent is busy — transcribed text can be queued/steered like typed input.
+    return connected && voiceOK;
   }
 
   function startRecording() {
@@ -4059,7 +4235,6 @@
         mediaRecorder.onstop = function () {
           recording = false;
           voiceBtn.classList.remove("recording");
-          voiceBtn.textContent = "Mic";
           setState(agentState);
           var type = mime || (mediaChunks[0] && mediaChunks[0].type) || "audio/webm";
           var blob = new Blob(mediaChunks, { type: type });
@@ -4075,7 +4250,6 @@
         recording = true;
         voiceSendPending = false;
         voiceBtn.classList.add("recording");
-        voiceBtn.textContent = "Stop";
         setVoiceStatus("Recording… Space = draft · Enter = send");
         setState(agentState);
         msg.focus();

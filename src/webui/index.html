@@ -6,6 +6,8 @@
   <title>Keimling</title>
   <link rel="icon" href="/assets/keimling.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/highlight-github.min.css" media="(prefers-color-scheme: light)">
+  <link rel="stylesheet" href="/assets/highlight-github-dark.min.css" media="(prefers-color-scheme: dark)">
 </head>
 <body>
   <div id="gate" class="gate" hidden>
@@ -477,15 +479,11 @@
 
           <div id="thread" class="thread" aria-live="polite"></div>
 
-          <details id="live-wrap" class="block live-block" hidden>
-            <summary>Live output</summary>
-            <pre id="live-out" class="block-body mono"></pre>
-          </details>
-
           <p id="agent-status" class="agent-status" hidden aria-live="polite">
             <span id="state" class="state">idle</span>
             <span id="progress-detail" class="progress-detail" hidden></span>
           </p>
+          <p id="ui-flash" class="ui-flash" hidden role="status"></p>
 
           <div id="approval" class="approval" hidden>
             <p class="approval-label">Approval needed</p>
@@ -499,14 +497,20 @@
           </div>
 
           <form id="composer" class="composer">
-            <p class="composer-meta" title="Model for this thread (change in Settings → Agent)">
-              <span id="model">—</span><span class="composer-meta-sep"> · </span><span id="mode">—</span>
-            </p>
-            <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
-            <div class="composer-actions">
-              <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
-              <button id="stop" type="button" class="ghost danger" disabled title="Stop the running agent">Stop</button>
-              <button id="send" type="submit" disabled>Send</button>
+            <div class="composer-row">
+              <div class="composer-main">
+                <p class="composer-meta" title="Model for this thread (change in Settings → Agent)">
+                  <span id="model">—</span><span class="composer-meta-sep"> · </span><span id="mode">—</span>
+                </p>
+                <div class="composer-input">
+                  <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
+                </div>
+              </div>
+              <div class="composer-actions">
+                <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
+                <button id="stop" type="button" class="ghost danger" disabled title="Interrupt the running agent">Interrupt</button>
+                <button id="send" type="submit" disabled title="Send message">Send</button>
+              </div>
             </div>
             <p id="voice-status" class="hint" hidden></p>
           </form>
@@ -540,6 +544,7 @@
   <script src="/assets/ansi.js"></script>
   <script src="/assets/marked.min.js"></script>
   <script src="/assets/purify.min.js"></script>
+  <script src="/assets/highlight.min.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>

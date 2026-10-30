@@ -192,6 +192,18 @@ func TestAppServerServesAnsiJS(t *testing.T) {
 	}
 }
 
+func TestAppServerServesHighlightJS(t *testing.T) {
+	h := newAppServer(appServerOpts{AccessSecret: "tok"}).Handler()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/highlight.min.js", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "hljs") && !strings.Contains(rec.Body.String(), "highlight") {
+		t.Fatal("missing highlight.js payload")
+	}
+}
+
 func TestAppServerNewChatAndSettings(t *testing.T) {
 	dir := t.TempDir()
 	session := filepath.Join(dir, "s.jsonl")
@@ -295,6 +307,27 @@ func TestAppServerSettingsAPIKeysPersist(t *testing.T) {
 	if fc.API.BaseURL != "https://openrouter.ai/api/v1" || fc.API.Model != "or-model" {
 		t.Fatalf("config api: %#v", fc.API)
 	}
+
+	// Context limit / max steps must survive restart via config.json.
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"model":"or-model","mode":"ask","reasoning":"medium","context_limit":64000,"max_steps":42}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings context: %d %s", rec.Code, rec.Body.String())
+	}
+	if a.Cfg.ContextLimit != 64000 || a.Cfg.MaxSteps != 42 {
+		t.Fatalf("in-memory limit/steps: %d %d", a.Cfg.ContextLimit, a.Cfg.MaxSteps)
+	}
+	fc, err = readConfiguration(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fc.ContextLimit != 64000 || fc.MaxSteps != 42 {
+		t.Fatalf("persisted limit/steps: %#v", fc)
+	}
+
 	st, err := os.Stat(cfgPath)
 	if err != nil {
 		t.Fatal(err)
@@ -314,6 +347,27 @@ func TestAppServerSettingsAPIKeysPersist(t *testing.T) {
 	}
 	if a.Client.APIKey != "sk-or-test" || a.Cfg.ExternalClient.APIKey != "sk-openai-test" {
 		t.Fatal("keys changed when omitted")
+	}
+}
+
+func TestAcceptAgentTextSteersWhenBusy(t *testing.T) {
+	a := &Agent{Control: newTaskControl(func() {})}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.mu.Unlock()
+
+	queued, err := srv.acceptAgentText("please pivot", "user", "message")
+	if err != nil || !queued {
+		t.Fatalf("steer: queued=%v err=%v", queued, err)
+	}
+	select {
+	case ev := <-a.Control.events:
+		if ev.kind != "steer" || ev.text != "please pivot" {
+			t.Fatalf("event %#v", ev)
+		}
+	default:
+		t.Fatal("expected steer event")
 	}
 }
 

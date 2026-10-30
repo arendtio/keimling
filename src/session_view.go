@@ -6,13 +6,14 @@ import (
 )
 
 type sessionMessage struct {
-	Role    string `json:"role"` // user | assistant | tool | tool_group | system
-	Name    string `json:"name,omitempty"`
-	Text    string `json:"text,omitempty"`
-	Command string `json:"command,omitempty"` // tool_group: visible command / label
-	Result  string `json:"result,omitempty"`  // model-facing / filtered journal output
-	Raw     string `json:"raw,omitempty"`     // raw shell output when distinct (often empty in journal)
-	Event   int    `json:"event,omitempty"`   // 1-based journal item index
+	Role     string `json:"role"` // user | assistant | tool | tool_group | system
+	Name     string `json:"name,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Command  string `json:"command,omitempty"`  // tool_group: visible command / label
+	Result   string `json:"result,omitempty"`   // display / model-facing output
+	Raw      string `json:"raw,omitempty"`      // raw shell output only when filtered
+	Filtered bool   `json:"filtered,omitempty"` // true when Raw differs from model Result
+	Event    int    `json:"event,omitempty"`    // 1-based journal item index
 }
 
 type sessionChapter struct {
@@ -84,14 +85,24 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 					}
 				}
 			}
+			filtered := raw != "" && raw != result
+			if !filtered {
+				raw = ""
+			}
 			out = append(out, sessionMessage{
-				Role:    "tool_group",
-				Name:    item.Name,
-				Command: cmd,
-				Result:  result,
-				Raw:     raw,
-				Event:   endEv,
+				Role:     "tool_group",
+				Name:     item.Name,
+				Command:  cmd,
+				Result:   result,
+				Raw:      raw,
+				Filtered: filtered,
+				Event:    endEv,
 			})
+			if item.Name == "finish_task" {
+				if summary := finishTaskSummaryMessage(item.Arguments, endEv); summary != nil {
+					out = append(out, *summary)
+				}
+			}
 		case item.Type == "function_call_output":
 			// Orphan output (call already consumed or missing).
 			t := strings.TrimSpace(item.Output)
@@ -105,6 +116,34 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 		out = out[len(out)-limit:]
 	}
 	return out
+}
+
+func finishTaskSummaryMessage(args string, event int) *sessionMessage {
+	var f struct {
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}
+	if json.Unmarshal([]byte(args), &f) != nil {
+		return nil
+	}
+	summary := strings.TrimSpace(f.Summary)
+	if summary == "" {
+		return nil
+	}
+	title := "Task complete"
+	if f.Status == "blocked" {
+		title = "Action needed"
+	} else if f.Status != "done" {
+		title = "Task " + strings.TrimSpace(f.Status)
+		if title == "Task " {
+			title = "Task finished"
+		}
+	}
+	return &sessionMessage{
+		Role:  "assistant",
+		Text:  "**" + title + "**\n\n" + summary,
+		Event: event,
+	}
 }
 
 func toolCommandLabel(name, args string) string {

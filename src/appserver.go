@@ -66,6 +66,12 @@ func newAppServer(opts appServerOpts) *appServer {
 					s.hub.Broadcast("progress", payload)
 					return
 				}
+			case "message", "tool":
+				var payload map[string]any
+				if json.Unmarshal([]byte(text), &payload) == nil {
+					s.hub.Broadcast(kind, payload)
+					return
+				}
 			case "approval":
 				var payload map[string]any
 				if json.Unmarshal([]byte(text), &payload) == nil {
@@ -1491,6 +1497,12 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) er
 		fc.API.Mode = cfg.Mode
 		web := cfg.Web
 		fc.Features.WebSearch = &web
+		auto := cfg.Autopilot
+		fc.Features.Autopilot = &auto
+		fc.Reasoning = cfg.Reasoning
+		fc.VoiceModel = cfg.VoiceModel
+		fc.MaxSteps = cfg.MaxSteps
+		fc.ContextLimit = cfg.ContextLimit
 		if writeProviderKey {
 			fc.API.Key = cfg.Key
 			fc.API.KeyFile = ""
@@ -1597,7 +1609,19 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 	if s.startAgentRun(text) {
 		return false, nil
 	}
-	// Busy or raced with the wake loop — never drop the message.
+	// Busy: steer the in-flight run (same idea as CLI typing while working).
+	s.mu.Lock()
+	agent := s.agent
+	s.mu.Unlock()
+	if agent != nil && agent.Control != nil {
+		select {
+		case agent.Control.events <- controlEvent{kind: "steer", text: text}:
+			return true, nil
+		default:
+			return false, fmt.Errorf("steering queue is full")
+		}
+	}
+	// Durable wake queue for agent instances (alarms / multi-agent).
 	if inst == "" {
 		return false, fmt.Errorf("agent busy")
 	}
@@ -1618,6 +1642,8 @@ func (s *appServer) startAgentRun(text string) bool {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	agent := s.agent
+	control := newTaskControl(cancel)
+	agent.Control = control
 	s.mu.Unlock()
 
 	s.hub.Broadcast("line", map[string]string{"text": "\n› " + text + "\n"})
@@ -1629,6 +1655,9 @@ func (s *appServer) startAgentRun(text string) bool {
 			s.busy = false
 			s.cancel = nil
 			s.stopRequested = false
+			if s.agent != nil {
+				s.agent.Control = nil
+			}
 			s.mu.Unlock()
 			s.hub.Broadcast("status", map[string]string{"state": "idle"})
 			s.pumpAgentWakes()

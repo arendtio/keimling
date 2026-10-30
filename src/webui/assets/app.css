@@ -959,6 +959,12 @@ button.wide { width: 100%; max-width: 100%; }
   padding: 0.15rem 0.2rem;
   background: transparent;
 }
+.msg.assistant.continuation {
+  padding-top: 0.35rem;
+}
+.msg.assistant.streaming .body {
+  opacity: 0.92;
+}
 .msg.system {
   background: transparent;
   border: 0;
@@ -1030,6 +1036,10 @@ button.wide { width: 100%; max-width: 100%; }
   font-size: 0.84rem;
   white-space: pre;
 }
+.msg.assistant .body pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
 .msg.assistant .body blockquote {
   margin: 0;
   padding-left: 0.75rem;
@@ -1047,13 +1057,14 @@ button.wide { width: 100%; max-width: 100%; }
   cursor: pointer;
   list-style: none;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.55rem;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.2rem 0;
   color: var(--muted);
   font-size: 0.84rem;
   user-select: none;
+  min-width: 0;
 }
 .tool-line > summary::-webkit-details-marker { display: none; }
 .tool-line > summary::before {
@@ -1062,68 +1073,87 @@ button.wide { width: 100%; max-width: 100%; }
   flex: 0 0 auto;
 }
 .tool-line[open] > summary::before { content: "▾"; }
+.tool-line-funnel {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.tool-line-pending {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.tool-pending-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.ui-flash {
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 80%, var(--live-warn, #c45) 20%);
+  color: var(--fg);
+  font-size: 0.82rem;
+}
 .tool-line-ran {
+  flex: 0 0 auto;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 0.7rem;
 }
-.tool-line-name { color: var(--fg); font-weight: 500; }
+.tool-line-name {
+  flex: 0 0 auto;
+  color: var(--fg);
+  font-weight: 500;
+}
 .tool-line-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 0.8rem;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
-}
-.tool-line .tool-card {
-  margin-top: 0.35rem;
 }
 
-.tool-card {
+.tool-stack {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  min-width: 0;
+}
+.tool-box {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--tool);
-  padding: 0.55rem 0.75rem 0.65rem;
-  display: grid;
-  gap: 0.35rem;
+  padding: 0.45rem 0.65rem 0.55rem;
   min-width: 0;
 }
-.tool-card .tool-head {
-  font-family: var(--font-mono);
-  font-size: 0.84rem;
-  color: var(--fg);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.tool-card .tool-name {
+.tool-box-label {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
+  margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
-.tool-card details {
-  border-top: 1px solid var(--line);
-  padding-top: 0.35rem;
-  min-width: 0;
-}
-.tool-card summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.78rem;
-  list-style: none;
-}
-.tool-card summary::-webkit-details-marker { display: none; }
-.tool-card summary::before { content: "▸ "; color: var(--accent); }
-.tool-card details[open] > summary::before { content: "▾ "; }
-.tool-card .tool-body {
-  margin: 0.35rem 0 0;
+.tool-box .tool-body {
+  margin: 0;
   font-family: var(--font-mono);
   font-size: 0.8rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--muted);
+}
+.tool-box-cmd .tool-body {
+  color: var(--fg);
+}
+.tool-box-filtered {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
 .approval {
@@ -1175,34 +1205,78 @@ button.wide { width: 100%; max-width: 100%; }
 .composer {
   position: sticky;
   bottom: 0.75rem;
-  padding: 0.65rem;
+  padding: 0.55rem 0.65rem;
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 2px);
   background: color-mix(in srgb, var(--chrome) 88%, var(--panel));
   backdrop-filter: blur(8px);
   display: grid;
-  gap: 0.35rem;
+  gap: 0.3rem;
+}
+/* Row height = stacked Mic/Interrupt/Send only (no gap above/below).
+   Left column stretches to that height: meta on top, textarea the rest. */
+.composer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: stretch;
+  min-width: 0;
+}
+.composer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  min-height: 0;
+  /* overflow not visible → min-size 0 so buttons alone set the row height */
+  overflow: hidden;
+  align-self: stretch;
 }
 .composer-meta {
   margin: 0;
-  padding: 0 0.4rem;
+  padding: 0 0.35rem;
   font-size: 0.75rem;
+  line-height: 1.2;
   color: var(--muted);
   letter-spacing: 0.01em;
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-meta-sep { opacity: 0.7; }
+.composer-input {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .composer textarea {
   border: 0;
   background: transparent;
-  padding: 0.35rem 0.4rem;
-  max-height: none;
+  padding: 0.15rem 0.35rem;
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.35;
+  box-sizing: border-box;
 }
 .composer textarea:focus { outline: none; }
 .composer-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.4rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+  align-self: start;
+}
+.composer-actions button {
+  min-width: 5.75rem;
+  white-space: nowrap;
 }
 #voice.recording {
   border-color: var(--danger);

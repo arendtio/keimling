@@ -77,7 +77,12 @@ type fileConfig struct {
 	Features struct {
 		WebSearch               *bool `json:"web_search"`
 		DisableExternalServices bool  `json:"disable_external_services"`
+		Autopilot               *bool `json:"autopilot,omitempty"`
 	} `json:"features"`
+	Reasoning             string                     `json:"reasoning,omitempty"`
+	VoiceModel            string                     `json:"voice_model,omitempty"`
+	MaxSteps              int                        `json:"max_steps,omitempty"`
+	ContextLimit          int                        `json:"context_limit,omitempty"`
 	Presentation          string                     `json:"presentation"`
 	Listen                string                     `json:"listen"`
 	Connect               string                     `json:"connect"`
@@ -311,6 +316,21 @@ func main() {
 	}
 	if !changed["disable-external-services"] {
 		*disableExternal = fc.Features.DisableExternalServices
+	}
+	if !changed["autopilot"] && fc.Features.Autopilot != nil {
+		*pilot = *fc.Features.Autopilot
+	}
+	if !changed["reasoning"] && strings.TrimSpace(fc.Reasoning) != "" {
+		*reasoning = strings.TrimSpace(fc.Reasoning)
+	}
+	if !changed["voice-model"] && strings.TrimSpace(fc.VoiceModel) != "" {
+		*voiceModel = strings.TrimSpace(fc.VoiceModel)
+	}
+	if !changed["max-steps"] && fc.MaxSteps > 0 {
+		*steps = fc.MaxSteps
+	}
+	if !changed["context-limit"] && fc.ContextLimit >= 1000 {
+		*ctxLimit = fc.ContextLimit
 	}
 	if *disableExternal {
 		*web = false

@@ -268,9 +268,11 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		}
 		// Buffer streamed markdown; print a formatted block when the turn finishes
 		// so **bold**/code fences are not left as raw markers in the terminal.
+		// GUI gets live deltas via structured message events.
 		a.Client.StreamText = func(delta string) {
 			streamingStarted.Store(true)
 			streamedText.WriteString(delta)
+			a.presentAssistant(delta, true, false)
 		}
 		a.Client.StreamProgress = func(deltaChars int, elapsed time.Duration, kind string) {
 			switch kind {
@@ -346,11 +348,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		a.emitJSON("progress", map[string]any{"clear": true})
 		a.print("\r\033[2K")
 		if streamingStarted.Load() {
-			formatted := formatTerminal(streamedText.String())
-			a.print(formatted)
-			if formatted != "" && !strings.HasSuffix(formatted, "\n") {
-				a.print("\n")
-			}
+			full := streamedText.String()
+			a.presentAssistant(full, false, true) // CLI formatted block; GUI replaces stream bubble
 			duration := time.Since(started).Seconds()
 			if duration > 0 {
 				estimated := textChars.Load() / 4
@@ -389,7 +388,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 							continue
 						}
 						if !resp.StreamedText || !strings.Contains(streamedText.String(), part.Text) {
-							a.println("\n" + formatTerminal(part.Text))
+							a.presentAssistant(part.Text, false, false)
 						}
 					}
 				}
@@ -411,7 +410,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					return fmt.Errorf("function call without call_id")
 				}
 				if item.Name != "finish_task" && item.Name != "update_plan" {
-					a.println(renderToolCall(item.Name, item.Arguments))
+					a.presentToolStart(item.Name, item.Arguments)
 				}
 				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate" || item.Name == "change_workspace" || item.Name == "set_alarm" || item.Name == "list_alarms" || item.Name == "cancel_alarm" || item.Name == "list_agents" || item.Name == "allow_peer" || item.Name == "message_agent" || item.Name == "list_credentials"
 				reason := ""
@@ -518,7 +517,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 							a.TaskActive = false
 							a.PilotReport = f.Status + ": " + f.Summary
 							result = "task status recorded: " + f.Status
-							a.println(renderFinish(f.Status, f.Summary))
+							a.presentFinish(f.Status, f.Summary)
 						}
 					} else if item.Name == "web_search" {
 						var args struct {
@@ -649,6 +648,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						}
 					}
 				}
+				toolCmd := toolCommandLabel(item.Name, item.Arguments)
+				toolOK := true
 				if item.Name == "exec" {
 					code := "?"
 					displayedResult := result
@@ -662,25 +663,32 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						}
 					}
 					output := strings.TrimPrefix(displayedResult, "exit_code="+code+"\n")
+					toolOK = code == "0"
 					if code != "0" {
-						a.printf("\033[31mFAIL: Return Value %s\033[0m\n", code)
+						a.cliWrite(fmt.Sprintf("\033[31mFAIL: Return Value %s\033[0m\n", code))
 					}
 					if strings.TrimSpace(output) != "" {
-						a.print(output)
+						a.cliWrite(output)
 						if !strings.HasSuffix(output, "\n") {
-							a.println()
+							a.cliWrite("\n")
 						}
 					}
-					if rawExecResult != "" && result != rawExecResult {
+					filtered := rawExecResult != "" && rawExecResult != result
+					if filtered {
 						modelVisible := truncate(result, 32<<10)
-						a.printf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExecResult), len(modelVisible), modelVisible)
+						a.cliWrite(fmt.Sprintf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExecResult), len(modelVisible), modelVisible))
+						a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(result), strings.TrimSpace(rawExecResult), toolOK, true)
+					} else {
+						a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(output), "", toolOK, false)
 					}
 				} else {
 					if strings.HasPrefix(result, "patch failed:") || strings.HasPrefix(result, "hash mismatch") || strings.HasPrefix(result, "file hash mismatch") || strings.HasPrefix(result, "invalid line range") || strings.HasPrefix(result, "access denied:") {
-						a.printf("\033[31m✗\033[0m %s\n", truncate(result, 1800))
+						toolOK = false
+						a.cliWrite(fmt.Sprintf("\033[31m✗\033[0m %s\n", truncate(result, 1800)))
 					} else {
-						a.printf("\033[32m✓\033[0m %s\n", truncate(result, 1800))
+						a.cliWrite(fmt.Sprintf("\033[32m✓\033[0m %s\n", truncate(result, 1800)))
 					}
+					a.presentToolResult(item.Name, toolCmd, truncate(result, 1800), "", toolOK, false)
 				}
 				outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10)}
 				// raw_output is UI-only; normalizeResponseInput strips it before the model sees history.
