@@ -39,6 +39,7 @@ type appServer struct {
 	skillPreviews         *skillPreviewHub
 	pendingProviders      []modelProvider
 	pendingActiveProvider string
+	budgetCache           providerBudgetCache
 }
 
 func newAppServer(opts appServerOpts) *appServer {
@@ -152,6 +153,8 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/stop", s.requireSecret(http.HandlerFunc(s.handleStop)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
+	s.mux.Handle("/api/settings/model-catalog", s.requireSecret(http.HandlerFunc(s.handleModelCatalog)))
+	s.mux.Handle("/api/settings/budget", s.requireSecret(http.HandlerFunc(s.handleProviderBudget)))
 	s.mux.Handle("/api/gui-prefs", s.requireSecret(http.HandlerFunc(s.handleGuiPrefs)))
 	s.mux.Handle("/api/client-connections", s.requireSecret(http.HandlerFunc(s.handleClientConnections)))
 	s.mux.Handle("/api/credentials", s.requireSecret(http.HandlerFunc(s.handleCredentials)))
@@ -229,6 +232,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"busy":              s.isBusy(),
 		"voice":             s.voiceAvailable(),
 		"state":             s.agentState(),
+		"budget":            s.budgetSnapshot(r.Context(), false),
 	})
 }
 
@@ -1135,25 +1139,13 @@ func (s *appServer) applySettings(body agentSettings) error {
 		if err != nil {
 			return err
 		}
-		ap := modelProviderByID(out, active)
-		cfg.BaseURL = ap.BaseURL
-		if ap.Model != "" {
-			cfg.Model = ap.Model
-		}
-		if ap.Reasoning != "" {
-			cfg.Reasoning = ap.Reasoning
-		}
-		if ap.APIKey != "" {
-			cfg.Key = ap.APIKey
-		}
-		if s.agent.Client == nil {
-			s.agent.Client = NewClient(cfg.Key)
-		} else {
-			s.agent.Client.APIKey = cfg.Key
-		}
-		s.agent.Client.BaseURL = cfg.BaseURL
 		s.pendingProviders = out
 		s.pendingActiveProvider = active
+		applyActiveProviderToAgent(s.agent, fileConfig{
+			ModelProviders:        out,
+			ActiveModelProviderID: active,
+		})
+		cfg = &s.agent.Cfg
 	}
 	if raw := strings.TrimSpace(body.BaseURL); raw != "" && !writeProviders {
 		resolved, err := normalizeBaseURL(raw)
@@ -1198,7 +1190,18 @@ func (s *appServer) applySettings(body agentSettings) error {
 		if *body.ContextLimit < 1000 {
 			return fmt.Errorf("context_limit too small")
 		}
-		cfg.ContextLimit = *body.ContextLimit
+		// Active model context wins when curated; otherwise use the global fallback.
+		modelLimit := 0
+		if writeProviders {
+			if ap := modelProviderByID(s.pendingProviders, s.pendingActiveProvider); ap != nil {
+				if m := ap.activeModel(); m != nil {
+					modelLimit = m.ContextLimit
+				}
+			}
+		}
+		if modelLimit < 1000 {
+			cfg.ContextLimit = *body.ContextLimit
+		}
 	}
 	if v := strings.TrimSpace(body.VoiceModel); v != "" {
 		cfg.VoiceModel = v
@@ -1228,6 +1231,9 @@ func (s *appServer) applySettings(body agentSettings) error {
 	if err := s.persistAgentConfig(writeProviderKey || writeProviders, writeOpenAIKey); err != nil {
 		return fmt.Errorf("persist config: %w", err)
 	}
+	if writeProviders {
+		s.budgetCache.invalidate()
+	}
 	return nil
 }
 
@@ -1243,11 +1249,14 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 	out := make([]modelProvider, 0, len(body.ModelProviders))
 	for _, in := range body.ModelProviders {
 		p := modelProvider{
-			ID:        strings.TrimSpace(in.ID),
-			Name:      strings.TrimSpace(in.Name),
-			BaseURL:   strings.TrimSpace(in.BaseURL),
-			Model:     strings.TrimSpace(in.Model),
-			Reasoning: strings.TrimSpace(in.Reasoning),
+			ID:            strings.TrimSpace(in.ID),
+			Name:          strings.TrimSpace(in.Name),
+			BaseURL:       strings.TrimSpace(in.BaseURL),
+			Kind:          strings.TrimSpace(in.Kind),
+			Model:         strings.TrimSpace(in.Model),
+			Reasoning:     strings.TrimSpace(in.Reasoning),
+			ActiveModelID: strings.TrimSpace(in.ActiveModelID),
+			Models:        in.Models,
 		}
 		if p.BaseURL == "" {
 			return nil, "", fmt.Errorf("provider base_url required")
@@ -1257,6 +1266,14 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 			return nil, "", fmt.Errorf("provider %q: %w", p.Name, err)
 		}
 		p.BaseURL = resolved
+		switch strings.ToLower(p.Kind) {
+		case "", "auto", "openai", "openrouter", "litellm", "local":
+			if p.Kind == "" {
+				p.Kind = "auto"
+			}
+		default:
+			return nil, "", fmt.Errorf("provider %q: invalid kind %q", p.Name, p.Kind)
+		}
 		if prev, ok := byID[p.ID]; ok {
 			p.APIKey = prev.APIKey
 		}
@@ -1269,6 +1286,15 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 		if p.Name == "" {
 			p.Name = p.BaseURL
 		}
+		cleaned := make([]providerModel, 0, len(p.Models))
+		for _, m := range p.Models {
+			nm, err := normalizeProviderModel(m)
+			if err != nil {
+				return nil, "", fmt.Errorf("provider %q: %w", p.Name, err)
+			}
+			cleaned = append(cleaned, nm)
+		}
+		p.Models = cleaned
 		if p.Reasoning != "" {
 			switch p.Reasoning {
 			case "low", "medium", "high", "xhigh", "max":
@@ -1276,6 +1302,7 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 				return nil, "", fmt.Errorf("provider %q: invalid reasoning", p.Name)
 			}
 		}
+		p.ensureProviderModels()
 		out = append(out, p)
 	}
 	active := strings.TrimSpace(body.ActiveModelProviderID)

@@ -202,17 +202,37 @@
   var providersCache = [];
   var activeProviderID = "";
   var editingProviderID = null;
+  var editingProviderModels = [];
+  var editingActiveModelID = "";
+  var modelFormMode = null; // null | "add" | "edit"
+  var modelFormOriginalID = "";
+  var catalogCache = [];
   var providerListEl = document.getElementById("provider-list");
   var providerEditor = document.getElementById("provider-editor");
   var providerNewBtn = document.getElementById("provider-new");
   var provEditName = document.getElementById("prov-edit-name");
   var provEditBaseURL = document.getElementById("prov-edit-base-url");
+  var provEditKind = document.getElementById("prov-edit-kind");
   var provEditAPIKey = document.getElementById("prov-edit-api-key");
-  var provEditModel = document.getElementById("prov-edit-model");
-  var provEditReasoning = document.getElementById("prov-edit-reasoning");
   var provEditCancel = document.getElementById("prov-edit-cancel");
   var provEditSave = document.getElementById("prov-edit-save");
   var provEditDelete = document.getElementById("prov-edit-delete");
+  var provModelList = document.getElementById("prov-model-list");
+  var provModelNew = document.getElementById("prov-model-new");
+  var provModelEditor = document.getElementById("prov-model-editor");
+  var provModelEditorTitle = document.getElementById("prov-model-editor-title");
+  var provModelID = document.getElementById("prov-model-id");
+  var provModelName = document.getElementById("prov-model-name");
+  var provModelContext = document.getElementById("prov-model-context");
+  var provModelReasoning = document.getElementById("prov-model-reasoning");
+  var provModelPromptPrice = document.getElementById("prov-model-prompt-price");
+  var provModelCompletionPrice = document.getElementById("prov-model-completion-price");
+  var provModelSave = document.getElementById("prov-model-save");
+  var provModelCancel = document.getElementById("prov-model-cancel");
+  var provCatalogFetch = document.getElementById("prov-catalog-fetch");
+  var provCatalogStatus = document.getElementById("prov-catalog-status");
+  var provCatalogDatalist = document.getElementById("prov-catalog-datalist");
+  var budgetLineEl = document.getElementById("budget-line");
 
   var thread = document.getElementById("thread");
   var chaptersEl = document.getElementById("chapters");
@@ -949,28 +969,43 @@
       });
   }
 
+  function activeModelOf(p) {
+    if (!p) return null;
+    var models = p.models || [];
+    var id = p.active_model_id || p.model || "";
+    for (var i = 0; i < models.length; i++) {
+      if (models[i].id === id) return models[i];
+    }
+    return models[0] || null;
+  }
+
   function syncHiddenProviderFields() {
     var p = null;
     for (var i = 0; i < providersCache.length; i++) {
       if (providersCache[i].id === activeProviderID) { p = providersCache[i]; break; }
     }
     if (!p) return;
+    var m = activeModelOf(p);
     setBaseURL.value = p.base_url || "";
-    setModel.value = p.model || "";
-    setReasoning.value = p.reasoning || setReasoning.value || "high";
+    setModel.value = (m && m.id) || p.model || "";
+    setReasoning.value = (m && m.reasoning) || p.reasoning || setReasoning.value || "high";
     setAPIKey.value = "";
+    if (m && m.context_limit >= 1000 && setContextLimit) {
+      setContextLimit.value = m.context_limit;
+    }
   }
 
   function renderProviderList() {
     if (!providerListEl) return;
     providerListEl.innerHTML = "";
     providersCache.forEach(function (p) {
+      var m = activeModelOf(p);
       var li = document.createElement("li");
       var pick = document.createElement("button");
       pick.type = "button";
       pick.className = "profile-pick" + (p.id === activeProviderID ? " active" : "");
       pick.innerHTML = esc(p.name || p.id) +
-        '<span class="profile-meta">' + esc(p.model || p.base_url || "") + "</span>";
+        '<span class="profile-meta">' + esc((m && (m.name || m.id)) || p.model || p.base_url || "") + "</span>";
       pick.addEventListener("click", function () {
         activeProviderID = p.id;
         syncHiddenProviderFields();
@@ -987,13 +1022,253 @@
     });
   }
 
+  function clearModelForm() {
+    if (provModelID) provModelID.value = "";
+    if (provModelName) provModelName.value = "";
+    if (provModelContext) provModelContext.value = "";
+    if (provModelReasoning) provModelReasoning.value = "";
+    if (provModelPromptPrice) provModelPromptPrice.value = "";
+    if (provModelCompletionPrice) provModelCompletionPrice.value = "";
+  }
+
+  function fillModelForm(m) {
+    if (!m) { clearModelForm(); return; }
+    if (provModelID) provModelID.value = m.id || "";
+    if (provModelName) provModelName.value = m.name || "";
+    if (provModelContext) provModelContext.value = m.context_limit ? String(m.context_limit) : "";
+    if (provModelReasoning) provModelReasoning.value = m.reasoning || "";
+    if (provModelPromptPrice) provModelPromptPrice.value = m.prompt_price || "";
+    if (provModelCompletionPrice) provModelCompletionPrice.value = m.completion_price || "";
+  }
+
+  function closeModelForm() {
+    modelFormMode = null;
+    modelFormOriginalID = "";
+    clearModelForm();
+    if (provCatalogStatus) provCatalogStatus.hidden = true;
+    if (provModelEditor) provModelEditor.hidden = true;
+    if (provModelNew) provModelNew.hidden = false;
+  }
+
+  function openModelFormAdd() {
+    modelFormMode = "add";
+    modelFormOriginalID = "";
+    clearModelForm();
+    if (provModelEditorTitle) provModelEditorTitle.textContent = "Add model";
+    if (provModelEditor) provModelEditor.hidden = false;
+    if (provModelNew) provModelNew.hidden = true;
+    if (provModelID) provModelID.focus();
+  }
+
+  function openModelFormEdit(m) {
+    if (!m) return;
+    modelFormMode = "edit";
+    modelFormOriginalID = m.id;
+    fillModelForm(m);
+    if (provModelEditorTitle) provModelEditorTitle.textContent = "Edit model";
+    if (provModelEditor) provModelEditor.hidden = false;
+    if (provModelNew) provModelNew.hidden = true;
+    if (provModelID) provModelID.focus();
+  }
+
+  function renderProvModelList() {
+    if (!provModelList) return;
+    provModelList.innerHTML = "";
+    editingProviderModels.forEach(function (m) {
+      var isDefault = m.id === editingActiveModelID;
+      var li = document.createElement("li");
+      var label = document.createElement("div");
+      label.className = "profile-pick" + (isDefault ? " active" : "");
+      var meta = [];
+      if (isDefault) meta.push("default");
+      if (m.context_limit) meta.push(m.context_limit + " ctx");
+      if (m.reasoning) meta.push(m.reasoning);
+      label.innerHTML = esc(m.name || m.id) +
+        (meta.length ? '<span class="profile-meta">' + esc(meta.join(" · ")) + "</span>" : "");
+      var actions = document.createElement("div");
+      actions.className = "profile-row-actions";
+      if (!isDefault) {
+        var setDef = document.createElement("button");
+        setDef.type = "button";
+        setDef.className = "ghost profile-edit-btn";
+        setDef.textContent = "Default";
+        setDef.title = "Use as default model for this provider";
+        setDef.addEventListener("click", function () {
+          editingActiveModelID = m.id;
+          renderProvModelList();
+        });
+        actions.appendChild(setDef);
+      }
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost profile-edit-btn";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () { openModelFormEdit(m); });
+      actions.appendChild(edit);
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "ghost profile-edit-btn danger";
+      del.textContent = "Remove";
+      del.addEventListener("click", function () {
+        if (modelFormMode === "edit" && modelFormOriginalID === m.id) closeModelForm();
+        editingProviderModels = editingProviderModels.filter(function (x) { return x.id !== m.id; });
+        if (editingActiveModelID === m.id) {
+          editingActiveModelID = editingProviderModels[0] ? editingProviderModels[0].id : "";
+        }
+        renderProvModelList();
+      });
+      actions.appendChild(del);
+      li.appendChild(label);
+      li.appendChild(actions);
+      provModelList.appendChild(li);
+    });
+  }
+
+  function saveEditorModel() {
+    var id = provModelID ? provModelID.value.trim() : "";
+    if (!id) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Model id required";
+      return;
+    }
+    var ctxRaw = provModelContext ? provModelContext.value.trim() : "";
+    var ctx = ctxRaw ? parseInt(ctxRaw, 10) : 0;
+    if (ctxRaw && (!isFinite(ctx) || ctx < 0)) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Invalid context limit";
+      return;
+    }
+    var row = {
+      id: id,
+      name: provModelName ? provModelName.value.trim() : "",
+      context_limit: ctx || 0,
+      reasoning: provModelReasoning ? provModelReasoning.value : "",
+      prompt_price: provModelPromptPrice ? provModelPromptPrice.value.trim() : "",
+      completion_price: provModelCompletionPrice ? provModelCompletionPrice.value.trim() : "",
+    };
+    if (modelFormMode === "edit") {
+      var replaced = false;
+      for (var i = 0; i < editingProviderModels.length; i++) {
+        if (editingProviderModels[i].id === modelFormOriginalID) {
+          // Block rename onto another existing id.
+          if (id !== modelFormOriginalID && editingProviderModels.some(function (x) { return x.id === id; })) {
+            gateErr.hidden = false;
+            gateErr.textContent = "Another model already uses that id";
+            return;
+          }
+          editingProviderModels[i] = row;
+          if (editingActiveModelID === modelFormOriginalID) editingActiveModelID = id;
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) editingProviderModels.push(row);
+    } else {
+      if (editingProviderModels.some(function (x) { return x.id === id; })) {
+        gateErr.hidden = false;
+        gateErr.textContent = "Model id already in the list";
+        return;
+      }
+      editingProviderModels.push(row);
+      if (!editingActiveModelID) editingActiveModelID = id;
+    }
+    gateErr.hidden = true;
+    closeModelForm();
+    renderProvModelList();
+  }
+
+  function applyCatalogPrefill(entry) {
+    if (!entry) return;
+    if (provModelID) provModelID.value = entry.id || "";
+    if (provModelName && entry.name) provModelName.value = entry.name;
+    if (provModelContext && entry.context_limit) provModelContext.value = String(entry.context_limit);
+    if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = entry.prompt_price;
+    if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = entry.completion_price;
+  }
+
+  function fillCatalogDatalist(models) {
+    catalogCache = models || [];
+    if (!provCatalogDatalist) return;
+    provCatalogDatalist.innerHTML = "";
+    catalogCache.forEach(function (m) {
+      var opt = document.createElement("option");
+      opt.value = m.id;
+      opt.label = m.name ? (m.name + " (" + m.id + ")") : m.id;
+      provCatalogDatalist.appendChild(opt);
+    });
+  }
+
+  function fetchModelCatalog() {
+    if (!connected) return;
+    if (provCatalogStatus) {
+      provCatalogStatus.hidden = false;
+      provCatalogStatus.textContent = "Fetching catalog…";
+    }
+    var q = "";
+    if (editingProviderID) {
+      q = "?provider_id=" + encodeURIComponent(editingProviderID);
+    } else if (provEditBaseURL && provEditBaseURL.value.trim()) {
+      q = "?base_url=" + encodeURIComponent(provEditBaseURL.value.trim());
+    }
+    fetch(apiURL("/api/settings/model-catalog" + q), { headers: headers() })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = {};
+          try { j = JSON.parse(t); } catch (e) {}
+          if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
+          fillCatalogDatalist(j.models || []);
+          if (provCatalogStatus) {
+            provCatalogStatus.textContent = (j.count || 0) + " models loaded — pick an id to prefill.";
+          }
+          var typed = provModelID ? provModelID.value.trim() : "";
+          if (typed) {
+            for (var i = 0; i < catalogCache.length; i++) {
+              if (catalogCache[i].id === typed) {
+                applyCatalogPrefill(catalogCache[i]);
+                break;
+              }
+            }
+          }
+        });
+      })
+      .catch(function (e) {
+        if (provCatalogStatus) {
+          provCatalogStatus.hidden = false;
+          provCatalogStatus.textContent = String(e);
+        }
+      });
+  }
+
   function openProviderEditor(p) {
     editingProviderID = p ? p.id : "";
+    editingProviderModels = ((p && p.models) || []).map(function (m) {
+      return {
+        id: m.id,
+        name: m.name || "",
+        context_limit: m.context_limit || 0,
+        reasoning: m.reasoning || "",
+        prompt_price: m.prompt_price || "",
+        completion_price: m.completion_price || "",
+      };
+    });
+    if (!editingProviderModels.length && p && p.model) {
+      editingProviderModels = [{
+        id: p.model,
+        name: "",
+        context_limit: 0,
+        reasoning: p.reasoning || "",
+        prompt_price: "",
+        completion_price: "",
+      }];
+    }
+    editingActiveModelID = (p && p.active_model_id) || (editingProviderModels[0] && editingProviderModels[0].id) || "";
+    catalogCache = [];
+    fillCatalogDatalist([]);
+    if (provCatalogStatus) provCatalogStatus.hidden = true;
     if (providerEditor) providerEditor.hidden = false;
     if (provEditName) provEditName.value = p ? (p.name || "") : "";
     if (provEditBaseURL) provEditBaseURL.value = p ? (p.base_url || "") : "";
-    if (provEditModel) provEditModel.value = p ? (p.model || "") : "";
-    if (provEditReasoning) provEditReasoning.value = (p && p.reasoning) || "high";
+    if (provEditKind) provEditKind.value = (p && p.kind) || "auto";
     if (provEditAPIKey) {
       provEditAPIKey.value = "";
       provEditAPIKey.placeholder = p && p.api_key_set ? "Set — leave blank to keep" : "API key";
@@ -1004,42 +1279,63 @@
         : "Required for OpenRouter and most remote APIs.";
     }
     if (provEditDelete) provEditDelete.hidden = !p || providersCache.length <= 1;
+    closeModelForm();
+    renderProvModelList();
   }
 
   function closeProviderEditor() {
     editingProviderID = null;
+    editingProviderModels = [];
+    editingActiveModelID = "";
+    closeModelForm();
     if (providerEditor) providerEditor.hidden = true;
   }
 
   function saveProviderEditor() {
     var name = provEditName ? provEditName.value.trim() : "";
     var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
-    var model = provEditModel ? provEditModel.value.trim() : "";
-    var reasoning = provEditReasoning ? provEditReasoning.value : "high";
+    var kind = provEditKind ? provEditKind.value : "auto";
     var key = provEditAPIKey ? provEditAPIKey.value.trim() : "";
     if (!base) {
       gateErr.hidden = false;
       gateErr.textContent = "Base URL required";
       return;
     }
+    if (!editingProviderModels.length) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Add at least one model";
+      return;
+    }
+    if (!editingActiveModelID || !editingProviderModels.some(function (m) { return m.id === editingActiveModelID; })) {
+      editingActiveModelID = editingProviderModels[0].id;
+    }
+    var activeM = null;
+    for (var i = 0; i < editingProviderModels.length; i++) {
+      if (editingProviderModels[i].id === editingActiveModelID) { activeM = editingProviderModels[i]; break; }
+    }
+    var row = {
+      name: name || base,
+      base_url: base,
+      kind: kind || "auto",
+      models: editingProviderModels.slice(),
+      active_model_id: editingActiveModelID,
+      model: activeM ? activeM.id : "",
+      reasoning: (activeM && activeM.reasoning) || "",
+    };
     if (!editingProviderID) {
-      var id = "provider-" + Date.now();
-      providersCache.push({
-        id: id, name: name || base, base_url: base, model: model, reasoning: reasoning,
-        api_key: key, api_key_set: !!key,
-      });
-      activeProviderID = id;
+      row.id = "provider-" + Date.now();
+      if (key) { row.api_key = key; row.api_key_set = true; }
+      else { row.api_key_set = false; }
+      providersCache.push(row);
+      activeProviderID = row.id;
     } else {
-      for (var i = 0; i < providersCache.length; i++) {
-        if (providersCache[i].id === editingProviderID) {
-          providersCache[i].name = name || providersCache[i].name;
-          providersCache[i].base_url = base;
-          providersCache[i].model = model;
-          providersCache[i].reasoning = reasoning;
-          if (key) {
-            providersCache[i].api_key = key;
-            providersCache[i].api_key_set = true;
-          }
+      for (var j = 0; j < providersCache.length; j++) {
+        if (providersCache[j].id === editingProviderID) {
+          row.id = editingProviderID;
+          row.api_key_set = providersCache[j].api_key_set;
+          if (key) { row.api_key = key; row.api_key_set = true; }
+          else if (providersCache[j].api_key) row.api_key = providersCache[j].api_key;
+          providersCache[j] = row;
           break;
         }
       }
@@ -1066,8 +1362,11 @@
         id: p.id,
         name: p.name,
         base_url: p.base_url,
+        kind: p.kind || "auto",
         model: p.model,
         reasoning: p.reasoning || j.reasoning || "high",
+        active_model_id: p.active_model_id || p.model || "",
+        models: p.models || [],
         api_key_set: !!p.api_key_set,
       };
     });
@@ -1077,8 +1376,11 @@
         id: "default",
         name: "Default",
         base_url: j.base_url || "",
+        kind: "auto",
         model: j.model || "",
         reasoning: j.reasoning || "high",
+        active_model_id: j.model || "",
+        models: j.model ? [{ id: j.model, reasoning: j.reasoning || "high" }] : [],
         api_key_set: !!j.api_key_set,
       }];
       activeProviderID = "default";
@@ -1129,8 +1431,20 @@
           id: p.id,
           name: p.name,
           base_url: p.base_url,
+          kind: p.kind || "auto",
           model: p.model,
-          reasoning: p.reasoning || "high",
+          reasoning: p.reasoning || "",
+          active_model_id: p.active_model_id || p.model || "",
+          models: (p.models || []).map(function (m) {
+            return {
+              id: m.id,
+              name: m.name || "",
+              context_limit: m.context_limit || 0,
+              reasoning: m.reasoning || "",
+              prompt_price: m.prompt_price || "",
+              completion_price: m.completion_price || "",
+            };
+          }),
         };
         if (p.api_key) row.api_key = p.api_key;
         return row;
@@ -1154,6 +1468,7 @@
           fillAgentSettings(j);
           modelEl.textContent = j.model || "—";
           modeEl.textContent = j.mode || "—";
+          refreshBudget(true);
           gateErr.hidden = false;
           gateErr.style.color = "var(--accent)";
           gateErr.textContent = "Model settings saved to the server config.";
@@ -2661,6 +2976,58 @@
     paintTranscript();
   }
 
+  function formatUSD(n) {
+    if (n == null || !isFinite(n)) return null;
+    if (Math.abs(n) >= 1) return "$" + n.toFixed(2);
+    if (Math.abs(n) >= 0.01) return "$" + n.toFixed(3);
+    return "$" + n.toFixed(4);
+  }
+
+  function renderBudgetLine(budget) {
+    if (!budgetLineEl) return;
+    budget = budget || {};
+    var parts = [];
+    var sess = budget.session || {};
+    if (sess.priced && sess.estimate_usd != null) {
+      parts.push("session " + formatUSD(sess.estimate_usd));
+    } else if ((sess.input_tokens || 0) + (sess.output_tokens || 0) > 0) {
+      parts.push("session " + ((sess.input_tokens || 0) + (sess.output_tokens || 0)) + " tok");
+    }
+    var prov = budget.provider || {};
+    if (prov.supported) {
+      if (prov.error) {
+        parts.push("key budget ?");
+      } else if (prov.remaining_usd != null) {
+        // OpenRouter: limit_remaining = remaining per-key cap, not account credits.
+        var kind = prov.kind || "";
+        parts.push((kind === "openrouter" ? "key left " : "left ") + formatUSD(prov.remaining_usd));
+      }
+    }
+    budgetLineEl.textContent = parts.length ? parts.join(" · ") : "—";
+    var tip = [];
+    if (sess.priced && sess.estimate_usd != null) tip.push("Session estimate from token usage × model prices");
+    if (prov.supported && !prov.error && prov.remaining_usd != null) {
+      tip.push(prov.kind === "openrouter"
+        ? "OpenRouter key limit_remaining (per-key cap), not account credit balance"
+        : "Provider remaining budget");
+    }
+    tip.push("Click to refresh");
+    budgetLineEl.title = tip.join(". ");
+  }
+
+  function refreshBudget(force) {
+    if (!connected) return Promise.resolve();
+    var q = force ? "?refresh=1" : "";
+    return fetch(apiURL("/api/settings/budget" + q), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) return;
+          renderBudgetLine(j);
+        });
+      })
+      .catch(function () {});
+  }
+
   function applySession(j) {
     modelEl.textContent = j.model || "—";
     modeEl.textContent = j.mode || "—";
@@ -2691,6 +3058,7 @@
       workingWrap.hidden = true;
       workingEl.textContent = "";
     }
+    renderBudgetLine(j.budget);
     renderChapters();
     renderThread();
     setState(j.busy ? "running" : (j.state || "idle"));
@@ -2744,7 +3112,10 @@
                 if (payload.state === "idle") {
                   // Authoritative journal replaces the live transcript projection.
                   loadSession()
-                    .then(function () { clearLive(); })
+                    .then(function () {
+                      clearLive();
+                      return refreshBudget(false);
+                    })
                     .catch(function () {});
                   if (contextDialog && contextDialog.open) openContextDialog();
                 }
@@ -2993,6 +3364,25 @@
   if (provEditCancel) provEditCancel.addEventListener("click", closeProviderEditor);
   if (provEditSave) provEditSave.addEventListener("click", saveProviderEditor);
   if (provEditDelete) provEditDelete.addEventListener("click", deleteProviderEditor);
+  if (provModelNew) provModelNew.addEventListener("click", openModelFormAdd);
+  if (provModelSave) provModelSave.addEventListener("click", saveEditorModel);
+  if (provModelCancel) provModelCancel.addEventListener("click", closeModelForm);
+  if (provCatalogFetch) provCatalogFetch.addEventListener("click", fetchModelCatalog);
+  if (budgetLineEl) {
+    budgetLineEl.style.cursor = "pointer";
+    budgetLineEl.addEventListener("click", function () { refreshBudget(true); });
+  }
+  if (provModelID) {
+    provModelID.addEventListener("change", function () {
+      var id = provModelID.value.trim();
+      for (var i = 0; i < catalogCache.length; i++) {
+        if (catalogCache[i].id === id) {
+          applyCatalogPrefill(catalogCache[i]);
+          break;
+        }
+      }
+    });
+  }
   openConnection.addEventListener("click", function () {
     showGate({ manage: true, keepApp: true, tab: "connection" });
     app.hidden = false;

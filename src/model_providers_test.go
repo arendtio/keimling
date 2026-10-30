@@ -24,6 +24,12 @@ func TestEnsureModelProvidersFromLegacyAPI(t *testing.T) {
 	if p.Name != "OpenRouter" {
 		t.Fatalf("name=%q", p.Name)
 	}
+	if len(p.Models) != 1 || p.Models[0].ID != "x" || p.ActiveModelID != "x" {
+		t.Fatalf("migrated models: %#v active=%q", p.Models, p.ActiveModelID)
+	}
+	if p.Kind != "auto" {
+		t.Fatalf("kind=%q", p.Kind)
+	}
 }
 
 func TestMirrorActiveModelProvider(t *testing.T) {

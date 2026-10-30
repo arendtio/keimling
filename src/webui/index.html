@@ -80,7 +80,7 @@
       </div>
 
       <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">Model providers for this Keimling process. One is active; behaviour knobs apply to the running agent.</p>
+        <p class="settings-lead">Providers are endpoints and credentials. Each provider has curated models (id, context, optional pricing). Prefill pulls the upstream catalog into the form only.</p>
 
         <p class="settings-section-title">Providers</p>
         <ul id="provider-list" class="profile-list" aria-label="Model providers"></ul>
@@ -93,22 +93,60 @@
             <input id="prov-edit-base-url" type="url" placeholder="https://openrouter.ai/api/v1" autocomplete="off">
           </label>
           <p class="hint">Examples: <code>https://api.openai.com/v1</code>, <code>http://127.0.0.1:8080/v1</code>.</p>
+          <label>Kind
+            <select id="prov-edit-kind">
+              <option value="auto">auto (from URL)</option>
+              <option value="openai">openai</option>
+              <option value="openrouter">openrouter</option>
+              <option value="litellm">litellm</option>
+              <option value="local">local</option>
+            </select>
+          </label>
           <label>API key
             <input id="prov-edit-api-key" type="password" autocomplete="off" placeholder="">
           </label>
           <p id="api-key-hint" class="hint">Leave blank to keep the current key.</p>
-          <label>Default model
-            <input id="prov-edit-model" type="text" autocomplete="off">
-          </label>
-          <label>Reasoning
-            <select id="prov-edit-reasoning">
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
-              <option value="max">max</option>
-            </select>
-          </label>
+
+          <p class="settings-section-title">Models</p>
+          <p class="hint">Favorites for this provider. One is the default (used when this provider is active). Prefill fills fields from the upstream catalog — catalogs are not stored.</p>
+          <ul id="prov-model-list" class="profile-list" aria-label="Provider models"></ul>
+          <button type="button" id="prov-model-new" class="ghost wide">Add model…</button>
+          <div id="prov-model-editor" class="profile-editor nested" hidden>
+            <p id="prov-model-editor-title" class="settings-section-title">Add model</p>
+            <label>Model id
+              <input id="prov-model-id" type="text" list="prov-catalog-datalist" autocomplete="off" placeholder="openai/gpt-4.1">
+            </label>
+            <datalist id="prov-catalog-datalist"></datalist>
+            <label>Display name
+              <input id="prov-model-name" type="text" autocomplete="off" placeholder="optional">
+            </label>
+            <label>Context limit
+              <input id="prov-model-context" type="number" min="0" step="1000" placeholder="e.g. 128000">
+            </label>
+            <label>Reasoning
+              <select id="prov-model-reasoning">
+                <option value="">(none)</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="max">max</option>
+              </select>
+            </label>
+            <label>Prompt price (USD / token)
+              <input id="prov-model-prompt-price" type="text" autocomplete="off" placeholder="0.000002">
+            </label>
+            <label>Completion price (USD / token)
+              <input id="prov-model-completion-price" type="text" autocomplete="off" placeholder="0.000008">
+            </label>
+            <div class="skills-row">
+              <button type="button" id="prov-catalog-fetch" class="ghost">Prefill from API…</button>
+              <button type="button" id="prov-model-cancel" class="ghost">Cancel</button>
+              <button type="button" id="prov-model-save">Save model</button>
+            </div>
+            <p id="prov-catalog-status" class="hint" hidden></p>
+          </div>
+
           <div class="skills-row">
             <button type="button" id="prov-edit-cancel" class="ghost">Cancel</button>
             <button type="button" id="prov-edit-save">Save provider</button>
@@ -499,8 +537,9 @@
           <form id="composer" class="composer">
             <div class="composer-row">
               <div class="composer-main">
-                <p class="composer-meta" title="Model for this thread (change in Settings → Agent)">
+                <p class="composer-meta" title="Model for this thread (change in Settings → Models)">
                   <span id="model">—</span><span class="composer-meta-sep"> · </span><span id="mode">—</span>
+                  <span class="composer-meta-sep"> · </span><span id="budget-line" class="budget-line">—</span>
                 </p>
                 <div class="composer-input">
                   <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>

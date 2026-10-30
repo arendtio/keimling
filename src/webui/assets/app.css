@@ -470,7 +470,11 @@ button.wide { width: 100%; max-width: 100%; }
   color: var(--fg);
   border: 1px solid var(--line);
   font-weight: 500;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  min-width: 0;
 }
+.profile-list button.profile-pick { cursor: pointer; }
 .profile-list .profile-pick.active {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
@@ -479,6 +483,12 @@ button.wide { width: 100%; max-width: 100%; }
   font-size: 0.75rem;
   color: var(--muted);
   font-weight: 400;
+}
+.profile-list .profile-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  align-items: stretch;
 }
 .profile-list .profile-edit-btn {
   flex: 0 0 auto;
@@ -494,6 +504,12 @@ button.wide { width: 100%; max-width: 100%; }
   border-radius: 8px;
   background: var(--panel-2);
 }
+.profile-editor.nested {
+  margin: 0.35rem 0 0;
+  padding: 0.55rem;
+  background: color-mix(in srgb, var(--panel) 70%, var(--panel-2));
+}
+.budget-line { font-variant-numeric: tabular-nums; }
 .agent-def-pane { display: grid; gap: 0.65rem; }
 .agent-def-field {
   display: grid;
