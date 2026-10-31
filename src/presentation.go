@@ -18,7 +18,7 @@ func renderToolCall(name, args string) string {
 		var interactive bool
 		_ = json.Unmarshal(v["interactive"], &interactive)
 		label := "\033[35m❯\033[0m"
-		if interactive && !nonInteractiveDiagnostic(cmd) {
+		if interactive {
 			label = "\033[35m⌨ interactive\033[0m"
 		}
 		return "\n" + label + " " + highlightCommand(truncate(cmd, 1600))

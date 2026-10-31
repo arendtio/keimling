@@ -58,7 +58,7 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 	if ioctl(os.Stdin.Fd(), syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&ws[0]))) == nil {
 		_ = ioctl(slave.Fd(), syscall.TIOCSWINSZ, uintptr(unsafe.Pointer(&ws[0])))
 	}
-	cmd := exec.Command(shell, "-c", command)
+	cmd := shellCommand(shell, command)
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
@@ -82,6 +82,8 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 	if err := cmd.Start(); err != nil {
 		return "start error: " + err.Error()
 	}
+	trackCommandGroup(cmd.Process.Pid)
+	defer releaseCommandGroup(cmd.Process.Pid)
 	_ = slave.Close()
 	// Preserve original O_NONBLOCK on stdin: clearing it unconditionally breaks
 	// the surrounding line editor when PTY execution ends.

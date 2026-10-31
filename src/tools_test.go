@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -75,5 +76,15 @@ func TestShellAndExit(t *testing.T) {
 	got := executeTool(context.Background(), "exec", `{"command":"printf 'out\\n'; printf 'err\\n' >&2; exit 7","timeout_seconds":5}`)
 	if !strings.Contains(got, "exit_code=7") || !strings.Contains(got, "out") || !strings.Contains(got, "err") {
 		t.Fatal(got)
+	}
+	cmd := shellCommand(selectedShell(), "printf ok")
+	if runtime.GOOS == "windows" {
+		if len(cmd.Args) < 5 || cmd.Args[len(cmd.Args)-2] != "-Command" || cmd.Args[len(cmd.Args)-1] != "printf ok" {
+			t.Fatalf("windows shell args: %q", cmd.Args)
+		}
+		return
+	}
+	if len(cmd.Args) != 3 || cmd.Args[1] != "-c" || cmd.Args[2] != "printf ok" {
+		t.Fatalf("shell args: %q", cmd.Args)
 	}
 }

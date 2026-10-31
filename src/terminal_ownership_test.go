@@ -10,6 +10,7 @@ func TestToolNeedsTerminal(t *testing.T) {
 		{"exec", `{"command":"sudo pacman -Syu","interactive":false}`, true},
 		{"exec", `{ "interactive" : true, "command" : "scp a b:" }`, true},
 		{"exec", `{"command":"ls -la"}`, false},
+		{"exec", `{"command":"ls -la","interactive":true}`, true},
 		{"read_file", `{"path":"x"}`, false},
 		{"exec", `{"command":"printf 'sudo'"}`, false},
 	}

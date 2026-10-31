@@ -10,6 +10,9 @@ import (
 
 // filterExecResult changes only what enters the model-facing journal; no raw archive.
 func (a *Agent) filterExecResult(ctx context.Context, task, arguments, result string) string {
+	if ctx.Err() != nil {
+		return result
+	}
 	var args struct {
 		Command     string `json:"command"`
 		OutputFocus string `json:"output_focus"`

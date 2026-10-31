@@ -11,11 +11,57 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
 )
+
+// commandGroups are process groups started by exec. A shell can exit and leave
+// a background child in the same group; Stop kills those too.
+var commandGroups struct {
+	sync.Mutex
+	pgids map[int]struct{}
+}
+
+func trackCommandGroup(pgid int) {
+	if pgid <= 0 {
+		return
+	}
+	commandGroups.Lock()
+	defer commandGroups.Unlock()
+	if commandGroups.pgids == nil {
+		commandGroups.pgids = map[int]struct{}{}
+	}
+	commandGroups.pgids[pgid] = struct{}{}
+}
+
+func releaseCommandGroup(pgid int) {
+	if pgid <= 0 {
+		return
+	}
+	if syscall.Kill(-pgid, 0) == nil {
+		return
+	}
+	commandGroups.Lock()
+	delete(commandGroups.pgids, pgid)
+	commandGroups.Unlock()
+}
+
+func killTrackedCommands() {
+	commandGroups.Lock()
+	ids := make([]int, 0, len(commandGroups.pgids))
+	for id := range commandGroups.pgids {
+		ids = append(ids, id)
+	}
+	commandGroups.pgids = nil
+	commandGroups.Unlock()
+	for _, id := range ids {
+		_ = syscall.Kill(-id, syscall.SIGKILL)
+	}
+}
 
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return "sha256:" + hex.EncodeToString(h[:]) }
 func fileLines(b []byte) [][]byte {
@@ -66,7 +112,7 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			return "empty command"
 		}
 		if x.TimeoutSeconds < 1 {
-			if x.Interactive && !nonInteractiveDiagnostic(x.Command) {
+			if x.Interactive {
 				x.TimeoutSeconds = 900
 			} else {
 				x.TimeoutSeconds = 20
@@ -81,10 +127,10 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		runCtx, cancel := context.WithTimeout(ctx, time.Duration(x.TimeoutSeconds)*time.Second)
 		defer cancel()
 		shell := selectedShell()
-		if x.Interactive && !nonInteractiveDiagnostic(x.Command) {
+		if x.Interactive {
 			return interactiveExec(runCtx, shell, x.Command, time.Duration(x.TimeoutSeconds)*time.Second, extraEnv...)
 		}
-		cmd := exec.Command(shell, "-c", x.Command)
+		cmd := shellCommand(shell, x.Command)
 		if len(extraEnv) > 0 {
 			cmd.Env = append(os.Environ(), extraEnv...)
 		}
@@ -104,6 +150,8 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if err := cmd.Start(); err != nil {
 			return fmt.Sprintf("start error: %v", err)
 		}
+		trackCommandGroup(cmd.Process.Pid)
+		defer releaseCommandGroup(cmd.Process.Pid)
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
 		var err error
@@ -262,10 +310,43 @@ func RecordVoice(ctx context.Context, seconds int) (string, error) {
 }
 
 func selectedShell() string {
+	if runtime.GOOS == "windows" {
+		if p, err := exec.LookPath("pwsh"); err == nil {
+			return p
+		}
+		if p, err := exec.LookPath("powershell"); err == nil {
+			return p
+		}
+		return "powershell"
+	}
 	if st, err := os.Stat("/bin/bash"); err == nil && !st.IsDir() {
 		return "/bin/bash"
 	}
 	return "/bin/sh"
+}
+
+func shellCommand(shell, command string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", command)
+	}
+	return exec.Command(shell, "-c", command)
+}
+
+func hostOSName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "Windows"
+	case "darwin":
+		return "macOS"
+	case "linux":
+		return "Linux"
+	default:
+		return runtime.GOOS
+	}
+}
+
+func hostSystemPrompt() string {
+	return "Operating system: " + hostOSName() + ". Shell for exec: " + selectedShell() + ". Write commands for this operating system and this shell. "
 }
 
 func commandUsesSudo(command string) bool {
@@ -326,7 +407,7 @@ func toolNeedsTerminal(name, args string) bool {
 	if json.Unmarshal([]byte(args), &x) != nil {
 		return false
 	}
-	return (x.Interactive && !nonInteractiveDiagnostic(x.Command)) || commandUsesSudo(x.Command)
+	return x.Interactive || commandUsesSudo(x.Command)
 }
 
 func authorizeSudo(ctx context.Context) error {
@@ -344,61 +425,4 @@ func authorizeSudo(ctx context.Context) error {
 	auth := exec.CommandContext(ctx, "sudo", "-v")
 	auth.Stdin, auth.Stdout, auth.Stderr = tty, tty, tty
 	return auth.Run()
-}
-
-// safeDiagnostic only overrides accidental interactive=true for trivial read-only commands.
-// Keep this allowlist deliberately narrow: shell operators, substitutions and extra
-// commands must never be silently reclassified as safe.
-func safeDiagnostic(command string) bool {
-	fields := strings.Fields(strings.TrimSpace(command))
-	if len(fields) == 0 {
-		return false
-	}
-	switch fields[0] {
-	case "lscpu", "/usr/bin/lscpu", "uname", "/usr/bin/uname", "date", "/usr/bin/date", "whoami", "/usr/bin/whoami":
-	default:
-		return false
-	}
-	for _, arg := range fields[1:] {
-		if !strings.HasPrefix(arg, "-") || strings.ContainsAny(arg, ";|&<>$`\\'\"(){}") {
-			return false
-		}
-	}
-	return true
-}
-
-// nonInteractiveDiagnostic only classifies the need for a PTY, never the safety
-// of executing a command. Command approval remains independent. It handles
-// common read-only pipelines even when the model incorrectly requests a PTY.
-func nonInteractiveDiagnostic(command string) bool {
-	// Conservative: avoid downgrading commands that may prompt for input.
-	lower := strings.ToLower(command)
-	for _, dangerous := range []string{"ssh ", "scp ", "sftp ", "sudo ", "su ", "passwd", "read ", "askpass", "-i ", "--interactive", "pacman -s ", "pacman -r ", "pacman -u "} {
-		if strings.Contains(" "+lower+" ", " "+dangerous) {
-			return false
-		}
-	}
-	// Pipes and redirections are common in diagnostics. Only grant the
-	// non-PTY route for known read-only commands; no arbitrary shell evaluation.
-	segments := strings.FieldsFunc(command, func(r rune) bool { return r == '|' || r == ';' || r == '&' || r == '\n' })
-	if len(segments) == 0 {
-		return false
-	}
-	for _, seg := range segments {
-		fields := strings.Fields(strings.TrimSpace(seg))
-		if len(fields) == 0 {
-			return false
-		}
-		cmd := strings.TrimPrefix(fields[0], "/usr/bin/")
-		switch cmd {
-		case "lscpu", "uname", "date", "whoami", "hostname", "head", "tail", "cat", "grep", "rg", "wc", "ls", "lspci", "lsusb", "free", "uptime", "findmnt", "lsblk", "stat", "id":
-		case "pacman":
-			if len(fields) < 2 || !(fields[1] == "-Qi" || fields[1] == "-Q" || fields[1] == "-Qs" || fields[1] == "-Qo" || fields[1] == "-Ql" || fields[1] == "-Qe" || fields[1] == "-Qdt") {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
 }

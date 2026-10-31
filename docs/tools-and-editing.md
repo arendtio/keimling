@@ -6,7 +6,7 @@ Keimling deliberately ships few, language-agnostic tools: `exec`, `read_file`,
 `edit_file`, `write_file`, `update_plan`, `finish_task`, `search_history`,
 `read_history`, `delegate`, and optionally `web_search`.
 
-`exec` runs shell commands. The agent is expected to state the specific question
+`exec` runs shell commands for the operating system and shell named in the instructions. `interactive=true` always takes the interactive path; the command text does not turn that flag off. The agent is expected to state the specific question
 a command should answer through `output_focus`; the output filter answers that
 question briefly and accurately while the raw output stays visible to the user.
 Filtering preserves exact error codes, numbers, paths, and other decisive facts,

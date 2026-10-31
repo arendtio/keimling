@@ -38,7 +38,10 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 	if len(snapshot) == 0 {
 		return false
 	}
-	base := a.SessionCtx
+	base := ctx
+	if base == nil {
+		base = a.SessionCtx
+	}
 	if base == nil {
 		base = context.Background()
 	}
