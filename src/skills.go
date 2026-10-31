@@ -248,7 +248,7 @@ func (r *SkillRegistry) CatalogBlock() string {
 	}
 	var b strings.Builder
 	b.WriteString("<agent_skills>\n")
-	b.WriteString("Available Agent Skills (agentskills.io). Call activate_skill(name) to load full instructions; call read_skill_file(name, path) for files under that skill root.\n")
+	b.WriteString("Available Agent Skills (agentskills.io). Call activate_skill(name) to load SKILL.md. For another file in that skill, call read_skill_file(name, path). path is a file relative to the skill directory; do not include skills/ or the skill name.\n")
 	for _, sk := range list {
 		fmt.Fprintf(&b, "- %s: %s\n", sk.Name, sk.Description)
 	}

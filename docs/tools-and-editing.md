@@ -67,7 +67,7 @@ requirement for those names.
 ## Skills and project instructions
 
 Skills use progressive disclosure: catalog names/descriptions in context, full
-`SKILL.md` via `activate_skill`, further files via `read_skill_file`. Locations:
+`SKILL.md` via `activate_skill`, further files via `read_skill_file`. `name` selects the skill directory. `path` is a file inside it, such as `scripts/helper.sh`, and must not repeat `skills/` or the skill name. Locations:
 `~/.config/keimling/skills/` and project-local skill roots. Skill instructions
 can never override approval or safety rules.
 

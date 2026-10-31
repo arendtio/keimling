@@ -64,6 +64,36 @@ func TestSkillRegistryPrecedence(t *testing.T) {
 	}
 }
 
+func TestReadSkillFilePathHint(t *testing.T) {
+	found := false
+	for _, tool := range definitions(false) {
+		if tool["name"] != "read_skill_file" {
+			continue
+		}
+		found = true
+		desc, _ := tool["description"].(string)
+		params, _ := tool["parameters"].(map[string]any)
+		props, _ := params["properties"].(map[string]any)
+		path, _ := props["path"].(map[string]any)
+		pathDesc, _ := path["description"].(string)
+		for _, s := range []string{desc, pathDesc} {
+			if !strings.Contains(s, "skills/") || !strings.Contains(s, "skill name") {
+				t.Fatalf("path hint: %q", s)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("read_skill_file missing")
+	}
+	reg := &SkillRegistry{byName: map[string]*SkillMeta{
+		"demo": {Name: "demo", Description: "Demo skill description for the catalog hint.", Source: skillSourceUser},
+	}, order: []string{"demo"}}
+	cat := reg.CatalogBlock()
+	if !strings.Contains(cat, "skills/") || !strings.Contains(cat, "skill name") {
+		t.Fatal(cat)
+	}
+}
+
 func TestReadSkillFilePathEscape(t *testing.T) {
 	root := t.TempDir()
 	dir := writeSkillFixture(t, root, "safe-skill", "Safe skill for path tests when reading files.", "body")
