@@ -352,15 +352,24 @@ func autoApproved(name, args string) bool {
 
 // insideWorkingDir reports whether path resolves inside the current directory.
 func insideWorkingDir(path string) bool {
-	p, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(cwd, p)
+	return pathInside(cwd, path)
+}
+
+// pathInside reports whether path resolves inside root.
+func pathInside(root, path string) bool {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	p, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, p)
 	if err != nil {
 		return false
 	}

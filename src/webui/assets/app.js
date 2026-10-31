@@ -2733,9 +2733,24 @@
     var raw = text || "";
     try {
       if (typeof marked !== "undefined" && marked.parse) {
-        var html = marked.parse(raw, { async: false, gfm: true, breaks: true });
+        var options = { async: false, gfm: true, breaks: true };
+        if (typeof marked.Renderer === "function") {
+          var renderer = new marked.Renderer();
+          renderer.html = function (token) {
+            var chunk = "";
+            if (token && typeof token === "object") chunk = token.text || "";
+            else if (typeof token === "string") chunk = token;
+            return esc(chunk);
+          };
+          options.renderer = renderer;
+        }
+        var html = marked.parse(raw, options);
         if (typeof DOMPurify !== "undefined" && DOMPurify.sanitize) {
-          html = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+          html = DOMPurify.sanitize(html, {
+            USE_PROFILES: { html: true },
+            FORBID_TAGS: ["style", "link", "meta", "iframe", "object", "embed", "form", "base", "script"],
+            FORBID_ATTR: ["style"],
+          });
         }
         return highlightFences(html);
       }

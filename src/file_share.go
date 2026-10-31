@@ -76,6 +76,12 @@ func normalizeShareAs(as string) (string, error) {
 }
 
 func (h *fileShareHub) Register(path, as string) (token, url string, err error) {
+	return h.register(path, as, nil)
+}
+
+// register serves path when it is inside the working directory or one of extraRoots.
+// Artifact snapshots live under the workspace data dir, outside the working directory.
+func (h *fileShareHub) register(path, as string, extraRoots []string) (token, url string, err error) {
 	disp, err := normalizeShareAs(as)
 	if err != nil {
 		return "", "", err
@@ -84,7 +90,7 @@ func (h *fileShareHub) Register(path, as string) (token, url string, err error) 
 	if err != nil {
 		return "", "", fmt.Errorf("invalid path")
 	}
-	if !insideWorkingDir(abs) {
+	if !pathAllowed(abs, extraRoots) {
 		return "", "", fmt.Errorf("path outside working directory")
 	}
 	if privatePath(abs) {
@@ -117,6 +123,18 @@ func (h *fileShareHub) Register(path, as string) (token, url string, err error) 
 		url = pathURL
 	}
 	return token, url, nil
+}
+
+func pathAllowed(abs string, extraRoots []string) bool {
+	if insideWorkingDir(abs) {
+		return true
+	}
+	for _, root := range extraRoots {
+		if strings.TrimSpace(root) != "" && pathInside(root, abs) {
+			return true
+		}
+	}
+	return false
 }
 
 func publicBaseFromRequest(r *http.Request) string {

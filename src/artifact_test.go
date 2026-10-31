@@ -68,7 +68,41 @@ func TestShowArtifact(t *testing.T) {
 	}
 }
 
+func TestShowArtifactWorkspaceSnapshot(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	dir := t.TempDir()
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.WriteFile("page.html", []byte("<html><style>body{display:none}</style>hi</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{
+		Cfg:       Config{WorkspaceID: "ws-art"},
+		Shares:    newFileShareHub(),
+		Artifacts: newArtifactHub(),
+	}
+	out := a.showArtifact(`{"path":"page.html","title":"Page"}`)
+	if !strings.Contains(out, "artifact shown") {
+		t.Fatalf("out: %q", out)
+	}
+	list := a.Artifacts.List()
+	if len(list) != 1 || !strings.Contains(list[0].Path, "artifacts") {
+		t.Fatalf("snapshot path: %+v", list)
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "secret", Agent: a})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/files/"+list[0].Token, nil)
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "hi") {
+		t.Fatalf("serve snapshot: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestShowArtifactRejectsOutside(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	dir := t.TempDir()
 	outside := filepath.Join(dir, "out.html")
 	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
@@ -81,7 +115,7 @@ func TestShowArtifactRejectsOutside(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	a := &Agent{Shares: newFileShareHub(), Artifacts: newArtifactHub()}
+	a := &Agent{Cfg: Config{WorkspaceID: "ws-art"}, Shares: newFileShareHub(), Artifacts: newArtifactHub()}
 	out := a.showArtifact(`{"path":` + mustJSON(outside) + `,"title":"x"}`)
 	if !strings.Contains(out, "error") {
 		t.Fatalf("expected error, got %q", out)

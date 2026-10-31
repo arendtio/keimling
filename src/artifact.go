@@ -85,13 +85,21 @@ func (a *Agent) showArtifact(argsJSON string) string {
 	if base := strings.TrimSpace(a.Cfg.PublicURL); base != "" {
 		a.Shares.SetPublicBase(base)
 	}
-	storePath := strings.TrimSpace(x.Path)
-	if a.Cfg.WorkspaceID != "" {
-		if copied, err := persistWorkspaceArtifact(a.Cfg.WorkspaceID, x.Path); err == nil {
-			storePath = copied
+	if !insideWorkingDir(x.Path) {
+		return "show_artifact error: path outside working directory"
+	}
+	// Snapshot into workspace side data, then serve that copy.
+	// The copy is outside the working directory; Register still accepts it
+	// because it sits in this workspace's artifacts directory.
+	servePath := strings.TrimSpace(x.Path)
+	var extra []string
+	if id := strings.TrimSpace(a.Cfg.WorkspaceID); id != "" {
+		if copied, err := persistWorkspaceArtifact(id, x.Path); err == nil {
+			servePath = copied
+			extra = []string{workspaceArtifactsDir(id)}
 		}
 	}
-	token, url, err := a.Shares.Register(storePath, "view")
+	token, url, err := a.Shares.register(servePath, "view", extra)
 	if err != nil {
 		return "show_artifact error: " + err.Error()
 	}
@@ -102,7 +110,7 @@ func (a *Agent) showArtifact(argsJSON string) string {
 	art := Artifact{
 		ID:      token,
 		Title:   title,
-		Path:    storePath,
+		Path:    servePath,
 		URL:     url,
 		Token:   token,
 		Created: time.Now().UTC(),
