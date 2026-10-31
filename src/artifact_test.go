@@ -33,7 +33,7 @@ func TestShowArtifact(t *testing.T) {
 		},
 	}
 	out := a.showArtifact(`{"path":"demo.html","title":"Demo"}`)
-	if !strings.Contains(out, "artifact shown") {
+	if !strings.Contains(out, "artifact shown") || !strings.Contains(out, "Call show_artifact again after a later edit") {
 		t.Fatalf("out: %q", out)
 	}
 	list := a.Artifacts.List()
@@ -85,7 +85,7 @@ func TestShowArtifactWorkspaceSnapshot(t *testing.T) {
 		Artifacts: newArtifactHub(),
 	}
 	out := a.showArtifact(`{"path":"page.html","title":"Page"}`)
-	if !strings.Contains(out, "artifact shown") {
+	if !strings.Contains(out, "artifact shown") || !strings.Contains(out, "Call show_artifact again after a later edit") {
 		t.Fatalf("out: %q", out)
 	}
 	list := a.Artifacts.List()
@@ -141,4 +141,18 @@ func TestAutoApprovedShowArtifact(t *testing.T) {
 	if autoApproved("show_artifact", `{"path":"../a.html"}`) {
 		t.Fatal("expected reject outside")
 	}
+}
+
+func TestShowArtifactToolSaysCallAgainAfterEdits(t *testing.T) {
+	for _, tool := range definitions(false) {
+		if tool["name"] != "show_artifact" {
+			continue
+		}
+		desc, _ := tool["description"].(string)
+		if !strings.Contains(desc, "call show_artifact again") {
+			t.Fatalf("description: %s", desc)
+		}
+		return
+	}
+	t.Fatal("show_artifact tool missing")
 }

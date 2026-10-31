@@ -119,9 +119,9 @@ func (a *Agent) showArtifact(argsJSON string) string {
 	a.emitJSON("artifact", art)
 	a.println("\033[35m▣ Artifact\033[0m " + title + " → " + url)
 	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-		return fmt.Sprintf("artifact shown: %s\nurl: %s\nThe GUI opens this in the artifact panel (sandboxed iframe). Prefer self-contained HTML/CSS/JS.", title, url)
+		return fmt.Sprintf("artifact shown: %s\nurl: %s\nThe GUI opens this in the artifact panel (sandboxed iframe). Prefer self-contained HTML/CSS/JS. Call show_artifact again after a later edit; this preview does not update by itself.", title, url)
 	}
-	return fmt.Sprintf("artifact shown: %s\npath: %s\nGUI clients open /files/%s in the artifact panel. Prefer self-contained HTML.", title, url, token)
+	return fmt.Sprintf("artifact shown: %s\npath: %s\nGUI clients open /files/%s in the artifact panel. Prefer self-contained HTML. Call show_artifact again after a later edit; this preview does not update by itself.", title, url, token)
 }
 
 func persistWorkspaceArtifact(workspaceID, src string) (string, error) {
