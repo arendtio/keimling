@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 )
 
 // Credential is a stored secret metadata + value (value only in memory / vault plaintext).
@@ -228,7 +227,7 @@ func (b *CredentialBroker) Upsert(in Credential, secret string, replaceSecret bo
 	}
 	in.AllowedTools = normalizeToolList(in.AllowedTools)
 	if in.ID == "" {
-		in.ID = fmt.Sprintf("cred-%s", time.Now().UTC().Format("20060102-150405.000000000"))
+		in.ID = newStampedID("cred")
 	}
 	idx := -1
 	for i := range b.creds {

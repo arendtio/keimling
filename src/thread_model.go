@@ -285,12 +285,13 @@ func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra 
 	if a == nil || a.Client == nil {
 		return Response{}, fmt.Errorf("no API client")
 	}
+	a.syncInstanceWorkspace()
 	t := a.callChatTarget()
 	input = prepareReasoningInput(input, t.ProviderID, t.Model, a.reasoningOwnerMap())
 	var resp Response
 	var err error
 	a.withChatEndpoint(func(model, reasoning string) {
-		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.skillsCatalogBlock(), extra)
+		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.skillsCatalogBlock(), extra, a.instanceToolGrant())
 	})
 	return resp, err
 }

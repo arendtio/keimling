@@ -158,7 +158,13 @@
   var agentDefEditName = document.getElementById("agent-def-edit-name");
   var agentDefEditInstructions = document.getElementById("agent-def-edit-instructions");
   var agentInstanceName = document.getElementById("agent-instance-name");
-  var agentDefSelected = document.getElementById("agent-def-selected");
+  var agentInstanceDefinition = document.getElementById("agent-instance-definition");
+  var agentInstanceList = document.getElementById("agent-instance-list");
+  var agentToolCatalog = [];
+  var agentToolGroups = [];
+  var mcpServersCache = [];
+  var allInstancesCache = [];
+  var manageTab = "definitions";
   var THREAD_RECENT_LIMIT = 5;
   var setBaseURL = document.getElementById("set-base-url");
   var setAPIKey = document.getElementById("set-api-key");
@@ -280,6 +286,10 @@
   var messages = [];
   var chapters = [];
   var activeChapter = null;
+  var runningThreadID = "";
+  var backgroundBusy = false;
+  var transcriptSeq = 0;
+  var heldOpen = null;
   var connected = false;
   var agentState = "idle";
   var stopping = false;
@@ -1634,29 +1644,32 @@
     deny.disabled = !waiting;
     // Allow typing/voice/sending while busy → server queues or steers (CLI-like).
     // While recording, Send/Queue = stop mic + transcribe + send/queue.
+    var queueHere = busyish || backgroundBusy;
     send.disabled = !connected;
     msg.disabled = !connected;
     if (modelEl) modelEl.disabled = !connected;
     voiceBtn.disabled = !connected || !voiceOK;
-    newChatBtn.disabled = !connected || busyish;
+    newChatBtn.disabled = !connected;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
     if (send) {
-      if (recording && busyish) {
+      if (recording && queueHere) {
         send.textContent = "Queue";
         send.title = "Stop recording, transcribe, and queue";
       } else if (recording) {
         send.textContent = "Send";
         send.title = "Stop recording, transcribe, and send";
-      } else if (busyish) {
+      } else if (queueHere) {
         send.textContent = "Queue";
-        send.title = "Queue for when the agent is idle (or steer the current run)";
+        send.title = backgroundBusy
+          ? "Queue in this thread. It runs when this thread is free."
+          : "Queue for when the agent is idle (or steer the current run)";
       } else {
         send.textContent = "Send";
         send.title = "Send message";
       }
     }
     if (stopBtn) {
-      stopBtn.disabled = !connected || !busyish || stopping;
+      stopBtn.disabled = !connected || !(busyish || backgroundBusy) || stopping;
       stopBtn.textContent = stopping ? "Stopping…" : "Interrupt";
       stopBtn.title = "Interrupt the running agent";
     }
@@ -1973,7 +1986,6 @@
 
   function renderThreadListFromCache() {
     if (!threadListEl) return;
-    var state = threadsListState || agentState || "idle";
     var query = threadSearchEl ? String(threadSearchEl.value || "").trim() : "";
     var threads = visibleThreads(threadsCache, currentThreadID);
     threadListEl.innerHTML = "";
@@ -1993,7 +2005,8 @@
     }
     threads.forEach(function (th) {
       var row = document.createElement("div");
-      var isActive = !currentAgentInstanceID && (th.id === currentThreadID || th.active);
+      var isActive = !currentAgentInstanceID && th.id === currentThreadID;
+      var showRun = !currentAgentInstanceID && runningThreadID && th.id === runningThreadID;
       row.className = "thread-item" + (isActive ? " active" : "");
       row.title = th.id;
 
@@ -2001,7 +2014,7 @@
       open.type = "button";
       open.className = "thread-open";
       var st = document.createElement("span");
-      st.className = "thread-status" + (isActive ? " " + state : "");
+      st.className = "thread-status" + (showRun ? " running" : "");
       var title = document.createElement("span");
       title.className = "thread-title";
       title.textContent = th.title || th.id;
@@ -2056,7 +2069,7 @@
     payload = payload || {};
     threadsCache = payload.threads || [];
     threadsListState = payload.state || agentState || "idle";
-    currentThreadID = payload.current || currentThreadID;
+    if (!currentThreadID && payload.current) currentThreadID = payload.current;
     threadsSearchActive = !!(payload.query && String(payload.query).trim());
     renderThreadListFromCache();
   }
@@ -2108,10 +2121,15 @@
     renderThreadListFromCache();
   }
 
+  function eventsForThisView() {
+    if (currentAgentInstanceID) return true;
+    if (!runningThreadID || !currentThreadID) return true;
+    return runningThreadID === currentThreadID;
+  }
+
   function switchThread(id) {
     if (!id) return;
     if (!currentAgentInstanceID && id === currentThreadID) return;
-    if (agentState === "running" || agentState === "compacting") return;
     fetch(apiURL("/api/threads/switch"), {
       method: "POST",
       headers: headers(),
@@ -2124,6 +2142,7 @@
       })
       .then(function () {
         currentAgentInstanceID = "";
+        currentThreadID = id;
         if (es && typeof es.close === "function") {
           try { es.close(); } catch (e) {}
           es = null;
@@ -2140,13 +2159,12 @@
         return Promise.all([loadThreads(), loadAgents()]);
       })
       .catch(function (err) {
-        appendLive("\n[threads] " + err + "\n");
+        appendLive("\n[threads] " + String((err && err.message) || err || "") + "\n");
       });
   }
 
   function deleteThread(id, label) {
     if (!id) return;
-    if (agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval") return;
     var name = label || id;
     if (!window.confirm("Delete thread “" + name + "” permanently?\n\nThis cannot be undone. The conversation and its local data will be removed.")) {
       return;
@@ -2216,18 +2234,7 @@
         e.stopPropagation();
         stopAgent(ag.id);
       });
-      var del = document.createElement("button");
-      del.type = "button";
-      del.className = "danger";
-      del.textContent = "Delete";
-      del.title = "Delete agent instance";
-      del.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        deleteAgent(ag.id, ag.name || ag.id);
-      });
       actions.appendChild(stop);
-      actions.appendChild(del);
 
       row.appendChild(open);
       row.appendChild(actions);
@@ -2282,7 +2289,6 @@
 
   function attachAgent(id) {
     if (!id || id === currentAgentInstanceID) return;
-    if (agentState === "running" || agentState === "compacting") return;
     fetch(apiURL("/api/agents/instances/attach"), {
       method: "POST",
       headers: headers(),
@@ -2295,6 +2301,149 @@
       })
       .catch(function (err) {
         appendLive("\n[agents] " + err + "\n");
+      });
+  }
+
+  var agentAccessTitle = document.getElementById("agent-access-title");
+  var agentAccessWorkspaces = document.getElementById("agent-access-workspaces");
+  var agentAccessTools = document.getElementById("agent-access-tools");
+  var agentAccessPeers = document.getElementById("agent-access-peers");
+  var agentAccessFollow = document.getElementById("agent-access-follow");
+  var agentAccessStatus = document.getElementById("agent-access-status");
+  var agentDefAccess = document.getElementById("agent-def-access");
+  var agentAccessID = "";
+
+  function markAgentAccessUnsaved() {
+    if (!agentAccessStatus) return;
+    agentAccessStatus.hidden = true;
+    agentAccessStatus.textContent = "";
+  }
+
+  function applyAccessFollow() {
+    var follow = !!(agentAccessFollow && agentAccessFollow.checked);
+    if (!agentAccessTools) return;
+    agentAccessTools.querySelectorAll("input[type=checkbox]").forEach(function (box) {
+      var allowed = box.dataset.allowed !== "0";
+      box.disabled = follow || !allowed;
+    });
+  }
+
+  function fillAgentAccessList(el, rows) {
+    if (!el) return;
+    el.innerHTML = "";
+    rows.forEach(function (row) {
+      var label = document.createElement("label");
+      label.className = "agent-access-row";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!row.granted;
+      box.disabled = row.allowed === false;
+      box.dataset.accessId = row.id || row.name;
+      if (row.allowed === false) box.dataset.allowed = "0";
+      box.addEventListener("change", markAgentAccessUnsaved);
+      var text = document.createElement("span");
+      text.textContent = row.label || row.name || row.id;
+      label.appendChild(box);
+      label.appendChild(text);
+      el.appendChild(label);
+    });
+  }
+
+  function checkedAccess(el, onlyEnabled) {
+    var ids = [];
+    if (!el) return ids;
+    el.querySelectorAll("input[type=checkbox]").forEach(function (box) {
+      if (onlyEnabled && box.disabled) return;
+      if (box.checked) ids.push(box.dataset.accessId);
+    });
+    return ids;
+  }
+
+  function openAgentAccess(id, name) {
+    if (!id) return;
+    agentAccessID = id;
+    if (agentAccessPeers) agentAccessPeers.dataset.ready = "";
+    if (agentAccessTitle) agentAccessTitle.textContent = name || "Access";
+    showAgentDefErr("");
+    markAgentAccessUnsaved();
+    setAgentDefPane("access");
+    if (agentDefDialog && typeof agentDefDialog.showModal === "function" && !agentDefDialog.open) {
+      agentDefDialog.showModal();
+    }
+    Promise.all([
+      fetch(apiURL("/api/agents/instances/access?id=" + encodeURIComponent(id)), { headers: headers() })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && (j.error || j)) || r.status);
+            return j;
+          });
+        }),
+      loadMcpServers(),
+    ])
+      .then(function (result) {
+        var j = result[0];
+        if (agentAccessTitle) agentAccessTitle.textContent = (j.name || name || "Instance") + " — workspaces, tools, and contacts";
+        fillAgentAccessList(agentAccessWorkspaces, j.workspaces || []);
+        var peerRows = j.peers || [];
+        if (!peerRows.length && agentAccessPeers) {
+          agentAccessPeers.innerHTML = "";
+          var empty = document.createElement("p");
+          empty.className = "hint";
+          empty.textContent = "No other agents.";
+          agentAccessPeers.appendChild(empty);
+          agentAccessPeers.dataset.ready = "1";
+        } else {
+          fillAgentAccessList(agentAccessPeers, peerRows.map(function (p) {
+            return { id: p.id, label: p.name || p.id, granted: !!p.granted };
+          }));
+          if (agentAccessPeers) agentAccessPeers.dataset.ready = "1";
+        }
+        if (j.groups) agentToolGroups = j.groups;
+        var states = {};
+        (j.tools || []).forEach(function (t) { states[t.name] = t; });
+        renderToolMatrix(agentAccessTools, { states: states, lock: !!j.follows, mcp: j.mcp || null });
+        if (agentAccessFollow) agentAccessFollow.checked = !!j.follows;
+        applyAccessFollow();
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err.message || err));
+      });
+  }
+
+  function saveAgentAccess() {
+    if (!agentAccessID) return;
+    var workspaces = checkedAccess(agentAccessWorkspaces, false);
+    var follow = !!(agentAccessFollow && agentAccessFollow.checked);
+    var tools = follow ? null : checkedToolNames(agentAccessTools);
+    var body = { id: agentAccessID, workspaces: workspaces, tools: tools };
+    if (agentAccessPeers && agentAccessPeers.dataset.ready === "1") {
+      body.peers = checkedAccess(agentAccessPeers, false);
+    }
+    showAgentDefErr("");
+    if (!workspaces.length) {
+      showAgentDefErr("Choose at least one workspace.");
+      return;
+    }
+    var saveBtn = document.getElementById("agent-access-save");
+    if (saveBtn) saveBtn.disabled = true;
+    fetch(apiURL("/api/agents/instances/access"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        if (agentAccessStatus) {
+          agentAccessStatus.hidden = false;
+          agentAccessStatus.textContent = follow ? "Saved. This instance uses the definition’s tools." : "Saved. This instance uses a narrower tool set.";
+        }
+        return Promise.all([loadAgents(), loadAllInstances()]);
+      })
+      .catch(function (err) {
+        showAgentDefErr(String(err.message || err));
+      })
+      .finally(function () {
+        if (saveBtn) saveBtn.disabled = false;
       });
   }
 
@@ -2331,10 +2480,10 @@
           currentAgentInstanceID = "";
           if (currentWorkspaceID) return switchWorkspace(currentWorkspaceID, true);
         }
-        return loadAgents();
+        return Promise.all([loadAgents(), loadAllInstances()]);
       })
       .catch(function (err) {
-        appendLive("\n[agents] " + err + "\n");
+        showAgentDefErr(String(err.message || err));
       });
   }
 
@@ -2354,7 +2503,251 @@
     if (agentDefCreate) agentDefCreate.hidden = name !== "create";
     if (agentDefEdit) agentDefEdit.hidden = name !== "edit";
     if (agentDefInstance) agentDefInstance.hidden = name !== "instance";
+    if (agentDefAccess) agentDefAccess.hidden = name !== "access";
     showAgentDefErr("");
+  }
+
+  function setManageTab(name) {
+    manageTab = name || "definitions";
+    var panes = {
+      definitions: document.getElementById("agent-pane-definitions"),
+      instances: document.getElementById("agent-pane-instances"),
+      teams: document.getElementById("agent-pane-teams"),
+    };
+    Object.keys(panes).forEach(function (key) {
+      if (panes[key]) panes[key].hidden = key !== manageTab;
+      var tab = document.getElementById("agent-tab-" + key);
+      if (tab) tab.setAttribute("aria-selected", key === manageTab ? "true" : "false");
+    });
+  }
+
+  function manageAction(label, className, onClick) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = className || "ghost";
+    btn.textContent = label;
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      onClick();
+    });
+    return btn;
+  }
+
+  function toolLabel(name) {
+    for (var i = 0; i < agentToolCatalog.length; i++) {
+      if (agentToolCatalog[i].name === name) return agentToolCatalog[i].label || name;
+    }
+    return name;
+  }
+
+  function capVisible(names, states) {
+    return (names || []).some(function (name) {
+      var st = states[name];
+      return st && st.allowed !== false;
+    });
+  }
+
+  function toolCapCell(names, granted, states, lock) {
+    var td = document.createElement("td");
+    var usable = [];
+    var labels = [];
+    var onNames = [];
+    (names || []).forEach(function (name) {
+      var st = states ? states[name] : null;
+      if (states && (!st || st.allowed === false)) return;
+      usable.push(name);
+      labels.push((st && st.label) || toolLabel(name));
+      var on = states ? !!(st && st.granted) : (granted == null || !!granted[name]);
+      if (on) onNames.push(name);
+    });
+    if (!usable.length) {
+      td.className = "agent-cap-empty";
+      td.textContent = "—";
+      return td;
+    }
+    var label = document.createElement("label");
+    label.className = "agent-cap";
+    var box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.toolNames = usable.join(",");
+    var all = onNames.length === usable.length;
+    box.checked = all;
+    box.indeterminate = !all && onNames.length > 0;
+    if (box.indeterminate) box.dataset.partialNames = onNames.join(",");
+    if (lock) box.disabled = true;
+    box.addEventListener("change", function () {
+      box.indeterminate = false;
+      box.removeAttribute("data-partial-names");
+      markAgentAccessUnsaved();
+    });
+    var text = document.createElement("span");
+    var mixed = onNames.length > 0 && onNames.length < usable.length;
+    usable.forEach(function (name, i) {
+      if (i) text.appendChild(document.createTextNode(", "));
+      var bit = document.createElement("span");
+      bit.textContent = labels[i];
+      if (mixed && onNames.indexOf(name) < 0) bit.className = "agent-cap-off";
+      text.appendChild(bit);
+    });
+    label.appendChild(box);
+    label.appendChild(text);
+    td.appendChild(label);
+    return td;
+  }
+
+  function renderToolMatrix(el, opts) {
+    if (!el) return;
+    opts = opts || {};
+    el.innerHTML = "";
+    var groups = agentToolGroups;
+    if (!groups.length && (agentToolCatalog || []).length) {
+      groups = agentToolCatalog.map(function (tool) {
+        return { id: tool.name, label: tool.label || tool.name, read: [], write: [tool.name] };
+      });
+    }
+    var granted = null;
+    if (Array.isArray(opts.granted)) {
+      granted = {};
+      opts.granted.forEach(function (name) { granted[name] = true; });
+    }
+    var table = document.createElement("table");
+    table.className = "agent-tool-table";
+    var head = document.createElement("thead");
+    var hr = document.createElement("tr");
+    ["Topic", "Read", "Write"].forEach(function (title) {
+      var th = document.createElement("th");
+      th.scope = "col";
+      th.textContent = title;
+      hr.appendChild(th);
+    });
+    head.appendChild(hr);
+    var body = document.createElement("tbody");
+    groups.forEach(function (g) {
+      if (opts.states && !capVisible(g.read, opts.states) && !capVisible(g.write, opts.states)) return;
+      var tr = document.createElement("tr");
+      var topic = document.createElement("th");
+      topic.scope = "row";
+      topic.textContent = g.label || g.id;
+      tr.appendChild(topic);
+      tr.appendChild(toolCapCell(g.read, granted, opts.states, opts.lock));
+      tr.appendChild(toolCapCell(g.write, granted, opts.states, opts.lock));
+      body.appendChild(tr);
+    });
+    table.appendChild(head);
+    table.appendChild(body);
+    el.appendChild(table);
+    renderMCPServers(el, opts);
+  }
+
+  function mcpShortTool(exposed, grant) {
+    var prefix = (grant || "") + "__";
+    if (grant && exposed.indexOf(prefix) === 0) return exposed.slice(prefix.length);
+    var parts = String(exposed || "").split("__");
+    return parts.length >= 3 ? parts.slice(2).join("__") : exposed;
+  }
+
+  function serverChoiceOn(grant, opts) {
+    if (opts.mcp) {
+      if (opts.mcp.granted_all) return true;
+      return (opts.mcp.granted || []).indexOf(grant) >= 0;
+    }
+    var names = opts.granted;
+    if (!Array.isArray(names)) return true;
+    if (names.indexOf("mcp") >= 0) return true;
+    return names.indexOf(grant) >= 0;
+  }
+
+  function serverChoiceAllowed(grant, opts) {
+    if (!opts.mcp) return true;
+    if (opts.mcp.allowed_all) return true;
+    return (opts.mcp.allowed || []).indexOf(grant) >= 0;
+  }
+
+  function renderMCPServers(el, opts) {
+    var block = document.createElement("section");
+    block.className = "agent-mcp-block";
+    var title = document.createElement("h3");
+    title.className = "settings-section-title";
+    title.textContent = "MCP servers";
+    block.appendChild(title);
+    var hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "A server is on or off as a whole. The names are that server’s tools.";
+    block.appendChild(hint);
+    var known = mcpServersCache || [];
+    var servers = known.filter(function (s) {
+      return serverChoiceAllowed(s.grant || "", opts);
+    });
+    if (!servers.length) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = known.length ? "This definition has no MCP servers." : "No MCP servers.";
+      block.appendChild(empty);
+      el.appendChild(block);
+      return;
+    }
+    var table = document.createElement("table");
+    table.className = "agent-tool-table";
+    var head = document.createElement("thead");
+    var hr = document.createElement("tr");
+    ["Server", "Tools"].forEach(function (label) {
+      var th = document.createElement("th");
+      th.scope = "col";
+      th.textContent = label;
+      hr.appendChild(th);
+    });
+    head.appendChild(hr);
+    var body = document.createElement("tbody");
+    servers.forEach(function (s) {
+      var grant = s.grant || "";
+      var tr = document.createElement("tr");
+      var server = document.createElement("th");
+      server.scope = "row";
+      var label = document.createElement("label");
+      label.className = "agent-cap";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.toolNames = grant;
+      box.checked = serverChoiceOn(grant, opts);
+      if (opts.lock) box.disabled = true;
+      box.addEventListener("change", markAgentAccessUnsaved);
+      var name = document.createElement("span");
+      name.textContent = s.name || grant;
+      label.appendChild(box);
+      label.appendChild(name);
+      server.appendChild(label);
+      var tools = document.createElement("td");
+      var list = (s.tools || []).map(function (tool) { return mcpShortTool(tool, grant); });
+      tools.textContent = list.length ? list.join(", ") : (s.error ? "Not connected" : "No tools yet");
+      if (!list.length) tools.className = "agent-cap-empty";
+      tr.appendChild(server);
+      tr.appendChild(tools);
+      body.appendChild(tr);
+    });
+    table.appendChild(head);
+    table.appendChild(body);
+    block.appendChild(table);
+    el.appendChild(block);
+  }
+
+  function checkedToolNames(el) {
+    var names = [];
+    var seen = {};
+    function add(name) {
+      if (!name || seen[name]) return;
+      seen[name] = true;
+      names.push(name);
+    }
+    if (!el) return names;
+    el.querySelectorAll("input[type=checkbox][data-tool-names]").forEach(function (box) {
+      if (box.disabled) return;
+      if (box.indeterminate) {
+        (box.dataset.partialNames || "").split(",").forEach(add);
+        return;
+      }
+      if (box.checked) (box.dataset.toolNames || "").split(",").forEach(add);
+    });
+    return names;
   }
 
   function renderDefinitionList() {
@@ -2363,46 +2756,28 @@
     if (!definitionsCache.length) {
       var empty = document.createElement("li");
       empty.className = "hint";
-      empty.textContent = "No definitions yet — create one.";
+      empty.textContent = "No definitions yet.";
       agentDefList.appendChild(empty);
       return;
     }
     definitionsCache.forEach(function (def) {
       var li = document.createElement("li");
       var row = document.createElement("div");
-      row.className = "agent-def-row";
-      var check = document.createElement("input");
-      check.type = "checkbox";
-      check.title = "Select for team";
-      check.checked = !!teamSelectIDs[def.id];
-      check.addEventListener("change", function () {
-        if (check.checked) teamSelectIDs[def.id] = true;
-        else delete teamSelectIDs[def.id];
-      });
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "agent-def-pick-btn" + (def.id === selectedDefinitionID ? " selected" : "");
-      btn.textContent = def.name || def.id;
-      btn.addEventListener("click", function () {
-        selectedDefinitionID = def.id;
-        if (agentDefSelected) {
-          agentDefSelected.textContent = "Definition: " + (def.name || def.id);
-        }
-        if (agentInstanceName) {
-          agentInstanceName.value = def.name || "Agent";
-        }
-        setAgentDefPane("instance");
-      });
-      var edit = document.createElement("button");
-      edit.type = "button";
-      edit.className = "ghost agent-def-edit-btn";
-      edit.textContent = "Edit";
-      edit.addEventListener("click", function () {
-        openEditDefinition(def);
-      });
-      row.appendChild(check);
-      row.appendChild(btn);
-      row.appendChild(edit);
+      row.className = "agent-manage-row";
+      var name = document.createElement("div");
+      name.className = "agent-manage-name";
+      var title = document.createElement("span");
+      title.textContent = def.name || def.id;
+      var meta = document.createElement("small");
+      meta.textContent = def.tools ? (def.tools.length + " tools") : "All tools";
+      name.appendChild(title);
+      name.appendChild(meta);
+      var actions = document.createElement("div");
+      actions.className = "agent-manage-actions";
+      actions.appendChild(manageAction("Edit", "ghost", function () { openEditDefinition(def); }));
+      actions.appendChild(manageAction("New instance", "ghost", function () { openNewInstance(def.id); }));
+      row.appendChild(name);
+      row.appendChild(actions);
       li.appendChild(row);
       agentDefList.appendChild(li);
     });
@@ -2414,41 +2789,149 @@
     if (!teamsCache.length) {
       var empty = document.createElement("li");
       empty.className = "hint";
-      empty.textContent = "No teams yet";
+      empty.textContent = "No teams yet.";
       agentTeamList.appendChild(empty);
+    } else {
+      teamsCache.forEach(function (team) {
+        var li = document.createElement("li");
+        var row = document.createElement("div");
+        row.className = "agent-manage-row";
+        var name = document.createElement("div");
+        name.className = "agent-manage-name";
+        var title = document.createElement("span");
+        title.textContent = team.name || team.id;
+        var meta = document.createElement("small");
+        meta.textContent = (team.definition_ids || []).length + " definitions";
+        name.appendChild(title);
+        name.appendChild(meta);
+        var actions = document.createElement("div");
+        actions.className = "agent-manage-actions";
+        actions.appendChild(manageAction("Spawn", "ghost", function () { spawnTeam(team.id); }));
+        actions.appendChild(manageAction("Delete", "ghost danger", function () {
+          if (!window.confirm("Delete team “" + (team.name || team.id) + "”? Instances already spawned stay.")) return;
+          fetch(apiURL("/api/agents/teams/delete"), {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ id: team.id }),
+          })
+            .then(readAPIResult)
+            .then(function () { return loadTeams(); })
+            .catch(function (err) { showAgentDefErr(String(err)); });
+        }));
+        row.appendChild(name);
+        row.appendChild(actions);
+        li.appendChild(row);
+        agentTeamList.appendChild(li);
+      });
+    }
+    var picks = document.getElementById("agent-team-defs");
+    if (!picks) return;
+    picks.innerHTML = "";
+    definitionsCache.forEach(function (def) {
+      var label = document.createElement("label");
+      label.className = "agent-access-row";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.accessId = def.id;
+      box.checked = !!teamSelectIDs[def.id];
+      box.addEventListener("change", function () {
+        if (box.checked) teamSelectIDs[def.id] = true;
+        else delete teamSelectIDs[def.id];
+      });
+      var text = document.createElement("span");
+      text.textContent = def.name || def.id;
+      label.appendChild(box);
+      label.appendChild(text);
+      picks.appendChild(label);
+    });
+  }
+
+  function workspaceDisplayName(id) {
+    for (var i = 0; i < workspacesCache.length; i++) {
+      if (workspacesCache[i].id === id) return workspacesCache[i].name || id;
+    }
+    return id;
+  }
+
+  function renderAllInstances() {
+    if (!agentInstanceList) return;
+    agentInstanceList.innerHTML = "";
+    if (!allInstancesCache.length) {
+      var empty = document.createElement("li");
+      empty.className = "hint";
+      empty.textContent = "No instances yet.";
+      agentInstanceList.appendChild(empty);
       return;
     }
-    teamsCache.forEach(function (team) {
+    allInstancesCache.forEach(function (ag) {
       var li = document.createElement("li");
       var row = document.createElement("div");
-      row.className = "agent-def-row";
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "agent-def-pick-btn";
-      btn.textContent = (team.name || team.id) + " (" + (team.definition_ids || []).length + ")";
-      btn.addEventListener("click", function () {
-        spawnTeam(team.id);
+      row.className = "agent-manage-row";
+      var name = document.createElement("div");
+      name.className = "agent-manage-name";
+      var title = document.createElement("span");
+      title.textContent = ag.name || ag.id;
+      var defName = ag.recipe_id;
+      definitionsCache.forEach(function (def) {
+        if (def.id === ag.recipe_id) defName = def.name || def.id;
       });
-      var del = document.createElement("button");
-      del.type = "button";
-      del.className = "ghost agent-def-edit-btn danger";
-      del.textContent = "Delete";
-      del.addEventListener("click", function () {
-        if (!window.confirm("Delete team “" + (team.name || team.id) + "”?")) return;
-        fetch(apiURL("/api/agents/teams/delete"), {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ id: team.id }),
-        })
-          .then(readAPIResult)
-          .then(function () { return loadTeams(); })
-          .catch(function (err) { showAgentDefErr(String(err)); });
-      });
-      row.appendChild(btn);
-      row.appendChild(del);
+      var places = (ag.workspaces || []).map(workspaceDisplayName).join(", ");
+      var meta = document.createElement("small");
+      meta.textContent = defName + (places ? " · " + places : "") + (ag.tools ? " · narrower tools" : " · definition’s tools");
+      name.appendChild(title);
+      name.appendChild(meta);
+      var actions = document.createElement("div");
+      actions.className = "agent-manage-actions";
+      actions.appendChild(manageAction("Access", "ghost", function () { openAgentAccess(ag.id, ag.name || ag.id); }));
+      actions.appendChild(manageAction("Delete", "ghost danger", function () { deleteAgent(ag.id, ag.name || ag.id); }));
+      row.appendChild(name);
+      row.appendChild(actions);
       li.appendChild(row);
-      agentTeamList.appendChild(li);
+      agentInstanceList.appendChild(li);
     });
+  }
+
+  function loadAllInstances() {
+    return fetch(apiURL("/api/agents/instances?all=1"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          allInstancesCache = j.instances || [];
+          renderAllInstances();
+        });
+      });
+  }
+
+  function fillInstanceDefinitionSelect(selected) {
+    if (!agentInstanceDefinition) return;
+    agentInstanceDefinition.innerHTML = "";
+    definitionsCache.forEach(function (def) {
+      var opt = document.createElement("option");
+      opt.value = def.id;
+      opt.textContent = def.name || def.id;
+      if (def.id === selected) opt.selected = true;
+      agentInstanceDefinition.appendChild(opt);
+    });
+  }
+
+  function openNewInstance(definitionID) {
+    selectedDefinitionID = definitionID || (definitionsCache[0] && definitionsCache[0].id) || "";
+    fillInstanceDefinitionSelect(selectedDefinitionID);
+    var def = null;
+    definitionsCache.forEach(function (d) { if (d.id === selectedDefinitionID) def = d; });
+    if (agentInstanceName) agentInstanceName.value = def ? (def.name || "Agent") : "";
+    setAgentDefPane("instance");
+  }
+
+  function loadMcpServers() {
+    return fetch(apiURL("/api/mcp"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          mcpServersCache = j.servers || [];
+        });
+      })
+      .catch(function () {});
   }
 
   function loadDefinitions() {
@@ -2457,7 +2940,10 @@
         return r.json().then(function (j) {
           if (!r.ok) throw new Error((j && j.error) || r.status);
           definitionsCache = j.recipes || [];
+          agentToolCatalog = j.tools || agentToolCatalog;
+          if (j.groups) agentToolGroups = j.groups;
           renderDefinitionList();
+          renderTeamList();
         });
       });
   }
@@ -2475,15 +2961,15 @@
 
   function openAgentDialog() {
     if (!connected || !currentWorkspaceID) return;
-    if (agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval") return;
     selectedDefinitionID = "";
     editingDefinitionID = "";
     teamSelectIDs = {};
+    setManageTab(manageTab || "definitions");
     setAgentDefPane("pick");
     if (agentDefDialog && typeof agentDefDialog.showModal === "function") {
       agentDefDialog.showModal();
     }
-    Promise.all([loadDefinitions(), loadTeams()]).catch(function (err) {
+    Promise.all([loadWorkspaces(), loadDefinitions(), loadTeams(), loadAllInstances()]).catch(function (err) {
       showAgentDefErr(String(err));
     });
   }
@@ -2492,11 +2978,46 @@
     openAgentDialog();
   }
 
+  function loadModelSuggestions() {
+    var list = document.getElementById("agent-model-suggestions");
+    if (!list || !connected) return Promise.resolve();
+    return fetch(apiURL("/api/threads/model"), { headers: headers() })
+      .then(function (r) { return r.json().then(function (j) { return r.ok ? j : null; }); })
+      .then(function (j) {
+        if (!j) return;
+        list.innerHTML = "";
+        var seen = {};
+        function add(id, label) {
+          if (!id || seen[id]) return;
+          seen[id] = true;
+          var opt = document.createElement("option");
+          opt.value = id;
+          if (label && label !== id) opt.label = label;
+          list.appendChild(opt);
+        }
+        (j.providers || []).forEach(function (p) {
+          (p.models || []).forEach(function (m) {
+            add(m.id, (p.name ? p.name + " · " : "") + (m.name || m.id));
+          });
+        });
+        add(j.settings_model_id, "Settings");
+        add(j.model_id, "Current");
+      })
+      .catch(function () {});
+  }
+
   function openEditDefinition(def) {
     editingDefinitionID = def.id;
     if (agentDefEditName) agentDefEditName.value = def.name || "";
     if (agentDefEditInstructions) agentDefEditInstructions.value = def.instructions || "";
+    var editModel = document.getElementById("agent-def-edit-model");
+    if (editModel) editModel.value = def.model || "";
     setAgentDefPane("edit");
+    loadModelSuggestions();
+    loadMcpServers().then(function () {
+      if (editingDefinitionID !== def.id) return;
+      renderToolMatrix(document.getElementById("agent-def-edit-tools"), { granted: def.tools == null ? null : def.tools });
+    });
   }
 
   function saveNewDefinition() {
@@ -2506,22 +3027,26 @@
       showAgentDefErr("Definition name required");
       return;
     }
+    if (!agentToolCatalog.length) {
+      showAgentDefErr("Tools are still loading");
+      return;
+    }
+    var tools = checkedToolNames(document.getElementById("agent-def-create-tools"));
+    var createModel = document.getElementById("agent-def-model");
+    var model = createModel ? String(createModel.value || "").trim() : "";
     fetch(apiURL("/api/agents/recipes"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ name: name, instructions: instructions }),
+      body: JSON.stringify({ name: name, instructions: instructions, model: model, tools: tools }),
     })
       .then(readAPIResult)
-      .then(function (def) {
-        selectedDefinitionID = def.id;
-        if (agentDefSelected) agentDefSelected.textContent = "Definition: " + (def.name || def.id);
-        if (agentInstanceName) agentInstanceName.value = def.name || name;
+      .then(function () {
         if (agentDefName) agentDefName.value = "";
         if (agentDefInstructions) agentDefInstructions.value = "";
+        if (createModel) createModel.value = "";
+        setManageTab("definitions");
+        setAgentDefPane("pick");
         return loadDefinitions();
-      })
-      .then(function () {
-        setAgentDefPane("instance");
       })
       .catch(function (err) {
         showAgentDefErr(String(err));
@@ -2530,16 +3055,24 @@
 
   function saveEditDefinition() {
     if (!editingDefinitionID) return;
+    if (!agentToolCatalog.length) {
+      showAgentDefErr("Tools are still loading");
+      return;
+    }
     var name = agentDefEditName ? String(agentDefEditName.value || "").trim() : "";
     var instructions = agentDefEditInstructions ? String(agentDefEditInstructions.value || "") : "";
+    var editModel = document.getElementById("agent-def-edit-model");
+    var model = editModel ? String(editModel.value || "").trim() : "";
+    var tools = checkedToolNames(document.getElementById("agent-def-edit-tools"));
     fetch(apiURL("/api/agents/recipes/update"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ id: editingDefinitionID, name: name, instructions: instructions }),
+      body: JSON.stringify({ id: editingDefinitionID, name: name, instructions: instructions, model: model, tools: tools }),
     })
       .then(readAPIResult)
       .then(function () {
         editingDefinitionID = "";
+        setManageTab("definitions");
         setAgentDefPane("pick");
         return loadDefinitions();
       })
@@ -2568,6 +3101,7 @@
   }
 
   function createInstanceFromDefinition() {
+    selectedDefinitionID = agentInstanceDefinition ? agentInstanceDefinition.value : selectedDefinitionID;
     if (!selectedDefinitionID || !currentWorkspaceID) {
       showAgentDefErr("Pick a definition first");
       return;
@@ -2598,14 +3132,17 @@
   }
 
   function createTeamFromSelection() {
-    var ids = Object.keys(teamSelectIDs);
+    var ids = checkedAccess(document.getElementById("agent-team-defs"), false);
     if (!ids.length) {
-      showAgentDefErr("Select at least one definition (checkboxes)");
+      showAgentDefErr("Choose at least one definition.");
       return;
     }
-    var name = window.prompt("Team name", "Team");
-    if (name == null) return;
-    name = String(name).trim() || "Team";
+    var nameEl = document.getElementById("agent-team-name");
+    var name = nameEl ? String(nameEl.value || "").trim() : "";
+    if (!name) {
+      showAgentDefErr("Team name required");
+      return;
+    }
     fetch(apiURL("/api/agents/teams"), {
       method: "POST",
       headers: headers(),
@@ -2614,11 +3151,10 @@
       .then(readAPIResult)
       .then(function () {
         teamSelectIDs = {};
+        if (nameEl) nameEl.value = "";
         return loadTeams();
       })
-      .then(function () {
-        return loadDefinitions();
-      })
+      .then(function () { return loadDefinitions(); })
       .catch(function (err) {
         showAgentDefErr(String(err));
       });
@@ -2762,9 +3298,48 @@
     return window.ansiToHtml(raw);
   }
 
+  function ensureDomKey(m) {
+    if (!m.domKey) {
+      transcriptSeq += 1;
+      m.domKey = "m" + transcriptSeq;
+    }
+    return m.domKey;
+  }
+
+  function messageSig(m) {
+    if (!m) return "";
+    if (m.role === "tool_group") {
+      return ["tool", m.name || "", m.command || "", m.pending ? "1" : "0", m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
+    }
+    return [m.role || "", m.text || "", m.name || "", m.streaming ? "1" : "0", m.collapsed ? "1" : "0"].join("\u0001");
+  }
+
+  function stampMessageEl(el, m, role) {
+    if (!el) return;
+    el.dataset.domKey = ensureDomKey(m);
+    el.dataset.sig = messageSig(m);
+    el.dataset.msgRole = role || m.role || "";
+    if (el.tagName === "DETAILS" && heldOpen && heldOpen[el.dataset.domKey]) el.open = true;
+  }
+
+  function openMapFrom(el) {
+    var open = {};
+    if (!el) return open;
+    function take(d) {
+      if (!d || !d.open) return;
+      var key = d.dataset.domKey || d.dataset.foldKey;
+      if (key) open[key] = true;
+    }
+    take(el);
+    el.querySelectorAll("details").forEach(take);
+    return open;
+  }
+
   function appendMessageNode(parent, m, prevRole) {
     if (m.role === "tool_group") {
-      parent.appendChild(toolCard(m));
+      var card = toolCard(m);
+      stampMessageEl(card, m, m.role);
+      parent.appendChild(card);
       return m.role;
     }
     var el = document.createElement("article");
@@ -2775,9 +3350,23 @@
         var first = String(m.text || "").split("\n")[0];
         if (first.length > 160) first = first.slice(0, 157) + "…";
         el.innerHTML = '<details class="notice"><summary>' + esc(first) + '</summary><div class="body">' + esc(m.text || "") + "</div></details>";
+        var notice = el.querySelector("details");
+        if (notice) {
+          notice.dataset.domKey = ensureDomKey(m) + ":notice";
+          if (heldOpen && heldOpen[notice.dataset.domKey]) notice.open = true;
+        }
       } else {
         el.innerHTML = '<div class="body">' + esc(m.text || "") + "</div>";
       }
+      stampMessageEl(el, m, role);
+      parent.appendChild(el);
+      return role;
+    }
+    if (role === "peer") {
+      el.className = "msg peer";
+      var peerWho = m.name || "Agent";
+      el.innerHTML = '<p class="who">' + esc(peerWho) + '</p><div class="body">' + esc(m.text || "") + "</div>";
+      stampMessageEl(el, m, role);
       parent.appendChild(el);
       return role;
     }
@@ -2791,6 +3380,7 @@
     } else {
       el.innerHTML = '<p class="who">' + esc(who) + '</p><div class="body">' + body + "</div>";
     }
+    stampMessageEl(el, m, role);
     parent.appendChild(el);
     return role;
   }
@@ -2876,6 +3466,7 @@
   function chapterItemLoud(m) {
     if (!m) return false;
     if (m.role === "tool_group" && (m.status === "failed" || m.status === "stopped")) return true;
+    if (m.role === "peer") return true;
     if (m.role === "system" && !m.collapsed) return true;
     return false;
   }
@@ -2892,6 +3483,8 @@
         var mid = buf.slice(1, -1);
         var fold = document.createElement("details");
         fold.className = "chapter-fold";
+        fold.dataset.foldKey = "fold:" + ensureDomKey(mid[0]) + ":" + ensureDomKey(mid[mid.length - 1]);
+        if (heldOpen && heldOpen[fold.dataset.foldKey]) fold.open = true;
         var label = mid.length === 1 ? "1 message in between" : mid.length + " messages in between";
         fold.innerHTML = "<summary>" + esc(label) + "</summary>";
         var inner = document.createElement("div");
@@ -2929,10 +3522,63 @@
     });
   }
 
+  function chapterBlockSig() {
+    return chapters.map(function (ch) {
+      return [ch.id, ch.start, ch.end, ch.title, ch.status, ch.memory, ch.summary, ch.intro, ch.conclusion].join("\u0001");
+    }).join("\u0002");
+  }
+
+  // Keep existing nodes when only a later message arrives, so an opened tool or fold stays open.
+  function syncMessageList(parent, list) {
+    var kids = [];
+    for (var i = 0; i < parent.children.length; i++) {
+      var ch = parent.children[i];
+      if (!ch.dataset || !ch.dataset.domKey) return false;
+      kids.push(ch);
+    }
+    if (kids.length > list.length) return false;
+    for (var n = 0; n < kids.length; n++) {
+      if (kids[n].dataset.domKey !== ensureDomKey(list[n])) return false;
+    }
+    var prev = "";
+    for (var k = 0; k < kids.length; k++) {
+      var sig = messageSig(list[k]);
+      if (kids[k].dataset.sig !== sig) {
+        var holder = document.createElement("div");
+        var prevHeld = heldOpen;
+        heldOpen = openMapFrom(kids[k]);
+        prev = appendMessageNode(holder, list[k], prev) || prev;
+        heldOpen = prevHeld;
+        var built = holder.firstElementChild;
+        if (!built) return false;
+        kids[k].replaceWith(built);
+        kids[k] = built;
+      } else {
+        prev = kids[k].dataset.msgRole || prev;
+      }
+    }
+    for (var j = kids.length; j < list.length; j++) {
+      prev = appendMessageNode(parent, list[j], prev) || prev;
+    }
+    return true;
+  }
+
+  function fillMessageList(parent, list) {
+    var prevHeld = heldOpen;
+    heldOpen = openMapFrom(parent);
+    parent.innerHTML = "";
+    appendMessageList(parent, list);
+    heldOpen = prevHeld;
+  }
+
   function renderThread() {
     var stick = nearBottom();
-    thread.innerHTML = "";
+    if (thread.dataset.rebuild === "1") {
+      thread.innerHTML = "";
+      delete thread.dataset.rebuild;
+    }
     if (!messages.length) {
+      thread.innerHTML = "";
       var hint = document.createElement("div");
       hint.className = "msg system";
       hint.innerHTML = '<p class="who">Keimling</p><p class="body">Send a message to continue this session.</p>';
@@ -2943,27 +3589,51 @@
 
     // Single chapter: full transcript for that range.
     if (activeChapter) {
+      var prevHeld = heldOpen;
+      heldOpen = openMapFrom(thread);
+      thread.innerHTML = "";
       var head = document.createElement("div");
       head.className = "msg system";
       var sum = activeChapter.summary ? "\n\n" + activeChapter.summary : "";
       head.innerHTML = '<p class="who">Chapter</p><div class="body">' + esc(activeChapter.title + sum) + "</div>";
       thread.appendChild(head);
       appendMessageList(thread, messages.filter(inChapter));
+      heldOpen = prevHeld;
       stickScrollIfNearBottom(stick);
       return;
     }
 
-    // Chapters first; live/tail messages (no event / outside ranges) after so activity stays visible at the bottom.
+    // Chapters stay put; only the live tail grows, so an opened fold is not rebuilt.
     if (chapters.length) {
-      chapters.forEach(function (ch) {
-        thread.appendChild(renderChapterOverview(ch));
-      });
-      appendMessageList(thread, messagesOutsideChapters());
+      var sig = chapterBlockSig();
+      var block = thread.querySelector(":scope > .chapter-block");
+      var tail = thread.querySelector(":scope > .thread-tail");
+      if (!block || block.dataset.sig !== sig || !tail) {
+        var chapterOpen = openMapFrom(thread);
+        var prevOpen = heldOpen;
+        heldOpen = chapterOpen;
+        thread.innerHTML = "";
+        block = document.createElement("div");
+        block.className = "chapter-block";
+        block.dataset.sig = sig;
+        chapters.forEach(function (ch) {
+          block.appendChild(renderChapterOverview(ch));
+        });
+        thread.appendChild(block);
+        tail = document.createElement("div");
+        tail.className = "thread-tail";
+        thread.appendChild(tail);
+        appendMessageList(tail, messagesOutsideChapters());
+        heldOpen = prevOpen;
+      } else if (!syncMessageList(tail, messagesOutsideChapters())) {
+        fillMessageList(tail, messagesOutsideChapters());
+      }
       stickScrollIfNearBottom(stick);
       return;
     }
 
-    appendMessageList(thread, messages);
+    if (thread.querySelector(".chapter-block, .thread-tail")) thread.innerHTML = "";
+    if (!syncMessageList(thread, messages)) fillMessageList(thread, messages);
     stickScrollIfNearBottom(stick);
   }
 
@@ -3013,6 +3683,7 @@
   }
 
   function handleStructuredMessage(payload) {
+    if (!eventsForThisView()) return;
     var text = payload.text || "";
     var role = payload.role || "assistant";
     if (payload.delta) {
@@ -3051,11 +3722,12 @@
         }
       });
     }
-    messages.push({ role: role, text: text, collapsed: !!payload.collapsed });
+    messages.push({ role: role, text: text, name: payload.name || "", collapsed: !!payload.collapsed });
     paintTranscript();
   }
 
   function handleStructuredTool(payload) {
+    if (!eventsForThisView()) return;
     if (payload.phase === "start") {
       // Finalize any open stream so tool sits in the monologue correctly.
       var open = messages[messages.length - 1];
@@ -3270,9 +3942,13 @@
     modeEl.textContent = j.mode || "—";
     messages = j.messages || [];
     chapters = j.chapters || [];
+    if (thread) thread.dataset.rebuild = "1";
     voiceOK = !!j.voice;
     voiceBtn.hidden = !voiceOK;
     if (j.workspace_id) currentWorkspaceID = j.workspace_id;
+    if (j.background_busy || j.busy) runningThreadID = j.running_thread || j.thread_id || runningThreadID;
+    else if (!j.busy) runningThreadID = "";
+    backgroundBusy = !!j.background_busy;
     if (j.thread_id) currentThreadID = j.thread_id;
     // Prefer host attach state; session still reveals agent worker identity.
     if (j.agent_instance_id) currentAgentInstanceID = j.agent_instance_id;
@@ -3343,15 +4019,18 @@
               // Agent "line" events are for CLI attach; GUI uses structured message/tool.
               if (ev === "message") handleStructuredMessage(payload);
               if (ev === "tool") handleStructuredTool(payload);
-              if (ev === "approval") showApproval(payload);
+              if (ev === "approval" && eventsForThisView()) showApproval(payload);
               if (ev === "progress") updateProgress(payload);
               if (ev === "artifact") showArtifact(payload);
               if (ev === "compaction") updateCompactionProgress(payload);
               if (ev === "thread") updateThreadTitle(payload);
               if (ev === "status" && payload.state) {
-                setState(payload.state);
+                if (payload.thread_id) runningThreadID = payload.thread_id;
+                var otherView = !currentAgentInstanceID && runningThreadID && currentThreadID && runningThreadID !== currentThreadID;
                 if (payload.state === "idle") {
-                  // Authoritative journal replaces the live transcript projection.
+                  runningThreadID = "";
+                  backgroundBusy = false;
+                  setState("idle");
                   loadSession()
                     .then(function () {
                       clearLive();
@@ -3359,6 +4038,12 @@
                     })
                     .catch(function () {});
                   if (contextDialog && contextDialog.open) openContextDialog();
+                } else if (otherView && (payload.state === "running" || payload.state === "compacting" || payload.state === "awaiting_approval")) {
+                  backgroundBusy = true;
+                  setState("idle");
+                } else {
+                  backgroundBusy = false;
+                  setState(payload.state);
                 }
               }
             });
@@ -4781,6 +5466,13 @@
       createAgent();
     });
   }
+  var agentAccessSave = document.getElementById("agent-access-save");
+  if (agentAccessSave) {
+    agentAccessSave.addEventListener("click", function (e) {
+      e.preventDefault();
+      saveAgentAccess();
+    });
+  }
   var agentDefNewBtn = document.getElementById("agent-def-new-btn");
   var agentDefCreateBack = document.getElementById("agent-def-create-back");
   var agentDefCreateSave = document.getElementById("agent-def-create-save");
@@ -4793,6 +5485,10 @@
   if (agentDefNewBtn) {
     agentDefNewBtn.addEventListener("click", function () {
       setAgentDefPane("create");
+      loadModelSuggestions();
+      loadMcpServers().then(function () {
+        renderToolMatrix(document.getElementById("agent-def-create-tools"), { granted: null });
+      });
       if (agentDefName) agentDefName.focus();
     });
   }
@@ -4810,6 +5506,7 @@
   if (agentDefEditBack) {
     agentDefEditBack.addEventListener("click", function () {
       editingDefinitionID = "";
+      setManageTab("definitions");
       setAgentDefPane("pick");
     });
   }
@@ -4826,8 +5523,8 @@
   if (agentDefInstanceBack) {
     agentDefInstanceBack.addEventListener("click", function () {
       selectedDefinitionID = "";
+      setManageTab("instances");
       setAgentDefPane("pick");
-      renderDefinitionList();
     });
   }
   if (agentDefInstanceCreate) {
@@ -4840,9 +5537,37 @@
       createTeamFromSelection();
     });
   }
+  ["definitions", "instances", "teams"].forEach(function (name) {
+    var tab = document.getElementById("agent-tab-" + name);
+    if (!tab) return;
+    tab.addEventListener("click", function () {
+      setManageTab(name);
+      setAgentDefPane("pick");
+    });
+  });
+  var agentInstanceNewBtn = document.getElementById("agent-instance-new-btn");
+  if (agentInstanceNewBtn) {
+    agentInstanceNewBtn.addEventListener("click", function () {
+      openNewInstance("");
+    });
+  }
+  var agentAccessBack = document.getElementById("agent-access-back");
+  if (agentAccessBack) {
+    agentAccessBack.addEventListener("click", function () {
+      setManageTab("instances");
+      setAgentDefPane("pick");
+      loadAllInstances().catch(function () {});
+    });
+  }
+  if (agentAccessFollow) {
+    agentAccessFollow.addEventListener("change", function () {
+      markAgentAccessUnsaved();
+      applyAccessFollow();
+    });
+  }
 
   newChatBtn.addEventListener("click", function () {
-    if (!connected || agentState === "running" || agentState === "awaiting_approval" || agentState === "compacting") return;
+    if (!connected) return;
     if (!window.confirm("Start a new thread in this workspace?")) return;
     newChatBtn.disabled = true;
     fetch(apiURL("/api/threads"), { method: "POST", headers: headers() })
@@ -4852,8 +5577,9 @@
           return j;
         });
       })
-      .then(function () {
+      .then(function (j) {
         currentAgentInstanceID = "";
+        if (j && j.thread_id) currentThreadID = j.thread_id;
         if (es && typeof es.close === "function") {
           try { es.close(); } catch (e) {}
           es = null;
@@ -4869,7 +5595,6 @@
         connectEvents();
         renderChapters();
         renderThread();
-        setState("idle");
         return Promise.all([loadThreads(), loadAgents()]);
       })
       .then(function () {
@@ -4889,6 +5614,7 @@
     send.disabled = true;
     clearLive();
     var wasBusy = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
+    var otherThread = backgroundBusy;
     fetch(apiURL("/api/message"), {
       method: "POST",
       headers: headers(),
@@ -4908,9 +5634,11 @@
         if (j && j.queued) {
           messages.push({
             role: "system",
-            text: wasBusy
-              ? "Queued — steers the current run or runs when idle."
-              : "Queued — will run when the agent is idle.",
+            text: otherThread
+              ? "Queued in this thread — runs when this thread is free."
+              : (wasBusy
+                ? "Queued — steers the current run or runs when idle."
+                : "Queued — will run when the agent is idle."),
           });
         } else {
           setState("running");

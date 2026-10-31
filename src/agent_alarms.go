@@ -78,7 +78,7 @@ func addAgentAlarm(instanceID string, fireAt time.Time, message string, every ti
 		return AgentAlarm{}, err
 	}
 	al := AgentAlarm{
-		ID:      fmt.Sprintf("alarm-%s", time.Now().UTC().Format("20060102-150405.000000000")),
+		ID:      newStampedID("alarm"),
 		FireAt:  fireAt.UTC(),
 		Message: message,
 		Every:   every,
@@ -114,6 +114,20 @@ func cancelAgentAlarm(instanceID, alarmID string) error {
 		return fmt.Errorf("unknown alarm %q", alarmID)
 	}
 	return writeAgentAlarms(instanceID, out)
+}
+
+// agentAlarmDue reports a wake time that has arrived. It does not change the file.
+func agentAlarmDue(instanceID string, now time.Time) bool {
+	list, err := readAgentAlarms(instanceID)
+	if err != nil {
+		return false
+	}
+	for _, a := range list {
+		if !a.FireAt.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 func dueAgentAlarms(instanceID string, now time.Time) ([]AgentAlarm, error) {

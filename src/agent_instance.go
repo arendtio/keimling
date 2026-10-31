@@ -17,10 +17,13 @@ const (
 
 // AgentInstanceMeta is persisted under ~/.local/share/keimling/agent-instances/<id>/.
 type AgentInstanceMeta struct {
-	ID               string    `json:"id"`
-	RecipeID         string    `json:"recipe_id"`
-	Name             string    `json:"name"`
-	Workspaces       []string  `json:"workspaces"`      // ACL of workspace ids
+	ID         string   `json:"id"`
+	RecipeID   string   `json:"recipe_id"`
+	Name       string   `json:"name"`
+	Workspaces []string `json:"workspaces"` // workspace ids this instance may use
+	// Tools is nil until the user saves a tool choice. Nil grants every tool.
+	// A non-nil slice, including empty, is the saved choice.
+	Tools            *[]string `json:"tools,omitempty"`
 	Peers            []string  `json:"peers,omitempty"` // instance ids this agent may message
 	CurrentWorkspace string    `json:"current_workspace"`
 	Status           string    `json:"status"`
@@ -48,8 +51,15 @@ func agentInstanceSessionPath(id string) string {
 	return filepath.Join(agentInstanceThreadDir(id), "session.jsonl")
 }
 
+// newStampedID is prefix-date-time-nanoseconds. A dash separates the fraction so a
+// model does not treat the id as ending at a full stop.
+func newStampedID(prefix string) string {
+	now := time.Now().UTC()
+	return fmt.Sprintf("%s-%s-%09d", prefix, now.Format("20060102-150405"), now.Nanosecond())
+}
+
 func newAgentInstanceID() string {
-	return fmt.Sprintf("agent-%s", time.Now().UTC().Format("20060102-150405.000000000"))
+	return newStampedID("agent")
 }
 
 func writeAgentInstanceMeta(m AgentInstanceMeta) error {
@@ -223,6 +233,102 @@ func agentInstanceAllowsPeer(m AgentInstanceMeta, peerID string) bool {
 		}
 	}
 	return false
+}
+
+func resolveAgentInstance(ref string) (AgentInstanceMeta, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return AgentInstanceMeta{}, fmt.Errorf("agent id required")
+	}
+	if m, err := readAgentInstanceMeta(ref); err == nil {
+		return m, nil
+	}
+	all, err := listAgentInstances()
+	if err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	var matches []AgentInstanceMeta
+	for _, m := range all {
+		if strings.EqualFold(m.Name, ref) {
+			matches = append(matches, m)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	return AgentInstanceMeta{}, fmt.Errorf("unknown agent %q", ref)
+}
+
+func peersContain(list []string, id string) bool {
+	id = strings.TrimSpace(id)
+	for _, one := range list {
+		if one == id {
+			return true
+		}
+	}
+	return false
+}
+
+// agentsMayContact is true when either instance lists the other. A saved link
+// works in both directions so the receiver can reply.
+func agentsMayContact(a, b AgentInstanceMeta) bool {
+	if a.ID == "" || b.ID == "" || a.ID == b.ID {
+		return false
+	}
+	return peersContain(a.Peers, b.ID) || peersContain(b.Peers, a.ID)
+}
+
+// setAgentInstancePeers stores the instances id may contact and writes the
+// same link on each of them. Instances left out lose the link in both directions.
+func setAgentInstancePeers(id string, peerIDs []string) (AgentInstanceMeta, error) {
+	id = strings.TrimSpace(id)
+	self, err := readAgentInstanceMeta(id)
+	if err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	want := map[string]bool{}
+	clean := make([]string, 0, len(peerIDs))
+	for _, p := range peerIDs {
+		p = strings.TrimSpace(p)
+		if p == "" || p == id || want[p] {
+			continue
+		}
+		if _, err := readAgentInstanceMeta(p); err != nil {
+			return AgentInstanceMeta{}, fmt.Errorf("unknown agent %q", p)
+		}
+		want[p] = true
+		clean = append(clean, p)
+	}
+	all, err := listAgentInstances()
+	if err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	self.Peers = clean
+	if err := writeAgentInstanceMeta(self); err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	for _, other := range all {
+		if other.ID == id {
+			continue
+		}
+		next := make([]string, 0, len(other.Peers)+1)
+		for _, p := range other.Peers {
+			if p != id && strings.TrimSpace(p) != "" {
+				next = append(next, p)
+			}
+		}
+		if want[other.ID] {
+			next = append(next, id)
+		}
+		if sameToolSet(next, other.Peers) {
+			continue
+		}
+		other.Peers = next
+		if err := writeAgentInstanceMeta(other); err != nil {
+			return AgentInstanceMeta{}, err
+		}
+	}
+	return readAgentInstanceMeta(id)
 }
 
 func addAgentInstancePeer(id, peerID string) error {

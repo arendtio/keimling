@@ -103,7 +103,7 @@ func createAgentTeam(name string, definitionIDs []string) (AgentTeam, error) {
 		}
 	}
 	t := AgentTeam{
-		ID:            fmt.Sprintf("team-%s", time.Now().UTC().Format("20060102-150405.000000000")),
+		ID:            newStampedID("team"),
 		Name:          name,
 		DefinitionIDs: ids,
 	}

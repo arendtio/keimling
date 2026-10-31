@@ -43,6 +43,7 @@
 | `POST` | `/api/agents/instances/stop` | yes | Host: stop run on instance `{ "id" }` |
 | `POST` | `/api/agents/instances/delete` | yes | Host: delete instance `{ "id" }` |
 | `POST` | `/api/agents/instances/message` | yes | Host: enqueue wake `{ id, text }` |
+| `GET`/`POST` | `/api/agents/instances/access` | yes | Host: workspaces, tools, and contacts. GET `?id=` includes `peers`. POST `{ id, workspaces, tools, peers? }`. Omit `peers` to leave contacts unchanged. |
 | `GET`/`POST` | `/api/agents/teams` | yes | Host: list / create teams |
 | `POST` | `/api/agents/teams/spawn` | yes | Host: spawn team instances |
 | `POST` | `/api/agents/teams/delete` | yes | Host: delete team |

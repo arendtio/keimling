@@ -470,3 +470,83 @@ func TestAppServerApproveRejectedAfterStop(t *testing.T) {
 		t.Fatalf("decision queued after stop: %d", n)
 	}
 }
+
+func TestBusyWorkspaceQueuesOnViewedThread(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := createParkedThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := OpenJournal(session, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg: Config{
+			Model: "m", Mode: "ask", WorkspaceID: ws.ID, ThreadID: running.ID, SessionPath: session,
+		},
+		Journal: j,
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.viewThread = other.ID
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"text":"hold this"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"queued":true`) {
+		t.Fatalf("queue: %d %s", rec.Code, rec.Body.String())
+	}
+	if events, err := originalEvents(session); err != nil || len(events) != 0 {
+		t.Fatalf("running journal should stay empty: %v %v", events, err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session: %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["thread_id"] != other.ID || body["running_thread"] != running.ID || body["background_busy"] != true || body["busy"] != false {
+		t.Fatalf("session view: %#v", body)
+	}
+	if !strings.Contains(rec.Body.String(), "hold this") {
+		t.Fatalf("queued text missing: %s", rec.Body.String())
+	}
+	if a.Cfg.ThreadID != running.ID {
+		t.Fatalf("run journal moved: %s", a.Cfg.ThreadID)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"mode":"auto"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || a.Cfg.Mode != "auto" {
+		t.Fatalf("settings while busy: %d %s mode=%s", rec.Code, rec.Body.String(), a.Cfg.Mode)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/threads", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || a.Cfg.ThreadID != running.ID {
+		t.Fatalf("new thread while busy: %d %s journal=%s", rec.Code, rec.Body.String(), a.Cfg.ThreadID)
+	}
+}

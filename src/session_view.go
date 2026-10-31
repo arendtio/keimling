@@ -46,6 +46,8 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 			Arguments string `json:"arguments"`
 			Output    string `json:"output"`
 			Text      string `json:"text"`
+			Peer      string `json:"peer"`
+			Direction string `json:"direction"`
 		}
 		if json.Unmarshal(history[i], &item) != nil {
 			continue
@@ -65,12 +67,27 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 					out = append(out, sessionMessage{Role: "system", Text: "Context compacted — earlier work is in chapters / history tools.", Event: ev})
 					continue
 				}
+				if name, body, ok := parsePeerUserText(s); ok {
+					out = append(out, sessionMessage{Role: "peer", Name: "From " + name, Text: body, Event: ev})
+					continue
+				}
 				out = append(out, sessionMessage{Role: "user", Text: s, Event: ev})
 			}
 		case item.Type == "message":
 			if text := strings.TrimSpace(messageText(item.Content)); text != "" {
 				out = append(out, sessionMessage{Role: "assistant", Text: text, Event: ev})
 			}
+		case item.Type == "keimling_peer":
+			text := strings.TrimSpace(item.Text)
+			peer := strings.TrimSpace(item.Peer)
+			if text == "" || peer == "" {
+				continue
+			}
+			name := "To " + peer
+			if item.Direction == "received" {
+				name = "From " + peer
+			}
+			out = append(out, sessionMessage{Role: "peer", Name: name, Text: text, Event: ev})
 		case item.Type == "keimling_notice":
 			text := strings.TrimSpace(item.Text)
 			if text == "" {

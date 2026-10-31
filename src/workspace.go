@@ -240,7 +240,8 @@ func listWorkspaces() ([]WorkspaceMeta, error) {
 }
 
 func newThreadID() string {
-	return time.Now().UTC().Format("20060102-150405.000000000")
+	now := time.Now().UTC()
+	return fmt.Sprintf("%s-%09d", now.Format("20060102-150405"), now.Nanosecond())
 }
 
 func listThreads(workspaceID string) ([]ThreadMeta, error) {
@@ -478,16 +479,27 @@ func ensureActiveThread(workspaceID string) (threadID string, sessionPath string
 }
 
 func createThread(workspaceID string) (ThreadMeta, string, error) {
+	return createThreadActive(workspaceID, true)
+}
+
+// createParkedThread makes a thread without making it the worker's current journal.
+func createParkedThread(workspaceID string) (ThreadMeta, string, error) {
+	return createThreadActive(workspaceID, false)
+}
+
+func createThreadActive(workspaceID string, makeActive bool) (ThreadMeta, string, error) {
 	id := newThreadID()
 	if err := os.MkdirAll(threadDir(workspaceID, id), 0o700); err != nil {
 		return ThreadMeta{}, "", err
 	}
-	meta := ThreadMeta{ID: id, Title: defaultThreadTitle, UpdatedAt: time.Now().UTC(), Active: true}
+	meta := ThreadMeta{ID: id, Title: defaultThreadTitle, UpdatedAt: time.Now().UTC(), Active: makeActive}
 	if err := writeThreadMeta(workspaceID, meta); err != nil {
 		return ThreadMeta{}, "", err
 	}
-	if err := writeActiveThreadID(workspaceID, id); err != nil {
-		return ThreadMeta{}, "", err
+	if makeActive {
+		if err := writeActiveThreadID(workspaceID, id); err != nil {
+			return ThreadMeta{}, "", err
+		}
 	}
 	session := threadSessionPath(workspaceID, id)
 	return meta, session, nil

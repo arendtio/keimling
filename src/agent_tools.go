@@ -44,9 +44,8 @@ func (a *Agent) agentExtraTools() []map[string]any {
 		toolDef("set_alarm", "Schedule a wake for this agent. when: relative \"in 2m\"/\"5m\", repeating \"every 30s\", clock \"at 15:04\", or RFC3339. message is injected as a user turn when the alarm fires. For repeating work use every N.", map[string]any{"when": map[string]any{"type": "string"}, "message": map[string]any{"type": "string"}}, "when", "message"),
 		toolDef("list_alarms", "List pending alarms for this agent instance.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
 		toolDef("cancel_alarm", "Cancel a pending alarm by id from list_alarms.", map[string]any{"id": map[string]any{"type": "string"}}, "id"),
-		toolDef("list_agents", "List other agent instances that share a workspace with you, plus your peer ACL. Use ids with allow_peer / message_agent.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
-		toolDef("allow_peer", "Add another agent instance id to this agent's peer ACL so message_agent may contact it.", map[string]any{"instance_id": map[string]any{"type": "string"}}, "instance_id"),
-		toolDef("message_agent", "Send a text message to another agent instance's main thread (must be in peer ACL). Delivered via durable queue; wakes the peer when idle.", map[string]any{"instance_id": map[string]any{"type": "string"}, "text": map[string]any{"type": "string"}}, "instance_id", "text"),
+		toolDef("list_agents", "List other agent instances the user has allowed this agent to contact. Pass one of those instance_id values to message_agent. Never pass your own id. You cannot add contacts yourself.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
+		toolDef("message_agent", "Send a text message to another agent. instance_id must be that other agent's id from list_agents, never your own id. The user sets contacts in Manage agents. Contact works both ways. Delivered via durable queue; wakes the peer when idle.", map[string]any{"instance_id": map[string]any{"type": "string", "description": "The other agent's instance id from list_agents. Not your own id."}, "text": map[string]any{"type": "string"}}, "instance_id", "text"),
 	}
 }
 
@@ -61,14 +60,12 @@ func (a *Agent) changeWorkspace(argsJSON string) string {
 		return "change_workspace error: workspace_id required"
 	}
 	id := strings.TrimSpace(x.WorkspaceID)
-	allowed := false
-	for _, w := range a.Cfg.AllowedWorkspaces {
-		if w == id {
-			allowed = true
-			break
-		}
+	self, err := readAgentInstanceMeta(a.Cfg.AgentInstanceID)
+	if err != nil {
+		return "change_workspace error: " + err.Error()
 	}
-	if !allowed {
+	a.Cfg.AllowedWorkspaces = append([]string(nil), self.Workspaces...)
+	if !agentInstanceAllowsWorkspace(self, id) {
 		return "change_workspace error: workspace not in ACL"
 	}
 	meta, err := readWorkspaceMeta(id)
@@ -165,7 +162,8 @@ func (a *Agent) listAgentsTool(_ string) string {
 		return "list_agents error: " + err.Error()
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "self: %s (%s)\npeers: %s\n", self.ID, self.Name, strings.Join(self.Peers, ", "))
+	fmt.Fprintf(&b, "You are %s. Do not pass your own id to message_agent.\n", self.Name)
+	fmt.Fprintf(&b, "Pass one of these instance_id values:\n")
 	for _, m := range all {
 		if m.ID == self.ID {
 			continue
@@ -177,29 +175,20 @@ func (a *Agent) listAgentsTool(_ string) string {
 				break
 			}
 		}
-		peer := agentInstanceAllowsPeer(self, m.ID)
+		peer := agentsMayContact(self, m)
 		if !share && !peer {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s name=%q recipe=%s peer_allowed=%v shared_workspace=%v\n", m.ID, m.Name, m.RecipeID, peer, share)
+		fmt.Fprintf(&b, "- instance_id=%s name=%q peer_allowed=%v shared_workspace=%v\n", m.ID, m.Name, peer, share)
 	}
 	return strings.TrimSpace(b.String())
 }
 
-func (a *Agent) allowPeer(argsJSON string) string {
+func (a *Agent) allowPeer(string) string {
 	if strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		return "allow_peer error: only available on agent instances"
 	}
-	var x struct {
-		InstanceID string `json:"instance_id"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &x); err != nil || strings.TrimSpace(x.InstanceID) == "" {
-		return "allow_peer error: instance_id required"
-	}
-	if err := addAgentInstancePeer(a.Cfg.AgentInstanceID, x.InstanceID); err != nil {
-		return "allow_peer error: " + err.Error()
-	}
-	return "peer allowed: " + strings.TrimSpace(x.InstanceID)
+	return "allow_peer error: the user sets contacts in Manage agents"
 }
 
 func (a *Agent) messageAgent(argsJSON string) string {
@@ -222,11 +211,21 @@ func (a *Agent) messageAgent(argsJSON string) string {
 	if err != nil {
 		return "message_agent error: " + err.Error()
 	}
-	if !agentInstanceAllowsPeer(self, target) {
-		return "message_agent error: peer not in ACL (use allow_peer first)"
+	targetMeta, err := resolveAgentInstance(target)
+	if err != nil {
+		return "message_agent error: unknown agent"
 	}
+	if targetMeta.ID == self.ID {
+		return "message_agent error: instance_id is this agent (" + self.Name + "). Pass the other agent's instance_id from list_agents."
+	}
+	if !agentsMayContact(self, targetMeta) {
+		return "message_agent error: the user has not allowed contact with " + targetMeta.Name + " (" + targetMeta.ID + ")"
+	}
+	target = targetMeta.ID
 	if err := enqueueAgentMessage(target, text, a.Cfg.AgentInstanceID, "peer"); err != nil {
 		return "message_agent error: " + err.Error()
 	}
-	return fmt.Sprintf("queued message for %s", target)
+	name := agentInstanceDisplayName(target)
+	a.recordPeerSent(name, text)
+	return fmt.Sprintf("Sent to %s: %s", name, text)
 }

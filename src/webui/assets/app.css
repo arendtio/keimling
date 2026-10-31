@@ -449,8 +449,197 @@ button.wide { width: 100%; max-width: 100%; }
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--fg);
+  width: auto;
+}
+.context-dialog.agent-manage-dialog {
+  max-width: min(960px, 96vw);
+}
+.agent-manage-dialog .context-panel {
+  max-height: min(86vh, 820px);
+  overflow: auto;
+}
+.agent-manage-tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+.agent-manage-tabs button {
+  width: auto;
+  flex: 1 1 0;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.28rem 0.6rem;
+  font-size: 0.82rem;
+}
+.agent-manage-tabs button[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.agent-manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+.agent-manage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.agent-manage-name {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+}
+.agent-manage-name small {
+  font-weight: 450;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.agent-manage-actions {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+.agent-manage-actions button {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.75rem;
+}
+.agent-manage-create {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+.agent-check-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem 0.75rem;
+}
+.agent-access-grid {
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  gap: 1rem 1.5rem;
+  align-items: start;
+}
+.agent-tool-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.agent-tool-table th,
+.agent-tool-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.38rem 0.75rem 0.38rem 0;
+  border-bottom: 1px solid var(--line);
+  font-weight: 450;
+}
+.agent-tool-table thead th {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 650;
+}
+.agent-tool-table th[scope="row"] {
+  width: 7.5rem;
+  color: var(--fg);
+  font-weight: 650;
+}
+.agent-cap {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  color: var(--fg);
+  font-weight: 450;
+}
+.agent-cap span { line-height: 1.35; }
+.agent-cap input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.agent-cap-empty { color: var(--muted); }
+.agent-cap-off { opacity: 0.45; }
+.agent-mcp-block { margin-top: 1.1rem; }
+.agent-mcp-block h3 { margin: 0 0 0.2rem; }
+.agent-mcp-block .agent-tool-table th[scope="row"] { width: 14rem; }
+.agent-cap:has(input:disabled) { opacity: 0.45; }
+.agent-access-follow {
+  margin: 0 0 0.45rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.agent-access-row input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.agent-access-row:has(input:disabled) {
+  opacity: 0.45;
+}
+#agent-access-workspaces.agent-check-grid {
+  grid-template-columns: 1fr;
+}
+#agent-access-peers.agent-check-grid {
+  grid-template-columns: 1fr 1fr;
+}
+.agent-manage-danger {
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+.agent-def-field select {
+  font: inherit;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .agent-access-grid,
+  .agent-check-grid,
+  #agent-access-peers.agent-check-grid { grid-template-columns: 1fr; }
 }
 .agent-actions button.danger { color: var(--danger); }
+.agent-access-list {
+  display: grid;
+  gap: 0.2rem;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.15rem 0.1rem;
+}
+.agent-access-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.86rem;
+}
+.msg.peer {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.65rem;
+}
 .profile-list {
   list-style: none;
   margin: 0 0 0.5rem;
@@ -517,39 +706,15 @@ button.wide { width: 100%; max-width: 100%; }
   font-size: 0.86rem;
 }
 .agent-def-field textarea {
-  min-height: 7rem;
+  min-height: 6rem;
   font: inherit;
 }
-#agent-def-list button {
+.agent-def-field input,
+.agent-def-field textarea,
+.agent-def-field select {
   width: 100%;
-  text-align: left;
-  background: var(--panel-2);
-  color: var(--fg);
-  border: 1px solid var(--line);
+  box-sizing: border-box;
 }
-#agent-def-list button:hover,
-#agent-def-list button.selected {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-}
-.agent-def-row {
-  display: flex;
-  gap: 0.35rem;
-  align-items: stretch;
-}
-.agent-def-row .agent-def-pick-btn { flex: 1 1 auto; }
-.agent-def-row .agent-def-edit-btn {
-  flex: 0 0 auto;
-  padding: 0.35rem 0.55rem;
-  font-size: 0.78rem;
-}
-.agent-teams-section {
-  margin-top: 0.75rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 0.45rem;
-}
-.agent-teams-section .settings-section-title { margin: 0; }
 .threads-head {
   display: flex;
   align-items: center;
@@ -856,7 +1021,7 @@ button.wide { width: 100%; max-width: 100%; }
   letter-spacing: 0.01em;
 }
 .agent-status.running .progress-detail {
-  color: color-mix(in srgb, var(--ink) 72%, var(--muted));
+  color: color-mix(in srgb, var(--fg) 72%, var(--muted));
 }
 .progress-detail.thinking {
   color: color-mix(in srgb, var(--accent) 55%, var(--muted));
@@ -1390,7 +1555,7 @@ button.wide { width: 100%; max-width: 100%; }
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 4px);
   background: var(--panel);
-  color: var(--ink);
+  color: var(--fg);
   padding: 0;
   max-width: min(640px, 94vw);
   width: 100%;
@@ -1454,7 +1619,7 @@ button.wide { width: 100%; max-width: 100%; }
   font-size: 0.88rem;
   line-height: 1.4;
   font-family: inherit;
-  color: var(--ink);
+  color: var(--fg);
 }
 .skills-list {
   list-style: none;
@@ -1479,7 +1644,7 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .skills-list .skill-desc {
   font-size: 0.84rem;
-  color: var(--ink);
+  color: var(--fg);
 }
 .skills-row {
   display: flex;

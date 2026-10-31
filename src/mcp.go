@@ -28,6 +28,7 @@ type MCPServerStatus struct {
 	Command   string   `json:"command,omitempty"`
 	URL       string   `json:"url,omitempty"`
 	Disabled  bool     `json:"disabled,omitempty"`
+	Grant     string   `json:"grant,omitempty"`
 }
 
 type mcpSession struct {
@@ -289,6 +290,7 @@ func (m *MCPManager) Status() []MCPServerStatus {
 			Command:   s.cfg.Command,
 			URL:       s.cfg.URL,
 			Disabled:  s.cfg.Disabled,
+			Grant:     mcpServerGrantID(name),
 		}
 		for _, t := range s.tools {
 			st.Tools = append(st.Tools, mcpExposedName(name, t.Name))

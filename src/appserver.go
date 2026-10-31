@@ -33,6 +33,7 @@ type appServer struct {
 
 	mu                    sync.Mutex
 	busy                  bool
+	viewThread            string // workspace thread shown while a run keeps another journal
 	cancel                context.CancelFunc
 	stopRequested         bool
 	skillCandidates       []SkillCandidate
@@ -208,10 +209,30 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
+	runningID := s.agent.Cfg.ThreadID
+	viewID := s.viewedThread()
+	background := viewID != "" && viewID != runningID && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
 	path := s.agent.Cfg.SessionPath
 	uiHistory := s.agent.History
-	if events, err := originalEvents(path); err == nil && len(events) > 0 {
+	threadID := runningID
+	if background {
+		path = threadSessionPath(s.agent.Cfg.WorkspaceID, viewID)
+		if events, err := originalEvents(path); err == nil {
+			uiHistory = events
+		} else {
+			uiHistory = nil
+		}
+		threadID = viewID
+	} else if events, err := originalEvents(path); err == nil && len(events) > 0 {
 		uiHistory = events
+	}
+	msgs := sessionMessages(uiHistory, 120)
+	if background {
+		if queued, err := peekThreadMessages(s.agent.Cfg.WorkspaceID, viewID); err == nil {
+			for _, q := range queued {
+				msgs = append(msgs, sessionMessage{Role: "user", Text: q.Text})
+			}
+		}
 	}
 	chat := s.agent.callChatTarget()
 	label := chat.Label
@@ -237,17 +258,69 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"voice_model":       s.agent.Cfg.VoiceModel,
 		"workspace_id":      s.agent.Cfg.WorkspaceID,
 		"workspace_root":    s.agent.Cfg.WorkspaceRoot,
-		"thread_id":         s.agent.Cfg.ThreadID,
+		"thread_id":         threadID,
+		"running_thread":    runningID,
+		"background_busy":   background && s.isBusy(),
 		"agent_instance_id": s.agent.Cfg.AgentInstanceID,
 		"lines":             sessionTranscript(uiHistory, 200),
-		"messages":          sessionMessages(uiHistory, 120),
+		"messages":          msgs,
 		"chapters":          sessionChapters(path),
 		"working_state":     sessionWorkingState(path),
-		"busy":              s.isBusy(),
+		"busy":              s.isBusy() && !background,
 		"voice":             s.voiceAvailable(),
-		"state":             s.agentState(),
-		"budget":            s.budgetSnapshot(r.Context(), false),
+		"state": func() string {
+			if s.isBusy() && !background {
+				return "running"
+			}
+			return "idle"
+		}(),
+		"budget": s.budgetSnapshot(r.Context(), false),
 	})
+}
+
+func (s *appServer) viewedThread() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(s.viewThread) != "" {
+		return s.viewThread
+	}
+	if s.agent != nil {
+		return s.agent.Cfg.ThreadID
+	}
+	return ""
+}
+
+func (s *appServer) drainThreadQueue() {
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+		return
+	}
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		return
+	}
+	view := s.viewThread
+	if view == "" {
+		view = s.agent.Cfg.ThreadID
+	}
+	ws := s.agent.Cfg.WorkspaceID
+	s.mu.Unlock()
+	item, ok, err := dequeueThreadMessage(ws, view)
+	if err != nil || !ok {
+		return
+	}
+	if view != s.agent.Cfg.ThreadID {
+		if err := s.agent.SwitchThread(view); err != nil {
+			_ = enqueueThreadMessage(ws, view, item.Text, item.From, item.Kind)
+			return
+		}
+		s.mu.Lock()
+		s.viewThread = ""
+		s.mu.Unlock()
+	}
+	if !s.startAgentRun(item.Text) {
+		_ = enqueueThreadMessage(ws, view, item.Text, item.From, item.Kind)
+	}
 }
 
 func (s *appServer) agentState() string {
@@ -385,12 +458,25 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 		})
 	case http.MethodPost:
 		s.mu.Lock()
-		if s.busy {
+		busy := s.busy
+		s.mu.Unlock()
+		if busy && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == "" && strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
+			th, _, err := createParkedThread(s.agent.Cfg.WorkspaceID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.mu.Lock()
+			s.viewThread = th.ID
 			s.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": th.ID})
+			return
+		}
+		if busy {
 			http.Error(w, "agent busy", http.StatusConflict)
 			return
 		}
-		s.mu.Unlock()
 		if err := s.agent.NewChat(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -459,19 +545,40 @@ func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
+	id := strings.TrimSpace(body.ID)
 	s.mu.Lock()
-	if s.busy {
+	busy := s.busy
+	s.mu.Unlock()
+	if busy && id != s.agent.Cfg.ThreadID {
+		if st, err := os.Stat(threadDir(s.agent.Cfg.WorkspaceID, id)); err != nil || !st.IsDir() {
+			http.Error(w, "unknown thread", http.StatusBadRequest)
+			return
+		}
+		s.mu.Lock()
+		s.viewThread = id
 		s.mu.Unlock()
-		http.Error(w, "agent busy", http.StatusConflict)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": id})
 		return
 	}
+	if busy {
+		s.mu.Lock()
+		s.viewThread = ""
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": s.agent.Cfg.ThreadID})
+		return
+	}
+	s.mu.Lock()
+	s.viewThread = ""
 	s.mu.Unlock()
-	if err := s.agent.SwitchThread(strings.TrimSpace(body.ID)); err != nil {
+	if err := s.agent.SwitchThread(id); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": s.agent.Cfg.ThreadID})
+	s.drainThreadQueue()
 }
 
 func (s *appServer) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
@@ -494,16 +601,23 @@ func (s *appServer) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
+	id := strings.TrimSpace(body.ID)
 	s.mu.Lock()
-	if s.busy {
-		s.mu.Unlock()
+	busy := s.busy
+	view := s.viewThread
+	s.mu.Unlock()
+	if busy && id == s.agent.Cfg.ThreadID {
 		http.Error(w, "agent busy", http.StatusConflict)
 		return
 	}
-	s.mu.Unlock()
-	if err := s.agent.DeleteThread(strings.TrimSpace(body.ID)); err != nil {
+	if err := s.agent.DeleteThread(id); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if id == view {
+		s.mu.Lock()
+		s.viewThread = ""
+		s.mu.Unlock()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1093,12 +1207,25 @@ func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	if s.busy {
+	busy := s.busy
+	s.mu.Unlock()
+	if busy && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == "" && strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
+		th, _, err := createParkedThread(s.agent.Cfg.WorkspaceID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.mu.Lock()
+		s.viewThread = th.ID
 		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": th.ID})
+		return
+	}
+	if busy {
 		http.Error(w, "agent busy", http.StatusConflict)
 		return
 	}
-	s.mu.Unlock()
 	if err := s.agent.NewChat(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1206,13 +1333,6 @@ func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(s.settingsSnapshot())
 	case http.MethodPut, http.MethodPatch:
-		s.mu.Lock()
-		busy := s.busy
-		s.mu.Unlock()
-		if busy {
-			http.Error(w, "agent busy", http.StatusConflict)
-			return
-		}
 		var body agentSettings
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1753,6 +1873,27 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 	if s.agent != nil {
 		inst = strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
 	}
+	if inst == "" && s.agent != nil && strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
+		view := s.viewedThread()
+		run := s.agent.Cfg.ThreadID
+		s.mu.Lock()
+		busy := s.busy
+		s.mu.Unlock()
+		if !busy && view != "" && view != run {
+			if err := s.agent.SwitchThread(view); err != nil {
+				return false, err
+			}
+			s.mu.Lock()
+			s.viewThread = ""
+			s.mu.Unlock()
+		}
+		if busy && view != "" && view != run {
+			if err := enqueueThreadMessage(s.agent.Cfg.WorkspaceID, view, text, from, kind); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
 	if s.startAgentRun(text) {
 		return false, nil
 	}
@@ -1794,7 +1935,10 @@ func (s *appServer) startAgentRun(text string) bool {
 	s.mu.Unlock()
 
 	s.hub.Broadcast("line", map[string]string{"text": "\n› " + text + "\n"})
-	s.hub.Broadcast("status", map[string]string{"state": "running"})
+	if name, body, ok := parsePeerUserText(text); ok {
+		s.hub.Broadcast("message", map[string]any{"role": "peer", "name": "From " + name, "text": body})
+	}
+	s.hub.Broadcast("status", map[string]string{"state": "running", "thread_id": agent.Cfg.ThreadID})
 
 	go func() {
 		defer func() {
@@ -1806,8 +1950,9 @@ func (s *appServer) startAgentRun(text string) bool {
 				s.agent.Control = nil
 			}
 			s.mu.Unlock()
-			s.hub.Broadcast("status", map[string]string{"state": "idle"})
+			s.hub.Broadcast("status", map[string]string{"state": "idle", "thread_id": agent.Cfg.ThreadID})
 			s.pumpAgentWakes()
+			s.drainThreadQueue()
 		}()
 		err := agent.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
 		if err != nil && ctx.Err() != nil {
@@ -1822,6 +1967,7 @@ func (s *appServer) startAgentRun(text string) bool {
 }
 
 func (s *appServer) agentWakeLoop() {
+	s.pumpAgentWakes()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {

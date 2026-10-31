@@ -44,6 +44,21 @@ func normalizeResponseInput(history []json.RawMessage) ([]json.RawMessage, error
 			item = keepInputFields(item, "type", "name", "call_id", "arguments")
 		case "function_call_output":
 			item = keepInputFields(item, "type", "call_id", "output")
+		case "keimling_peer":
+			var peer, text, direction string
+			_ = json.Unmarshal(item["peer"], &peer)
+			_ = json.Unmarshal(item["text"], &text)
+			_ = json.Unmarshal(item["direction"], &direction)
+			line := "Sent to " + strings.TrimSpace(peer) + ": " + strings.TrimSpace(text)
+			if direction == "received" {
+				line = "From " + strings.TrimSpace(peer) + ": " + strings.TrimSpace(text)
+			}
+			role, _ := json.Marshal("developer")
+			content, _ := json.Marshal(line)
+			item = map[string]json.RawMessage{
+				"role":    role,
+				"content": content,
+			}
 		case "keimling_notice":
 			var text string
 			_ = json.Unmarshal(item["text"], &text)

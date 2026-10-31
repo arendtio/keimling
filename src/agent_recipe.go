@@ -11,13 +11,15 @@ import (
 
 // AgentRecipe is a reusable agent definition under ~/.config/keimling/agents/.
 type AgentRecipe struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Instructions string    `json:"instructions"`
-	Model        string    `json:"model,omitempty"`
-	Skills       []string  `json:"skills,omitempty"`
-	MCPServers   []string  `json:"mcp_servers,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Instructions string `json:"instructions"`
+	Model        string `json:"model,omitempty"`
+	// Tools is nil until the definition saves a tool choice. Nil grants every tool.
+	Tools      *[]string `json:"tools,omitempty"`
+	Skills     []string  `json:"skills,omitempty"`
+	MCPServers []string  `json:"mcp_servers,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func configHome() string {
@@ -37,7 +39,7 @@ func agentRecipePath(id string) string {
 }
 
 func newRecipeID() string {
-	return fmt.Sprintf("recipe-%s", time.Now().UTC().Format("20060102-150405.000000000"))
+	return newStampedID("recipe")
 }
 
 func ensureAgentRecipesDir() error {
@@ -135,6 +137,34 @@ func updateAgentRecipe(id, name, instructions string, updateInstructions bool) (
 	if updateInstructions {
 		r.Instructions = strings.TrimSpace(instructions)
 	}
+	if err := writeAgentRecipe(r); err != nil {
+		return AgentRecipe{}, err
+	}
+	return r, nil
+}
+
+func setRecipeModel(id, model string) (AgentRecipe, error) {
+	r, err := readAgentRecipe(id)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	r.Model = strings.TrimSpace(model)
+	if err := writeAgentRecipe(r); err != nil {
+		return AgentRecipe{}, err
+	}
+	return r, nil
+}
+
+func setRecipeTools(id string, tools []string) (AgentRecipe, error) {
+	r, err := readAgentRecipe(id)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	next, err := cleanToolNames(tools)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	r.Tools = &next
 	if err := writeAgentRecipe(r); err != nil {
 		return AgentRecipe{}, err
 	}

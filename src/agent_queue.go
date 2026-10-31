@@ -91,16 +91,112 @@ func dequeueAgentMessages(instanceID string) ([]AgentQueueItem, error) {
 	return items, sc.Err()
 }
 
+func threadQueuePath(workspaceID, threadID string) string {
+	return filepath.Join(threadDir(workspaceID, threadID), "queue.jsonl")
+}
+
+var threadQueueMu sync.Mutex
+
+func enqueueThreadMessage(workspaceID, threadID, text, from, kind string) error {
+	workspaceID = strings.TrimSpace(workspaceID)
+	threadID = strings.TrimSpace(threadID)
+	text = strings.TrimSpace(text)
+	if workspaceID == "" || threadID == "" || text == "" {
+		return fmt.Errorf("workspace, thread, and text required")
+	}
+	if st, err := os.Stat(threadDir(workspaceID, threadID)); err != nil || !st.IsDir() {
+		return fmt.Errorf("unknown thread %q", threadID)
+	}
+	item := AgentQueueItem{
+		Text: text,
+		From: strings.TrimSpace(from),
+		Kind: strings.TrimSpace(kind),
+		At:   time.Now().UTC(),
+	}
+	if item.Kind == "" {
+		item.Kind = "message"
+	}
+	b, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	threadQueueMu.Lock()
+	defer threadQueueMu.Unlock()
+	f, err := os.OpenFile(threadQueuePath(workspaceID, threadID), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(b, '\n'))
+	return err
+}
+
+func peekThreadMessages(workspaceID, threadID string) ([]AgentQueueItem, error) {
+	threadQueueMu.Lock()
+	defer threadQueueMu.Unlock()
+	return readThreadQueueLocked(workspaceID, threadID)
+}
+
+func dequeueThreadMessage(workspaceID, threadID string) (AgentQueueItem, bool, error) {
+	threadQueueMu.Lock()
+	defer threadQueueMu.Unlock()
+	items, err := readThreadQueueLocked(workspaceID, threadID)
+	if err != nil || len(items) == 0 {
+		return AgentQueueItem{}, false, err
+	}
+	rest := items[1:]
+	path := threadQueuePath(workspaceID, threadID)
+	if len(rest) == 0 {
+		_ = os.Remove(path)
+		return items[0], true, nil
+	}
+	var b strings.Builder
+	for _, it := range rest {
+		line, err := json.Marshal(it)
+		if err != nil {
+			return AgentQueueItem{}, false, err
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		return AgentQueueItem{}, false, err
+	}
+	return items[0], true, nil
+}
+
+func readThreadQueueLocked(workspaceID, threadID string) ([]AgentQueueItem, error) {
+	f, err := os.Open(threadQueuePath(workspaceID, threadID))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	var items []AgentQueueItem
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var it AgentQueueItem
+		if json.Unmarshal([]byte(line), &it) != nil || strings.TrimSpace(it.Text) == "" {
+			continue
+		}
+		items = append(items, it)
+	}
+	return items, sc.Err()
+}
+
 func formatQueueWake(it AgentQueueItem) string {
 	switch it.Kind {
 	case "alarm":
 		return "[Alarm] " + it.Text
 	case "peer":
-		from := it.From
-		if from == "" {
-			from = "peer"
-		}
-		return "[Message from agent " + from + "] " + it.Text
+		return formatPeerUserText(agentInstanceDisplayName(it.From), it.Text)
 	default:
 		if it.From != "" {
 			return "[" + it.From + "] " + it.Text

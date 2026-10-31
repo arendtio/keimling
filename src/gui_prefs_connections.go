@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"strings"
-	"time"
 )
 
 const (
@@ -22,7 +20,7 @@ type connectionProfile struct {
 }
 
 func newConnectionID(kind string) string {
-	return fmt.Sprintf("%s-%s", kind, time.Now().UTC().Format("20060102-150405.000000000"))
+	return newStampedID(kind)
 }
 
 func defaultLocalConnection() connectionProfile {

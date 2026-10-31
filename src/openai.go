@@ -102,7 +102,7 @@ func definitions(web bool, extra ...[]map[string]any) []map[string]any {
 	}
 	return tools
 }
-func (c *Client) Respond(ctx context.Context, model, reasoning string, history []json.RawMessage, web bool, skillsCatalog string, extraTools []map[string]any) (Response, error) {
+func (c *Client) Respond(ctx context.Context, model, reasoning string, history []json.RawMessage, web bool, skillsCatalog string, extraTools []map[string]any, grant []string) (Response, error) {
 	input, err := normalizeResponseInput(history)
 	if err != nil {
 		return Response{}, err
@@ -113,7 +113,7 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 		instructions += "\n\n" + cat
 	}
 	reqBody := map[string]any{
-		"model": model, "store": false, "stream": true, "input": input, "tools": definitions(web, extraTools), "parallel_tool_calls": false, "include": []string{"reasoning.encrypted_content"},
+		"model": model, "store": false, "stream": true, "input": input, "tools": filterGrantedTools(definitions(web, extraTools), grant), "parallel_tool_calls": false, "include": []string{"reasoning.encrypted_content"},
 		"instructions": instructions,
 	}
 	reqBody["reasoning"] = map[string]any{"effort": reasoning}

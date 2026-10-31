@@ -36,6 +36,10 @@ func runHostServer(listen, secret, configPath, initialWorkspace string) error {
 		return err
 	}
 
+	stopWake := make(chan struct{})
+	defer close(stopWake)
+	go h.wakeQueuedAgentsLoop(stopWake)
+
 	srv := &http.Server{
 		Addr:              listen,
 		Handler:           h.Handler(),
@@ -94,6 +98,10 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 	if err := h.Attach(ctx, initialWorkspace); err != nil {
 		return err
 	}
+
+	stopWake := make(chan struct{})
+	defer close(stopWake)
+	go h.wakeQueuedAgentsLoop(stopWake)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

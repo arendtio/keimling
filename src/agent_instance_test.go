@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -16,6 +17,25 @@ func withTempAgentHomes(t *testing.T) (cleanup func()) {
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_DATA_HOME", data)
 	return func() {}
+}
+
+func TestNewAgentIDsHaveNoFullStop(t *testing.T) {
+	id := newAgentInstanceID()
+	recipe := newRecipeID()
+	thread := newThreadID()
+	if strings.Contains(id, ".") || !strings.HasPrefix(id, "agent-") {
+		t.Fatalf("instance id %q", id)
+	}
+	if strings.Contains(thread, ".") {
+		t.Fatalf("thread id %q", thread)
+	}
+	if strings.Contains(recipe, ".") || !strings.HasPrefix(recipe, "recipe-") {
+		t.Fatalf("recipe id %q", recipe)
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) < 4 || len(parts[len(parts)-1]) != 9 {
+		t.Fatalf("expected prefix-date-time-fraction, got %q", id)
+	}
 }
 
 func TestAgentRecipeAndInstanceRoundTrip(t *testing.T) {

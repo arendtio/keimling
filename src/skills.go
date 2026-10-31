@@ -354,5 +354,8 @@ func (a *Agent) skillsCatalogBlock() string {
 	if cat != "" {
 		parts = append(parts, cat)
 	}
+	if tip := a.agentToolPrompt(); tip != "" {
+		parts = append(parts, tip)
+	}
 	return strings.Join(parts, "\n\n")
 }

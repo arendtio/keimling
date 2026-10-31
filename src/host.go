@@ -44,6 +44,7 @@ type Host struct {
 	config         string
 	exe            string
 	workers        map[string]*hostWorker
+	waking         map[string]bool
 	attached       string
 	focusWorkspace string // sidebar workspace; kept when an agent instance is attached
 	client         *http.Client
@@ -487,12 +488,14 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/agents/instances/stop", auth(h.handleAgentStop))
 	mux.Handle("/api/agents/instances/delete", auth(h.handleAgentDelete))
 	mux.Handle("/api/agents/instances/message", auth(h.handleAgentInstanceMessage))
+	mux.Handle("/api/agents/instances/access", auth(h.handleAgentInstanceAccess))
 	mux.Handle("/api/agents/teams", auth(h.handleAgentTeams))
 	mux.Handle("/api/agents/teams/spawn", auth(h.handleAgentTeamSpawn))
 	mux.Handle("/api/agents/teams/delete", auth(h.handleAgentTeamDelete))
 	// Workspace threads stay host-owned so attaching an agent does not replace the sidebar list.
 	mux.Handle("/api/threads", auth(h.handleHostThreads))
 	mux.Handle("/api/threads/switch", auth(h.proxyToWorkspace().ServeHTTP))
+	mux.Handle("/api/threads/view", auth(h.handleThreadView))
 	mux.Handle("/api/threads/delete", auth(h.proxyToWorkspace().ServeHTTP))
 	mux.Handle("/api/", auth(h.proxy().ServeHTTP))
 	mux.Handle("/events", auth(h.proxy().ServeHTTP))
@@ -607,6 +610,42 @@ func (h *Host) handleHostThreads(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleThreadView reads a workspace thread from disk. It does not switch the
+// worker, so a running thread keeps its journal.
+func (h *Host) handleThreadView(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	wsID := strings.TrimSpace(r.URL.Query().Get("workspace"))
+	if wsID == "" {
+		wsID = h.focusWorkspaceID()
+	}
+	if id == "" || wsID == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	path := threadSessionPath(wsID, id)
+	if st, err := os.Stat(threadDir(wsID, id)); err != nil || !st.IsDir() {
+		http.Error(w, "unknown thread", http.StatusNotFound)
+		return
+	}
+	events, err := originalEvents(path)
+	if err != nil && !os.IsNotExist(err) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"thread_id":    id,
+		"workspace_id": wsID,
+		"preview":      true,
+		"messages":     sessionMessages(events, 120),
+		"chapters":     sessionChapters(path),
+	})
 }
 
 func (h *Host) handleWorkspaceOpen(w http.ResponseWriter, r *http.Request) {

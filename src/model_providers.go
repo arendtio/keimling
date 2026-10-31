@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"strings"
-	"time"
 )
 
 // modelProvider is a saved LLM endpoint profile in config.json.
@@ -21,7 +19,7 @@ type modelProvider struct {
 }
 
 func newModelProviderID() string {
-	return fmt.Sprintf("provider-%s", time.Now().UTC().Format("20060102-150405.000000000"))
+	return newStampedID("provider")
 }
 
 func (fc *fileConfig) ensureModelProviders() {

@@ -444,6 +444,17 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 				if item.CallID == "" {
 					return fmt.Errorf("function call without call_id")
 				}
+				if !a.instanceToolGranted(item.Name) {
+					msg := "not granted to this agent"
+					if item.Name != "finish_task" && item.Name != "update_plan" {
+						a.presentToolStart(item.Name, item.Arguments)
+					}
+					if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": msg, "ok": false}); err != nil {
+						return err
+					}
+					a.presentToolResult(item.Name, toolCommandLabel(item.Name, item.Arguments), msg, "", false, false)
+					continue
+				}
 				if item.Name != "finish_task" && item.Name != "update_plan" {
 					a.presentToolStart(item.Name, item.Arguments)
 				}
