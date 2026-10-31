@@ -70,6 +70,7 @@ Host-owned:
 - `GET /api/workspaces` — list + `current` (attached) + running flags
 - `POST /api/workspaces/open` — `{ "path" }` ensure worker + attach
 - `POST /api/workspaces/switch` — `{ "id" }` attach (`relaunch: false`)
+- `POST /api/workspaces/hide` — `{ "id" }` remove from the menu; no files deleted. Opening the path again lists it.
 
 Proxied to attached worker: `/api/session`, `/api/threads*`, `/api/message`, `/events`, `/files/*`, settings, skills, mcp, …
 
@@ -78,3 +79,21 @@ Proxied to attached worker: `/api/session`, `/api/threads*`, `/api/message`, `/e
 - Cross-workspace agent overview dashboard beyond list/running
 - Agent role library / inter-agent channels
 - Keeping host alive after WebView close as a daemon (optional later)
+
+## Requirements
+
+### REQ-WS-1 Working directory in the prompt
+
+The model is told which workspace it is in and the directory its commands start in.
+
+Origin: user, 2026-10-31. "agents often do not know what their current work directory is. Maybe we can include that information as part of the workspace information?"
+
+Fit: instructions for a workspace rooted at a known directory contain that directory and the workspace id. After a workspace change, the next request names the new directory.
+
+### REQ-WS-2 Remove a workspace from the menu
+
+The user can remove a workspace from the menu. That does not delete files. The home workspace stays. The workspace that is open stays until the user switches away. Opening the folder again puts the entry back.
+
+Origin: user, 2026-10-31. "Now I need a functionality to remove old workspaces from the menu. No Files should be deleted, but the entry from the workspace menu should be removed."
+
+Fit: after remove, the name is gone from the menu, a file in the workspace directory is still there, and Keimling's record of that workspace is still on disk. Opening that folder lists it again. Home cannot be removed.

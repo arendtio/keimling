@@ -16,8 +16,10 @@ const (
 	workspaceGlobalID   = "global"
 	workspaceMetaFile   = "meta.json"
 	workspaceActiveFile = "active_thread"
-	threadMetaFile      = "thread.json"
-	defaultThreadTitle  = "New thread"
+	// agentThreadID is an agent instance's own thread. It is not a workspace thread.
+	agentThreadID      = "main"
+	threadMetaFile     = "thread.json"
+	defaultThreadTitle = "New thread"
 )
 
 // WorkspaceMeta is persisted under ~/.local/share/keimling/workspaces/<id>/meta.json.
@@ -26,6 +28,7 @@ type WorkspaceMeta struct {
 	Name      string    `json:"name"`
 	Root      string    `json:"root"`
 	Builtin   bool      `json:"builtin,omitempty"`
+	Hidden    bool      `json:"hidden,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -148,6 +151,28 @@ func readWorkspaceMeta(id string) (WorkspaceMeta, error) {
 	return m, nil
 }
 
+// hideWorkspace drops a workspace from the menu. It does not delete the
+// workspace directory, its files, or Keimling's copy of threads and artifacts.
+// Opening the folder again puts the entry back.
+func hideWorkspace(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("id required")
+	}
+	if id == workspaceGlobalID {
+		return fmt.Errorf("the home workspace stays in the menu")
+	}
+	m, err := readWorkspaceMeta(id)
+	if err != nil {
+		return fmt.Errorf("unknown workspace")
+	}
+	if m.Builtin {
+		return fmt.Errorf("the home workspace stays in the menu")
+	}
+	m.Hidden = true
+	return writeWorkspaceMeta(m)
+}
+
 func ensureGlobalWorkspace() (WorkspaceMeta, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
@@ -191,6 +216,7 @@ func ensureWorkspaceForRoot(root string) (WorkspaceMeta, error) {
 	}
 	if existing, err := readWorkspaceMeta(id); err == nil {
 		existing.Root = root
+		existing.Hidden = false
 		if existing.Name == "" {
 			existing.Name = defaultWorkspaceName(root)
 		}
@@ -222,7 +248,7 @@ func listWorkspaces() ([]WorkspaceMeta, error) {
 			continue
 		}
 		m, err := readWorkspaceMeta(e.Name())
-		if err != nil {
+		if err != nil || m.Hidden {
 			continue
 		}
 		out = append(out, m)
@@ -237,6 +263,11 @@ func listWorkspaces() ([]WorkspaceMeta, error) {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out, nil
+}
+
+func isWorkspaceThreadID(id string) bool {
+	id = strings.TrimSpace(id)
+	return id != "" && id != agentThreadID
 }
 
 func newThreadID() string {
@@ -260,6 +291,9 @@ func listThreads(workspaceID string) ([]ThreadMeta, error) {
 			continue
 		}
 		id := e.Name()
+		if !isWorkspaceThreadID(id) {
+			continue
+		}
 		session := threadSessionPath(workspaceID, id)
 		st, err := os.Stat(session)
 		updated := time.Time{}
@@ -294,19 +328,23 @@ func threadMetaPath(workspaceID, threadID string) string {
 }
 
 func readThreadMeta(workspaceID, threadID string) (ThreadMeta, error) {
-	var m ThreadMeta
-	b, err := os.ReadFile(threadMetaPath(workspaceID, threadID))
-	if err != nil {
-		m.ID = threadID
+	m, err := readThreadMetaFile(threadMetaPath(workspaceID, threadID))
+	m.ID = threadID
+	if strings.TrimSpace(m.Title) == "" {
 		m.Title = defaultThreadTitle
+	}
+	return m, err
+}
+
+func readThreadMetaFile(path string) (ThreadMeta, error) {
+	var m ThreadMeta
+	b, err := os.ReadFile(path)
+	if err != nil {
 		return m, err
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
-		m.ID = threadID
-		m.Title = defaultThreadTitle
 		return m, err
 	}
-	m.ID = threadID
 	if strings.TrimSpace(m.Title) == "" {
 		m.Title = defaultThreadTitle
 	}
@@ -454,7 +492,7 @@ func ensureActiveThread(workspaceID string) (threadID string, sessionPath string
 	if err = ensureWorkspaceDir(workspaceID); err != nil {
 		return "", "", err
 	}
-	if id, e := readActiveThreadID(workspaceID); e == nil && id != "" {
+	if id, e := readActiveThreadID(workspaceID); e == nil && isWorkspaceThreadID(id) {
 		session := threadSessionPath(workspaceID, id)
 		if _, err := os.Stat(filepath.Dir(session)); err == nil {
 			return id, session, nil
