@@ -128,7 +128,7 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 
 // compactContext refreshes the structured charter and shrinks the recent model tail.
 func (a *Agent) compactContext(ctx context.Context, level, instruction string) error {
-	limit := a.Cfg.ContextLimit
+	limit := a.activeChatContextLimit()
 	if limit <= 0 && level == "auto" {
 		return nil
 	}

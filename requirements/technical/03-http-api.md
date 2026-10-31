@@ -25,7 +25,7 @@
 | `GET` | `/assets/*` | no | CSS/JS |
 | `GET` | `/files/{token}` | capability token | Shared file download (see `05-file-shares.md`); no access secret |
 | `GET` | `/api/health` | yes | Liveness + build/mode info |
-| `GET` | `/api/session` | yes | Session view: `messages`, `chapters`, `working_state`, `workspace_id`, `workspace_root`, `thread_id`, legacy `lines` |
+| `GET` | `/api/session` | yes | Session view: `messages`, `chapters`, `working_state`, `workspace_id`, `workspace_root`, `thread_id`, legacy `lines`. `model` is the thread's effective chat model; `chat_model_custom` is true when the thread has a saved choice. |
 | `GET` | `/api/workspaces` | yes | Host: list workspaces + `current` (attached) + `running` |
 | `POST` | `/api/workspaces/open` | yes | Host: register folder, ensure worker, attach `{ "path" }` → `{ "relaunch": false }` |
 | `POST` | `/api/workspaces/switch` | yes | Host: ensure worker + attach `{ "id" }` → `{ "relaunch": false }` |
@@ -48,6 +48,7 @@
 | `POST` | `/api/agents/teams/delete` | yes | Host: delete team |
 | `GET`/`PUT` | `/api/settings` | yes | Runtime knobs (mode, web, autopilot, max_steps, context_limit, voice_model) plus `model_providers` / `active_model_provider_id` (mirrored to legacy `base_url` / `model` / `api_key`); write-only keys; GET exposes `api_key_set` / `openai_api_key_set` and per-provider `api_key_set`. `autopilot_instructions` replaces the factory supervisor prompt (blank is rejected); `autopilot_instructions_reset: true` clears that override. GET returns the effective text and `autopilot_instructions_custom`. See `04-auth-and-settings.md`. |
 | `GET`/`PUT` | `/api/threads/autopilot` | yes | Current thread's supervisor prompt. GET: `instructions`, `custom`, `source` (`thread` / `global` / `factory`). PUT `{instructions}` saves a full replacement (blank rejected, including a copy of the global text). PUT `{reset:true}` clears it so the thread follows the global prompt again. |
+| `GET`/`PUT` | `/api/threads/model` | yes | Current thread's main chat model, chosen from configured providers. GET: effective `provider_id`, `model_id`, `label`, `custom`, `reasoning`, `context_limit`, `settings_provider_id`, `settings_model_id`, and `providers` (no API keys). PUT `{provider_id, model_id}` saves that pair. The pair Settings currently use clears the thread choice. Unknown provider or model is rejected. |
 | `GET`/`PUT` | `/api/gui-prefs` | yes | Desktop UI prefs + **server** `connections[]` / `active_connection_id` (legacy `connect` / `access_secret`). |
 | `GET`/`PUT` | `/api/client-connections` | yes | **Machine** connection book (`connections.json` next to config). Prefer native bridge when the UI origin is a remote agent. |
 | `GET`/`POST` | `/api/credentials` | yes | List credential metadata / create (vault must be unlocked). Secrets write-only. |

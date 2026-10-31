@@ -87,6 +87,18 @@ names the affected path, and file edits show the old/new preview above the
   the thread text so later global edits apply again. A thread with no saved
   text follows the global prompt live.
 
+## Thread chat model
+
+The composer model is the main chat model for the open thread. A thread with no
+saved choice uses the Settings default (active provider and its active model),
+including after that default changes. Choosing any other saved model keeps that
+pair when Settings change. Choosing the pair Settings currently use clears the
+thread choice. Reasoning and context limit come from the model in effect; a
+model with no context limit still uses the global fallback. A run already
+started keeps the model it started with. The next sent message uses the new
+choice. Compaction, autopilot, delegates, and review stay on their Settings
+models.
+
 ## Delegation
 
 `delegate` solves one bounded, self-contained reasoning task with an independent

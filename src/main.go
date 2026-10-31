@@ -780,7 +780,12 @@ func printHelp() {
 }
 func printStatus(a *Agent) {
 	b := a.contextBudget()
-	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Review: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", a.Cfg.Model, a.Cfg.ReviewModel, a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
+	chat := a.callChatTarget()
+	shown := chat.Label
+	if shown == "" {
+		shown = a.Cfg.Model
+	}
+	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Review: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", shown, a.Cfg.ReviewModel, a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
 	fmt.Printf("  Compaction: model %s | endpoint %s\n", a.compactionModel(), a.Client.BaseURL)
 	fmt.Printf("  Context budget: used %d / %d (%.1f%%) · remaining %d (%.1f%%) · source %s\n", b.Used, b.Limit, b.UsedPct, b.Remaining, b.RemainingPct, b.Source)
 	if b.Warn {
@@ -788,11 +793,15 @@ func printStatus(a *Agent) {
 	}
 	if u := a.Client.LastMainUsage; u.Available {
 		actualPct := 0.0
-		if a.Cfg.ContextLimit > 0 {
-			actualPct = 100 * float64(u.InputTokens) / float64(a.Cfg.ContextLimit)
+		limit := b.Limit
+		if limit <= 0 {
+			limit = a.Cfg.ContextLimit
+		}
+		if limit > 0 {
+			actualPct = 100 * float64(u.InputTokens) / float64(limit)
 		}
 		delta := int64(u.EstimatedBefore) - u.InputTokens
-		fmt.Printf("  Last main request: input %d / %d (%.1f%% of configured limit) | output %d\n", u.InputTokens, a.Cfg.ContextLimit, actualPct, u.OutputTokens)
+		fmt.Printf("  Last main request: input %d / %d (%.1f%% of configured limit) | output %d\n", u.InputTokens, limit, actualPct, u.OutputTokens)
 		fmt.Printf("  Details: cached input %d | reasoning output %d\n", u.CachedTokens, u.ReasoningTokens)
 		fmt.Printf("  Estimate at request: ~%d | delta vs measured input: %+d tokens\n", u.EstimatedBefore, delta)
 	} else {

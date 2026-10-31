@@ -24,7 +24,7 @@ type compactionJob struct {
 
 // Background charter refresh snapshots a completed prefix; commit only on the agent goroutine.
 func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
-	if a.Compaction != nil || a.Client == nil || a.Cfg.ContextLimit <= 0 || time.Now().Before(a.CompactionRetryAfter) {
+	if a.Compaction != nil || a.Client == nil || a.activeChatContextLimit() <= 0 || time.Now().Before(a.CompactionRetryAfter) {
 		return false
 	}
 	end := safePrefixEnd(a.History, charterTailKeep)
@@ -147,7 +147,7 @@ func (a *Agent) adoptCompaction(job *compactionJob, result compactionResult) err
 }
 
 func (a *Agent) manageBackgroundCompaction(ctx context.Context) error {
-	limit := a.Cfg.ContextLimit
+	limit := a.activeChatContextLimit()
 	if limit <= 0 {
 		return nil
 	}

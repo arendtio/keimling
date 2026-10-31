@@ -4,7 +4,7 @@
 
 Settings keep separate catalogs for **how the UI reaches Keimling** and **how Keimling calls LLM APIs**.
 
-Per-chat model picking is out of scope for this step.
+Per-thread model picking is [REQ-TM-1](08-thread-model.md). This file only covers the Settings catalogs and the global default.
 
 ## Connection catalogs (hybrid)
 

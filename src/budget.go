@@ -29,7 +29,7 @@ func (a *Agent) contextBudgetFromUsed(used int) ContextBudget {
 	limit := 0
 	source := "estimate"
 	if a != nil {
-		limit = a.Cfg.ContextLimit
+		limit = a.activeChatContextLimit()
 		if a.contextUsageCalibrated() {
 			source = "calibrated"
 			if u := a.Client.LastMainUsage; u.Available && u.InputTokens > 0 {

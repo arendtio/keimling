@@ -262,6 +262,7 @@
   var agentStatus = document.getElementById("agent-status");
   var progressDetail = document.getElementById("progress-detail");
   var modelEl = document.getElementById("model");
+  var modelMenu = document.getElementById("model-menu");
   var modeEl = document.getElementById("mode");
   var msg = document.getElementById("msg");
   var send = document.getElementById("send");
@@ -1513,7 +1514,7 @@
           // Clear one-shot keys from cache after successful save.
           providersCache.forEach(function (p) { delete p.api_key; });
           fillAgentSettings(j);
-          modelEl.textContent = j.model || "—";
+          loadThreadModel();
           modeEl.textContent = j.mode || "—";
           refreshBudget(true);
           gateErr.hidden = false;
@@ -1635,6 +1636,7 @@
     // While recording, Send/Queue = stop mic + transcribe + send/queue.
     send.disabled = !connected;
     msg.disabled = !connected;
+    if (modelEl) modelEl.disabled = !connected;
     voiceBtn.disabled = !connected || !voiceOK;
     newChatBtn.disabled = !connected || busyish;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
@@ -3075,8 +3077,122 @@
       .catch(function () {});
   }
 
+  function closeModelMenu() {
+    if (!modelMenu) return;
+    modelMenu.hidden = true;
+    if (modelEl) modelEl.setAttribute("aria-expanded", "false");
+  }
+
+  function applyThreadModelView(j) {
+    if (!modelEl || !j) return;
+    var label = j.label || j.model_id || "—";
+    modelEl.textContent = label;
+    if (j.custom) {
+      modelEl.dataset.custom = "1";
+      modelEl.title = "Kept on this thread (" + label + "). Pick the Settings model to follow Settings again.";
+    } else {
+      delete modelEl.dataset.custom;
+      modelEl.title = "Follows Settings (" + label + "). Another model stays on this thread.";
+    }
+  }
+
+  function loadThreadModel() {
+    if (!connected || !modelEl) return Promise.resolve();
+    return fetch(apiURL("/api/threads/model"), { headers: headers() })
+      .then(readJSONResponse)
+      .then(function (j) {
+        applyThreadModelView(j);
+        return j;
+      });
+  }
+
+  function openModelMenu() {
+    if (!connected) return;
+    loadThreadModel().then(function (j) {
+      if (!j || !modelMenu || !modelEl) return;
+      modelMenu.textContent = "";
+      var note = document.createElement("p");
+      note.className = "model-menu-note";
+      var busy = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
+      note.textContent = (j.custom
+        ? "Kept on this thread. The Settings model follows Settings again."
+        : "Follows Settings. Another model stays on this thread.") + (busy ? " This run keeps its model." : "");
+      modelMenu.appendChild(note);
+      var any = false;
+      (j.providers || []).forEach(function (p) {
+        var models = p.models || [];
+        if (!models.length) return;
+        any = true;
+        var head = document.createElement("div");
+        head.className = "model-menu-provider";
+        head.textContent = p.name || p.id;
+        modelMenu.appendChild(head);
+        models.forEach(function (m) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.setAttribute("role", "menuitemradio");
+          var selected = p.id === j.provider_id && m.id === j.model_id;
+          btn.setAttribute("aria-checked", selected ? "true" : "false");
+          btn.appendChild(document.createTextNode(m.name || m.id));
+          if (p.id === j.settings_provider_id && m.id === j.settings_model_id) {
+            var tag = document.createElement("span");
+            tag.className = "model-menu-settings";
+            tag.textContent = "Settings";
+            btn.appendChild(tag);
+          }
+          btn.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+            chooseThreadModel(p.id, m.id);
+          });
+          modelMenu.appendChild(btn);
+        });
+      });
+      if (!any) {
+        var empty = document.createElement("p");
+        empty.className = "model-menu-note";
+        empty.textContent = "No models saved in Settings.";
+        modelMenu.appendChild(empty);
+      }
+      document.body.appendChild(modelMenu);
+      modelMenu.hidden = false;
+      var rect = modelEl.getBoundingClientRect();
+      var height = modelMenu.offsetHeight;
+      var top = rect.bottom + 6;
+      if (top + height > window.innerHeight - 8 && rect.top - height - 6 >= 8) {
+        top = rect.top - height - 6;
+      }
+      modelMenu.style.top = Math.max(8, top) + "px";
+      modelMenu.style.bottom = "auto";
+      modelMenu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - modelMenu.offsetWidth - 8)) + "px";
+      modelEl.setAttribute("aria-expanded", "true");
+    }).catch(function (e) {
+      appendLive(e && e.message ? e.message : String(e));
+    });
+  }
+
+  function chooseThreadModel(providerID, modelID) {
+    closeModelMenu();
+    fetch(apiURL("/api/threads/model"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify({ provider_id: providerID, model_id: modelID }),
+    })
+      .then(readJSONResponse)
+      .then(applyThreadModelView)
+      .catch(function (e) {
+        appendLive(e && e.message ? e.message : String(e));
+      });
+  }
+
   function applySession(j) {
     modelEl.textContent = j.model || "—";
+    if (j.chat_model_custom) {
+      modelEl.dataset.custom = "1";
+      modelEl.title = "Kept on this thread (" + (j.model || "model") + "). Pick the Settings model to follow Settings again.";
+    } else {
+      delete modelEl.dataset.custom;
+      modelEl.title = "Follows Settings (" + (j.model || "model") + "). Another model stays on this thread.";
+    }
     modeEl.textContent = j.mode || "—";
     messages = j.messages || [];
     chapters = j.chapters || [];
@@ -4539,10 +4655,30 @@
   if (paperMenuToggle) {
     paperMenuToggle.addEventListener("click", function () {
       closeChaptersFlyout();
+      closeModelMenu();
       setPaperMenuOpen(!!(paperMenu && paperMenu.hidden));
     });
   }
+  if (modelEl) {
+    modelEl.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (!connected) return;
+      if (modelMenu && !modelMenu.hidden) {
+        closeModelMenu();
+        return;
+      }
+      closePaperMenu();
+      closeChaptersFlyout();
+      openModelMenu();
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeModelMenu();
+  });
   document.addEventListener("click", function (e) {
+    if (modelMenu && !modelMenu.hidden && !modelMenu.contains(e.target) && e.target !== modelEl) {
+      closeModelMenu();
+    }
     if (chaptersFlyout && !chaptersFlyout.hidden) {
       var left = chaptersToggle && chaptersToggle.parentElement;
       if (!(left && left.contains(e.target))) closeChaptersFlyout();

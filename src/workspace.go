@@ -35,6 +35,8 @@ type ThreadMeta struct {
 	UpdatedAt             time.Time `json:"updated_at"`
 	Active                bool      `json:"active,omitempty"`
 	AutopilotInstructions string    `json:"autopilot_instructions,omitempty"`
+	ModelProviderID       string    `json:"model_provider_id,omitempty"`
+	ModelID               string    `json:"model_id,omitempty"`
 }
 
 func dataHome() string {

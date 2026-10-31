@@ -44,6 +44,8 @@ type Agent struct {
 	Artifacts *artifactHub
 	// Credentials is the process-lifetime credential vault (nil = disabled).
 	Credentials *CredentialBroker
+	// runChat is the main chat model frozen for the current Run. Nil when idle.
+	runChat *chatTarget
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -172,6 +174,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 	a.PilotReport = ""
 	a.emit("status", "running")
 	defer a.emit("status", "idle")
+	a.beginRunChat()
+	defer a.endRunChat()
 	pilotCycles := 0
 	lastPilotReport := ""
 	repeatedReports := 0
@@ -340,7 +344,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		}()
 		extraTools := append(a.mcpToolDefs(), a.credentialToolDefs()...)
 		extraTools = append(extraTools, a.agentExtraTools()...)
-		resp, err := a.Client.Respond(ctx, a.Cfg.Model, a.Cfg.Reasoning, a.modelInput(), a.Cfg.Web, a.skillsCatalogBlock(), extraTools)
+		resp, err := a.respondMain(ctx, a.modelInput(), extraTools)
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil

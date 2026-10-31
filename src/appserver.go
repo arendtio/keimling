@@ -133,6 +133,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/threads/switch", s.requireSecret(http.HandlerFunc(s.handleThreadSwitch)))
 	s.mux.Handle("/api/threads/delete", s.requireSecret(http.HandlerFunc(s.handleThreadDelete)))
 	s.mux.Handle("/api/threads/autopilot", s.requireSecret(http.HandlerFunc(s.handleThreadAutopilot)))
+	s.mux.Handle("/api/threads/model", s.requireSecret(http.HandlerFunc(s.handleThreadModel)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("/api/compact", s.requireSecret(http.HandlerFunc(s.handleCompact)))
 	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
@@ -212,15 +213,27 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	if events, err := originalEvents(path); err == nil && len(events) > 0 {
 		uiHistory = events
 	}
+	chat := s.agent.callChatTarget()
+	label := chat.Label
+	if label == "" {
+		label = s.agent.Cfg.Model
+	}
+	limit := chat.ContextLimit
+	if limit <= 0 {
+		limit = s.agent.Cfg.ContextLimit
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"model":             s.agent.Cfg.Model,
+		"model":             label,
+		"chat_model_custom": chat.Custom,
+		"chat_provider_id":  chat.ProviderID,
+		"chat_model_id":     chat.Model,
 		"mode":              s.agent.Cfg.Mode,
 		"reasoning":         s.agent.Cfg.Reasoning,
 		"web":               s.agent.Cfg.Web,
 		"autopilot":         s.agent.Cfg.Autopilot,
 		"max_steps":         s.agent.Cfg.MaxSteps,
-		"context_limit":     s.agent.Cfg.ContextLimit,
+		"context_limit":     limit,
 		"voice_model":       s.agent.Cfg.VoiceModel,
 		"workspace_id":      s.agent.Cfg.WorkspaceID,
 		"workspace_root":    s.agent.Cfg.WorkspaceRoot,
@@ -544,6 +557,38 @@ func (s *appServer) writeThreadAutopilot(w http.ResponseWriter) {
 		"custom":       custom,
 		"source":       source,
 	})
+}
+
+func (s *appServer) handleThreadModel(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.WorkspaceID) == "" || strings.TrimSpace(s.agent.Cfg.ThreadID) == "" {
+		http.Error(w, "no thread", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.writeThreadModel(w)
+	case http.MethodPut:
+		var body struct {
+			ProviderID string `json:"provider_id"`
+			ModelID    string `json:"model_id"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if err := s.agent.saveThreadChatModel(body.ProviderID, body.ModelID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		s.writeThreadModel(w)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *appServer) writeThreadModel(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s.agent.threadModelView())
 }
 
 func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {

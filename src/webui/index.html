@@ -569,10 +569,11 @@
           <form id="composer" class="composer">
             <div class="composer-row">
               <div class="composer-main">
-                <p class="composer-meta" title="Model for this thread (change in Settings → Models)">
-                  <span id="model">—</span><span class="composer-meta-sep"> · </span><span id="mode">—</span>
+                <p class="composer-meta">
+                  <button type="button" id="model" class="composer-model" disabled aria-haspopup="menu" aria-expanded="false" title="Chat model for this thread">—</button><span class="composer-meta-sep"> · </span><span id="mode">—</span>
                   <span class="composer-meta-sep"> · </span><span id="budget-line" class="budget-line">—</span>
                 </p>
+                <div id="model-menu" class="model-menu" role="menu" hidden></div>
                 <div class="composer-input">
                   <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
                 </div>
