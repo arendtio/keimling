@@ -44,6 +44,25 @@ func TestNormalizeResponseInputPreservesSemantics(t *testing.T) {
 	}
 }
 
+func TestNormalizeNoticeBecomesDeveloperMessage(t *testing.T) {
+	items := []json.RawMessage{
+		json.RawMessage(`{"type":"keimling_notice","text":"Run stopped: empty response"}`),
+	}
+	normalized, err := normalizeResponseInput(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized) != 1 {
+		t.Fatal(len(normalized))
+	}
+	if bytes.Contains(normalized[0], []byte(`"type"`)) || bytes.Contains(normalized[0], []byte("keimling_notice")) {
+		t.Fatalf("notice type leaked: %s", normalized[0])
+	}
+	if !bytes.Contains(normalized[0], []byte(`"role":"developer"`)) || !bytes.Contains(normalized[0], []byte("Run stopped: empty response")) {
+		t.Fatalf("%s", normalized[0])
+	}
+}
+
 func TestRespondNormalizesBeforeHTTP(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {

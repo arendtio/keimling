@@ -1694,7 +1694,6 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	// Catch a decision that slipped in between the drain and cancel.
 	drainApproval(s.agent)
-	s.hub.Broadcast("line", map[string]string{"text": "\n[stop] Stopped by user.\n"})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "stopped": true})
 }
@@ -1809,15 +1808,12 @@ func (s *appServer) startAgentRun(text string) bool {
 			s.pumpAgentWakes()
 		}()
 		err := agent.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
-		if err != nil {
-			if ctx.Err() != nil {
-				// A cancelled run can leave a dangling function_call (e.g. while
-				// awaiting approval) which the Responses API rejects on the next
-				// message. Mark such calls interrupted before releasing busy.
-				_ = agent.repairInterruptedCalls()
-			} else {
-				s.hub.Broadcast("line", map[string]string{"text": "\nError: " + err.Error() + "\n"})
-			}
+		if err != nil && ctx.Err() != nil {
+			// A cancelled run can leave a dangling function_call (e.g. while
+			// awaiting approval) which the Responses API rejects on the next
+			// message. Mark such calls interrupted before releasing busy.
+			// Run already recorded a Stopped note in the transcript.
+			_ = agent.repairInterruptedCalls()
 		}
 	}()
 	return true

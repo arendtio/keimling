@@ -2671,9 +2671,13 @@
     var rawBody = filtered ? (m.raw || "") : (m.raw || m.result || "");
     var filteredBody = filtered ? (m.result || "") : "";
 
+    var status = m.status || (m.pending ? "pending" : (m.ok === false ? "failed" : "ran"));
+    if (status === "failed") wrap.className += " failed";
+    if (status === "stopped") wrap.className += " stopped";
+    var ranLabel = status === "failed" ? "Failed" : status === "stopped" ? "Stopped" : "Ran";
     var summary = document.createElement("summary");
     summary.innerHTML =
-      '<span class="tool-line-ran">Ran</span>' +
+      '<span class="tool-line-ran">' + ranLabel + "</span>" +
       '<span class="tool-line-name">' + esc(name) + "</span>" +
       '<code class="tool-line-cmd">' + esc(toolFirstLine(cmd)) + "</code>" +
       (filtered ? '<span class="tool-line-funnel" title="Output filtered for model">▽</span>' : "") +
@@ -2765,6 +2769,18 @@
     }
     var el = document.createElement("article");
     var role = m.role || "assistant";
+    if (role === "system") {
+      el.className = "msg system";
+      if (m.collapsed) {
+        var first = String(m.text || "").split("\n")[0];
+        if (first.length > 160) first = first.slice(0, 157) + "…";
+        el.innerHTML = '<details class="notice"><summary>' + esc(first) + '</summary><div class="body">' + esc(m.text || "") + "</div></details>";
+      } else {
+        el.innerHTML = '<div class="body">' + esc(m.text || "") + "</div>";
+      }
+      parent.appendChild(el);
+      return role;
+    }
     // One monologue label for the whole assistant turn (text + tools + more text).
     var continuation = role === "assistant" && (prevRole === "assistant" || prevRole === "tool_group");
     el.className = "msg " + role + (continuation ? " continuation" : "") + (m.streaming ? " streaming" : "");
@@ -2853,24 +2869,49 @@
       return wrap;
     }
 
-    if (items.length <= 2) {
-      appendMessageList(wrap, items);
-      return wrap;
-    }
-
-    appendMessageNode(wrap, items[0], "");
-    var mid = items.slice(1, -1);
-    var fold = document.createElement("details");
-    fold.className = "chapter-fold";
-    var label = mid.length === 1 ? "1 message in between" : mid.length + " messages in between";
-    fold.innerHTML = "<summary>" + esc(label) + "</summary>";
-    var inner = document.createElement("div");
-    inner.className = "chapter-fold-body";
-    appendMessageList(inner, mid);
-    fold.appendChild(inner);
-    wrap.appendChild(fold);
-    appendMessageNode(wrap, items[items.length - 1], mid[mid.length - 1] ? mid[mid.length - 1].role : items[0].role);
+    appendChapterItems(wrap, items);
     return wrap;
+  }
+
+  function chapterItemLoud(m) {
+    if (!m) return false;
+    if (m.role === "tool_group" && (m.status === "failed" || m.status === "stopped")) return true;
+    if (m.role === "system" && !m.collapsed) return true;
+    return false;
+  }
+
+  function appendChapterItems(parent, items) {
+    var prev = "";
+    var buf = [];
+    function flush() {
+      if (!buf.length) return;
+      if (buf.length <= 2) {
+        buf.forEach(function (m) { prev = appendMessageNode(parent, m, prev) || prev; });
+      } else {
+        prev = appendMessageNode(parent, buf[0], prev) || prev;
+        var mid = buf.slice(1, -1);
+        var fold = document.createElement("details");
+        fold.className = "chapter-fold";
+        var label = mid.length === 1 ? "1 message in between" : mid.length + " messages in between";
+        fold.innerHTML = "<summary>" + esc(label) + "</summary>";
+        var inner = document.createElement("div");
+        inner.className = "chapter-fold-body";
+        appendMessageList(inner, mid);
+        fold.appendChild(inner);
+        parent.appendChild(fold);
+        prev = appendMessageNode(parent, buf[buf.length - 1], prev) || prev;
+      }
+      buf = [];
+    }
+    items.forEach(function (m) {
+      if (chapterItemLoud(m)) {
+        flush();
+        prev = appendMessageNode(parent, m, prev) || prev;
+      } else {
+        buf.push(m);
+      }
+    });
+    flush();
   }
 
   var SCROLL_STICKY_PX = 100;
@@ -2928,16 +2969,19 @@
 
   function appendLive(text) {
     // Client-side diagnostics only — not part of the transcript.
+    // A dropped event stream stays until events flow again.
     if (!uiFlash) return;
+    var raw = String(text || "");
     uiFlash.hidden = false;
-    uiFlash.textContent = String(text || "").replace(/^\s+|\s+$/g, "").slice(0, 240);
+    uiFlash.textContent = raw.replace(/^\s+|\s+$/g, "").slice(0, 240);
+    if (/^\[events\]/.test(raw.replace(/^\s+/, ""))) uiFlash.dataset.sticky = "1";
+    else delete uiFlash.dataset.sticky;
   }
 
   function clearLive() {
-    if (uiFlash) {
-      uiFlash.hidden = true;
-      uiFlash.textContent = "";
-    }
+    if (!uiFlash || uiFlash.dataset.sticky === "1") return;
+    uiFlash.hidden = true;
+    uiFlash.textContent = "";
   }
 
   function paintTranscript() {
@@ -2998,7 +3042,16 @@
       messages.pop();
     }
     if (!String(text).trim()) return;
-    messages.push({ role: role, text: text });
+    if (role === "system" && String(text).trim() === "Stopped") {
+      messages.forEach(function (m) {
+        if (m.role === "tool_group" && m.pending) {
+          m.pending = false;
+          m.status = "stopped";
+          if (!m.result) m.result = "Stopped";
+        }
+      });
+    }
+    messages.push({ role: role, text: text, collapsed: !!payload.collapsed });
     paintTranscript();
   }
 
@@ -3020,14 +3073,20 @@
       return;
     }
     if (payload.phase !== "result") return;
+    var resultText = payload.result || "";
+    var status = "ran";
+    if (String(resultText).indexOf("INTERRUPTED:") === 0) status = "stopped";
+    else if (payload.ok === false) status = "failed";
     var resultMsg = {
       role: "tool_group",
       name: payload.name || "tool",
       command: payload.command || payload.name || "tool",
-      result: payload.result || "",
+      result: resultText,
       raw: payload.filtered ? (payload.raw || "") : "",
       filtered: !!payload.filtered,
       pending: false,
+      ok: payload.ok,
+      status: status,
     };
     for (var i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "tool_group" && messages[i].pending && messages[i].name === resultMsg.name) {
@@ -3267,6 +3326,10 @@
             buf += dec.decode(res.value, { stream: true });
             var parts = buf.split("\n\n");
             buf = parts.pop();
+            if (uiFlash && uiFlash.dataset.sticky === "1") {
+              delete uiFlash.dataset.sticky;
+              clearLive();
+            }
             parts.forEach(function (block) {
               var ev = "message";
               var data = "";

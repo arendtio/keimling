@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -145,8 +146,35 @@ func (a *Agent) repairInterruptedCalls() error {
 	return nil
 }
 
-func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) error {
+func (a *Agent) finishRun(errp *error) {
+	if a == nil || errp == nil || *errp == nil {
+		return
+	}
+	err := *errp
+	// Close dangling tool calls before the note so the transcript pairs
+	// each call with its interrupted result.
+	_ = a.repairInterruptedCalls()
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		a.note("Stopped")
+		return
+	}
+	a.note("Run stopped: " + err.Error())
+}
+
+func (a *Agent) noteAutopilot(action, reason, extra string) {
+	line := "Autopilot: " + strings.TrimSpace(action)
+	if s := strings.TrimSpace(reason); s != "" {
+		line += " · " + s
+	}
+	if s := strings.TrimSpace(extra); s != "" {
+		line += "\n" + s
+	}
+	a.note(line)
+}
+
+func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (err error) {
 	defer func() { _ = a.updateHistoryIndex("") }()
+	defer a.finishRun(&err)
 	// Agent instances own a fixed main thread under their data dir — don't rename workspace threads.
 	if a.Cfg.WorkspaceID != "" && a.Cfg.ThreadID != "" && strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		titleCtx := ctx
@@ -186,12 +214,12 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 		if step >= a.Cfg.MaxSteps {
 			if !a.Cfg.Autopilot || !a.TaskActive {
 				if a.TaskActive {
-					a.printf("\nResumable plan paused: reached %d API rounds.\n", a.Cfg.MaxSteps)
+					return fmt.Errorf("resumable plan paused: maximum API rounds (%d) reached", a.Cfg.MaxSteps)
 				}
 				return fmt.Errorf("maximum API rounds (%d) reached", a.Cfg.MaxSteps)
 			}
 			if repeatedReports >= 3 || pilotCycles >= 200 {
-				a.println("\n◈ Autopilot stopped: repeated result or 200-supervision limit; human review needed")
+				a.note("Autopilot stopped: repeated result or supervision limit. Human review needed.")
 				return nil
 			}
 			pilotCycles++
@@ -200,16 +228,18 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot round-limit review: %w", pilotErr)
 			}
-			a.printf("◇ Autopilot: %s", decision.Action)
-			if decision.Reason != "" {
-				a.printf(" · %s", truncate(decision.Reason, 180))
-			}
-			a.println()
+			extra := ""
 			if decision.Action == "done" {
 				// Do not mark an unverified unfinished task complete merely because the supervisor says so.
-				a.println("Autopilot requested completion at round limit; worker must verify with finish_task.")
+				extra = "Autopilot requested completion at the round limit. The worker must verify with finish_task."
 			} else if decision.Action == "stop" {
-				a.println("Autopilot requested human guidance:", decision.Message)
+				extra = strings.TrimSpace(decision.Message)
+				if extra == "" {
+					extra = "Autopilot requested human guidance."
+				}
+			}
+			a.noteAutopilot(decision.Action, decision.Reason, extra)
+			if decision.Action == "stop" {
 				return nil
 			}
 			if decision.Action != "continue" && decision.Action != "done" {
@@ -388,7 +418,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				for _, part := range item.Content {
 					if part.Type == "output_text" && part.Text != "" {
 						if strings.Contains(part.Text, "<tool_call>") || strings.Contains(part.Text, "<arg_key>") {
-							a.println("\n\033[33m! Model returned tool-call markup as text, not a native Responses API function_call. No command executed. Check server tool-calling format/template.\033[0m")
+							a.note("Model returned tool-call markup as text, not a native function call. No command was executed.")
 							continue
 						}
 						if !resp.StreamedText || !strings.Contains(streamedText.String(), part.Text) {
@@ -653,7 +683,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 					}
 				}
 				toolCmd := toolCommandLabel(item.Name, item.Arguments)
-				toolOK := true
+				toolOK := markToolOK(item.Name, result, rawExecResult)
 				if item.Name == "exec" {
 					code := "?"
 					displayedResult := result
@@ -667,8 +697,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						}
 					}
 					output := strings.TrimPrefix(displayedResult, "exit_code="+code+"\n")
-					toolOK = code == "0"
-					if code != "0" {
+					if !toolOK {
 						a.cliWrite(fmt.Sprintf("\033[31mFAIL: Return Value %s\033[0m\n", code))
 					}
 					if strings.TrimSpace(output) != "" {
@@ -686,15 +715,14 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 						a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(output), "", toolOK, false)
 					}
 				} else {
-					if strings.HasPrefix(result, "patch failed:") || strings.HasPrefix(result, "hash mismatch") || strings.HasPrefix(result, "file hash mismatch") || strings.HasPrefix(result, "invalid line range") || strings.HasPrefix(result, "access denied:") {
-						toolOK = false
+					if !toolOK {
 						a.cliWrite(fmt.Sprintf("\033[31m✗\033[0m %s\n", truncate(result, 1800)))
 					} else {
 						a.cliWrite(fmt.Sprintf("\033[32m✓\033[0m %s\n", truncate(result, 1800)))
 					}
 					a.presentToolResult(item.Name, toolCmd, truncate(result, 1800), "", toolOK, false)
 				}
-				outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10)}
+				outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10), "ok": toolOK}
 				// raw_output is UI-only; normalizeResponseInput strips it before the model sees history.
 				if rawExecResult != "" && rawExecResult != result {
 					outItem["raw_output"] = truncate(rawExecResult, 32<<10)
@@ -720,7 +748,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 				lastPilotReport = report
 			}
 			if repeatedReports >= 3 || pilotCycles >= 200 {
-				a.println("\n◈ Autopilot stopped: repeated result or 200-supervision limit; human review needed")
+				a.note("Autopilot stopped: repeated result or supervision limit. Human review needed.")
 				return nil
 			}
 			pilotCycles++
@@ -729,16 +757,15 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot review: %w", pilotErr)
 			}
-			a.printf("◇ Autopilot: %s", decision.Action)
-			if decision.Reason != "" {
-				a.printf(" · %s", truncate(decision.Reason, 180))
-			}
-			a.println()
-			if decision.Action == "done" {
-				return nil
-			}
+			extra := ""
 			if decision.Action == "stop" {
-				a.println("Autopilot requested human guidance:", decision.Message)
+				extra = strings.TrimSpace(decision.Message)
+				if extra == "" {
+					extra = "Autopilot requested human guidance."
+				}
+			}
+			a.noteAutopilot(decision.Action, decision.Reason, extra)
+			if decision.Action == "done" || decision.Action == "stop" {
 				return nil
 			}
 			a.TaskDone = false

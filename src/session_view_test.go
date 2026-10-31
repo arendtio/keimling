@@ -78,6 +78,35 @@ func TestSessionMessagesFinishTaskSummaryCard(t *testing.T) {
 	}
 }
 
+func TestSessionMessagesNoticesAndFailures(t *testing.T) {
+	notice, _ := json.Marshal(map[string]any{"type": "keimling_notice", "text": "Run stopped: empty response"})
+	pilot, _ := json.Marshal(map[string]any{"role": "user", "content": "[AUTOPILOT SUPERVISOR — not a human authorization or user request] Reassess objective and continue."})
+	cont, _ := json.Marshal(map[string]any{"role": "user", "content": "Continue the current plan autonomously. Inspect results, take the next concrete step."})
+	call, _ := json.Marshal(map[string]any{"type": "function_call", "name": "exec", "call_id": "c1", "arguments": `{"command":"false"}`})
+	out, _ := json.Marshal(map[string]any{"type": "function_call_output", "call_id": "c1", "output": "exit_code=1\nno", "ok": false})
+	stopCall, _ := json.Marshal(map[string]any{"type": "function_call", "name": "exec", "call_id": "c2", "arguments": `{"command":"sleep"}`})
+	stopOut, _ := json.Marshal(map[string]any{"type": "function_call_output", "call_id": "c2", "output": "INTERRUPTED: previous action's execution state is unknown."})
+	msgs := sessionMessages([]json.RawMessage{notice, pilot, cont, call, out, stopCall, stopOut}, 20)
+	if len(msgs) != 5 {
+		t.Fatalf("len %d %#v", len(msgs), msgs)
+	}
+	if msgs[0].Role != "system" || msgs[0].Text != "Run stopped: empty response" || msgs[0].Collapsed {
+		t.Fatalf("notice %#v", msgs[0])
+	}
+	if msgs[1].Role != "system" || !msgs[1].Collapsed || !strings.Contains(msgs[1].Text, "AUTOPILOT") {
+		t.Fatalf("pilot %#v", msgs[1])
+	}
+	if msgs[2].Role != "system" || !msgs[2].Collapsed || !strings.Contains(msgs[2].Text, "Continue the current plan") {
+		t.Fatalf("continue %#v", msgs[2])
+	}
+	if msgs[3].Role != "tool_group" || msgs[3].Status != "failed" {
+		t.Fatalf("failed tool %#v", msgs[3])
+	}
+	if msgs[4].Status != "stopped" {
+		t.Fatalf("stopped tool %#v", msgs[4])
+	}
+}
+
 func TestSessionChaptersFromIndex(t *testing.T) {
 	dir := t.TempDir()
 	session := filepath.Join(dir, "s.jsonl")

@@ -78,6 +78,30 @@ func (a *Agent) presentToolResult(name, command, result, raw string, ok, filtere
 	a.emitJSON("tool", payload)
 }
 
+// note records an outcome in the transcript. The GUI shows it, the journal
+// keeps it across reload, and the next model call sees it.
+func (a *Agent) note(text string) {
+	text = strings.TrimSpace(text)
+	if a == nil || text == "" {
+		return
+	}
+	collapsed := noticeCollapsed(text)
+	a.emitJSON("message", map[string]any{
+		"role":      "system",
+		"text":      text,
+		"collapsed": collapsed,
+	})
+	a.cliWrite("\n" + text + "\n")
+	if a.Journal == nil {
+		return
+	}
+	_ = a.add(map[string]any{"type": "keimling_notice", "text": text})
+}
+
+func noticeCollapsed(text string) bool {
+	return strings.Contains(text, "\n") || len(text) > 180
+}
+
 // presentFinish shows the task completion summary on both surfaces.
 func (a *Agent) presentFinish(status, summary string) {
 	title := "Task complete"

@@ -989,6 +989,18 @@ button.wide { width: 100%; max-width: 100%; }
   padding: 0.2rem 0.15rem;
   font-style: italic;
 }
+.msg.system details.notice > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.msg.system details.notice > summary::-webkit-details-marker { display: none; }
+.msg.system details.notice > summary::before { content: "▸ "; }
+.msg.system details.notice[open] > summary::before { content: "▾ "; }
+.msg.system details.notice .body {
+  margin-top: 0.35rem;
+  font-style: normal;
+  white-space: pre-wrap;
+}
 .msg .who {
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -1117,6 +1129,10 @@ button.wide { width: 100%; max-width: 100%; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 0.7rem;
+}
+.tool-line.failed .tool-line-ran,
+.tool-line.stopped .tool-line-ran {
+  color: var(--danger);
 }
 .tool-line-name {
   flex: 0 0 auto;

@@ -45,6 +45,20 @@ objects are normalised into valid input items before resubmission — response-l
 metadata that the API rejects is removed while tool-call relationships and valid
 reasoning content stay intact.
 
+## Run outcomes in the chat
+
+A run that stops, a failed tool, an autopilot decision, and a failed compaction
+leave a line in the same transcript as messages and tool cards. Short lines stay
+open. Long internal instructions stay collapsed. Reloading the thread shows them
+again, and the next model call sees the same note. Token-rate progress stays on
+the status line while the run is going. The CLI text stream is not copied into
+the chat.
+
+A failed tool card is labeled Failed and stays collapsed. A tool interrupted by
+Stop is labeled Stopped. The run itself adds the line `Stopped` or
+`Run stopped: …`. In a chapter, those rows stay outside the “messages in
+between” fold.
+
 ## Approval modes
 
 | Mode | Behaviour |

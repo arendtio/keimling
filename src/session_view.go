@@ -6,14 +6,16 @@ import (
 )
 
 type sessionMessage struct {
-	Role     string `json:"role"` // user | assistant | tool | tool_group | system
-	Name     string `json:"name,omitempty"`
-	Text     string `json:"text,omitempty"`
-	Command  string `json:"command,omitempty"`  // tool_group: visible command / label
-	Result   string `json:"result,omitempty"`   // display / model-facing output
-	Raw      string `json:"raw,omitempty"`      // raw shell output only when filtered
-	Filtered bool   `json:"filtered,omitempty"` // true when Raw differs from model Result
-	Event    int    `json:"event,omitempty"`    // 1-based journal item index
+	Role      string `json:"role"` // user | assistant | tool | tool_group | system
+	Name      string `json:"name,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Command   string `json:"command,omitempty"`   // tool_group: visible command / label
+	Result    string `json:"result,omitempty"`    // display / model-facing output
+	Raw       string `json:"raw,omitempty"`       // raw shell output only when filtered
+	Filtered  bool   `json:"filtered,omitempty"`  // true when Raw differs from model Result
+	Status    string `json:"status,omitempty"`    // failed | stopped; empty means ran
+	Collapsed bool   `json:"collapsed,omitempty"` // long system note starts closed
+	Event     int    `json:"event,omitempty"`     // 1-based journal item index
 }
 
 type sessionChapter struct {
@@ -43,6 +45,7 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 			CallID    string `json:"call_id"`
 			Arguments string `json:"arguments"`
 			Output    string `json:"output"`
+			Text      string `json:"text"`
 		}
 		if json.Unmarshal(history[i], &item) != nil {
 			continue
@@ -51,7 +54,11 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 		case item.Role == "user":
 			if s, ok := item.Content.(string); ok {
 				s = strings.TrimSpace(s)
-				if s == "" || strings.HasPrefix(s, "[AUTOPILOT") || strings.HasPrefix(s, "Continue the current plan") {
+				if s == "" {
+					continue
+				}
+				if strings.HasPrefix(s, "[AUTOPILOT") || strings.HasPrefix(s, "Continue the current plan") {
+					out = append(out, sessionMessage{Role: "system", Text: s, Collapsed: true, Event: ev})
 					continue
 				}
 				if strings.HasPrefix(s, "<compacted_conversation_memory>") {
@@ -64,10 +71,17 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 			if text := strings.TrimSpace(messageText(item.Content)); text != "" {
 				out = append(out, sessionMessage{Role: "assistant", Text: text, Event: ev})
 			}
+		case item.Type == "keimling_notice":
+			text := strings.TrimSpace(item.Text)
+			if text == "" {
+				continue
+			}
+			out = append(out, sessionMessage{Role: "system", Text: text, Collapsed: noticeCollapsed(text), Event: ev})
 		case item.Type == "function_call":
 			cmd := toolCommandLabel(item.Name, item.Arguments)
 			result := ""
 			raw := ""
+			var toolOK *bool
 			endEv := ev
 			if i+1 < len(history) {
 				var next struct {
@@ -75,11 +89,13 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 					CallID    string `json:"call_id"`
 					Output    string `json:"output"`
 					RawOutput string `json:"raw_output"`
+					OK        *bool  `json:"ok"`
 				}
 				if json.Unmarshal(history[i+1], &next) == nil && next.Type == "function_call_output" {
 					if item.CallID == "" || next.CallID == "" || next.CallID == item.CallID {
 						result = strings.TrimSpace(next.Output)
 						raw = strings.TrimSpace(next.RawOutput)
+						toolOK = next.OK
 						endEv = i + 2
 						i++ // consume paired output
 					}
@@ -96,6 +112,7 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 				Result:   result,
 				Raw:      raw,
 				Filtered: filtered,
+				Status:   toolCardStatus(result, raw, toolOK),
 				Event:    endEv,
 			})
 			if item.Name == "finish_task" {
@@ -144,6 +161,79 @@ func finishTaskSummaryMessage(args string, event int) *sessionMessage {
 		Text:  "**" + title + "**\n\n" + summary,
 		Event: event,
 	}
+}
+
+func toolCardStatus(result, raw string, ok *bool) string {
+	if strings.HasPrefix(strings.TrimSpace(result), "INTERRUPTED:") {
+		return "stopped"
+	}
+	if ok != nil {
+		if !*ok {
+			return "failed"
+		}
+		return ""
+	}
+	if toolTextFailed(result) || toolTextFailed(raw) {
+		return "failed"
+	}
+	return ""
+}
+
+func toolTextFailed(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	for _, p := range []string{
+		"DENIED", "SKIPPED", "INTERRUPTED:",
+		"patch failed:", "hash mismatch", "file hash mismatch",
+		"invalid line range", "invalid status", "invalid tool arguments",
+		"access denied:", "plan too long",
+		"activate_skill:", "read_skill_file:", "show_artifact error:",
+	} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	if i := strings.Index(s, " error:"); i >= 0 && i < 48 {
+		return true
+	}
+	if code, found := leadingExitCode(s); found && code != "0" {
+		return true
+	}
+	return false
+}
+
+func leadingExitCode(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	const key = "exit_code="
+	if !strings.HasPrefix(s, key) {
+		return "", false
+	}
+	rest := s[len(key):]
+	if i := strings.IndexAny(rest, " \n\r\t"); i >= 0 {
+		rest = rest[:i]
+	}
+	if rest == "" {
+		return "", false
+	}
+	return rest, true
+}
+
+func markToolOK(name, result, raw string) bool {
+	if toolTextFailed(result) || toolTextFailed(raw) {
+		return false
+	}
+	if name == "exec" {
+		src := raw
+		if strings.TrimSpace(src) == "" {
+			src = result
+		}
+		if code, found := leadingExitCode(src); found && code != "0" {
+			return false
+		}
+	}
+	return true
 }
 
 func toolCommandLabel(name, args string) string {

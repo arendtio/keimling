@@ -31,6 +31,7 @@ func (a *Agent) reportCompaction(phase, message string, started time.Time, done 
 	fmt.Fprint(os.Stdout, "\r\033[2K")
 	if err != nil {
 		a.printf("\033[31m✗\033[0m Compaction %s failed · %s: %v\n", phase, sec, err)
+		a.note("Compaction failed (" + phase + "): " + err.Error())
 		return
 	}
 	a.printf("\033[36m◈\033[0m Compaction: %s · %s\n", message, sec)

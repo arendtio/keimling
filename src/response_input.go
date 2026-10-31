@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // normalizeResponseInput converts persisted response OUTPUT objects to the
@@ -43,6 +44,15 @@ func normalizeResponseInput(history []json.RawMessage) ([]json.RawMessage, error
 			item = keepInputFields(item, "type", "name", "call_id", "arguments")
 		case "function_call_output":
 			item = keepInputFields(item, "type", "call_id", "output")
+		case "keimling_notice":
+			var text string
+			_ = json.Unmarshal(item["text"], &text)
+			role, _ := json.Marshal("developer")
+			content, _ := json.Marshal(strings.TrimSpace(text))
+			item = map[string]json.RawMessage{
+				"role":    role,
+				"content": content,
+			}
 		case "reasoning":
 			// encrypted_content is essential for stateless reasoning continuity.
 			item = keepInputFields(item, "type", "id", "summary", "encrypted_content")

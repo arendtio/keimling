@@ -413,9 +413,6 @@ func TestAppServerStopCancelsRunningTask(t *testing.T) {
 	srv.cancel = cancel
 	srv.mu.Unlock()
 
-	ch := srv.hub.Subscribe(16)
-	defer srv.hub.Unsubscribe(ch)
-
 	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
 	req.Header.Set("Authorization", "Bearer tok")
 	rec := httptest.NewRecorder()
@@ -443,14 +440,6 @@ func TestAppServerStopCancelsRunningTask(t *testing.T) {
 	srv.mu.Unlock()
 	if !stopping {
 		t.Fatal("stopRequested not set")
-	}
-	select {
-	case ev := <-ch:
-		if ev.Type != "line" {
-			t.Fatalf("unexpected event %q", ev.Type)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("no stop broadcast")
 	}
 }
 
