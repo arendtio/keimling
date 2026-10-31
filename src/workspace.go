@@ -30,10 +30,11 @@ type WorkspaceMeta struct {
 }
 
 type ThreadMeta struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Active    bool      `json:"active,omitempty"`
+	ID                    string    `json:"id"`
+	Title                 string    `json:"title,omitempty"`
+	UpdatedAt             time.Time `json:"updated_at"`
+	Active                bool      `json:"active,omitempty"`
+	AutopilotInstructions string    `json:"autopilot_instructions,omitempty"`
 }
 
 func dataHome() string {

@@ -132,6 +132,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/threads", s.requireSecret(http.HandlerFunc(s.handleThreads)))
 	s.mux.Handle("/api/threads/switch", s.requireSecret(http.HandlerFunc(s.handleThreadSwitch)))
 	s.mux.Handle("/api/threads/delete", s.requireSecret(http.HandlerFunc(s.handleThreadDelete)))
+	s.mux.Handle("/api/threads/autopilot", s.requireSecret(http.HandlerFunc(s.handleThreadAutopilot)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("/api/compact", s.requireSecret(http.HandlerFunc(s.handleCompact)))
 	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
@@ -495,6 +496,53 @@ func (s *appServer) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":        true,
 		"thread_id": s.agent.Cfg.ThreadID,
+	})
+}
+
+func (s *appServer) handleThreadAutopilot(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.WorkspaceID) == "" || strings.TrimSpace(s.agent.Cfg.ThreadID) == "" {
+		http.Error(w, "no thread", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.writeThreadAutopilot(w)
+	case http.MethodPut:
+		var body struct {
+			Instructions *string `json:"instructions"`
+			Reset        *bool   `json:"reset"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if body.Reset != nil && *body.Reset {
+			if err := s.agent.resetThreadAutopilotInstructions(); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else if body.Instructions != nil {
+			if err := s.agent.saveThreadAutopilotInstructions(*body.Instructions); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			http.Error(w, "instructions required", http.StatusBadRequest)
+			return
+		}
+		s.writeThreadAutopilot(w)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *appServer) writeThreadAutopilot(w http.ResponseWriter) {
+	text, custom, source := s.agent.threadAutopilotView()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"instructions": text,
+		"custom":       custom,
+		"source":       source,
 	})
 }
 
@@ -1017,21 +1065,23 @@ func (s *appServer) handleNewChat(w http.ResponseWriter, r *http.Request) {
 }
 
 type agentSettings struct {
-	BaseURL               string          `json:"base_url,omitempty"`
-	Model                 string          `json:"model"`
-	Mode                  string          `json:"mode"`
-	Reasoning             string          `json:"reasoning"`
-	Web                   *bool           `json:"web,omitempty"`
-	Autopilot             *bool           `json:"autopilot,omitempty"`
-	MaxSteps              *int            `json:"max_steps,omitempty"`
-	ContextLimit          *int            `json:"context_limit,omitempty"`
-	VoiceModel            string          `json:"voice_model,omitempty"`
-	APIKey                *string         `json:"api_key,omitempty"`        // write-only
-	OpenAIAPIKey          *string         `json:"openai_api_key,omitempty"` // write-only
-	APIKeySet             bool            `json:"api_key_set"`              // GET only
-	OpenAIKeySet          bool            `json:"openai_api_key_set"`       // GET only
-	ModelProviders        []modelProvider `json:"model_providers,omitempty"`
-	ActiveModelProviderID string          `json:"active_model_provider_id,omitempty"`
+	BaseURL                    string          `json:"base_url,omitempty"`
+	Model                      string          `json:"model"`
+	Mode                       string          `json:"mode"`
+	Reasoning                  string          `json:"reasoning"`
+	Web                        *bool           `json:"web,omitempty"`
+	Autopilot                  *bool           `json:"autopilot,omitempty"`
+	AutopilotInstructions      *string         `json:"autopilot_instructions,omitempty"`
+	AutopilotInstructionsReset *bool           `json:"autopilot_instructions_reset,omitempty"`
+	MaxSteps                   *int            `json:"max_steps,omitempty"`
+	ContextLimit               *int            `json:"context_limit,omitempty"`
+	VoiceModel                 string          `json:"voice_model,omitempty"`
+	APIKey                     *string         `json:"api_key,omitempty"`        // write-only
+	OpenAIAPIKey               *string         `json:"openai_api_key,omitempty"` // write-only
+	APIKeySet                  bool            `json:"api_key_set"`              // GET only
+	OpenAIKeySet               bool            `json:"openai_api_key_set"`       // GET only
+	ModelProviders             []modelProvider `json:"model_providers,omitempty"`
+	ActiveModelProviderID      string          `json:"active_model_provider_id,omitempty"`
 }
 
 func (s *appServer) settingsSnapshot() map[string]any {
@@ -1050,20 +1100,25 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		openaiSet = strings.TrimSpace(s.agent.Cfg.ExternalClient.APIKey) != ""
 	}
 	providers, activeID := s.loadModelProvidersForSettings()
+	globalText := s.agent.globalAutopilotInstructions()
+	effectiveGlobal, _ := resolveAutopilotInstructions(globalText, "")
+	globalCustom := strings.TrimSpace(globalText) != ""
 	return map[string]any{
-		"base_url":                 base,
-		"model":                    s.agent.Cfg.Model,
-		"mode":                     s.agent.Cfg.Mode,
-		"reasoning":                s.agent.Cfg.Reasoning,
-		"web":                      web,
-		"autopilot":                auto,
-		"max_steps":                steps,
-		"context_limit":            limit,
-		"voice_model":              s.agent.Cfg.VoiceModel,
-		"api_key_set":              providerKey != "",
-		"openai_api_key_set":       openaiSet,
-		"model_providers":          publicModelProviders(providers),
-		"active_model_provider_id": activeID,
+		"base_url":                      base,
+		"model":                         s.agent.Cfg.Model,
+		"mode":                          s.agent.Cfg.Mode,
+		"reasoning":                     s.agent.Cfg.Reasoning,
+		"web":                           web,
+		"autopilot":                     auto,
+		"autopilot_instructions":        effectiveGlobal,
+		"autopilot_instructions_custom": globalCustom,
+		"max_steps":                     steps,
+		"context_limit":                 limit,
+		"voice_model":                   s.agent.Cfg.VoiceModel,
+		"api_key_set":                   providerKey != "",
+		"openai_api_key_set":            openaiSet,
+		"model_providers":               publicModelProviders(providers),
+		"active_model_provider_id":      activeID,
 	}
 }
 
@@ -1130,6 +1185,12 @@ func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *appServer) applySettings(body agentSettings) error {
+	resetInstructions := body.AutopilotInstructionsReset != nil && *body.AutopilotInstructionsReset
+	if !resetInstructions && body.AutopilotInstructions != nil {
+		if _, err := normalizeAutopilotInstructions(*body.AutopilotInstructions); err != nil {
+			return err
+		}
+	}
 	cfg := &s.agent.Cfg
 	writeProviders := body.ModelProviders != nil
 	s.pendingProviders = nil
@@ -1180,6 +1241,15 @@ func (s *appServer) applySettings(body agentSettings) error {
 	if body.Autopilot != nil {
 		cfg.Autopilot = *body.Autopilot
 	}
+	if resetInstructions {
+		cfg.AutopilotInstructions = ""
+	} else if body.AutopilotInstructions != nil {
+		text, err := normalizeAutopilotInstructions(*body.AutopilotInstructions)
+		if err != nil {
+			return err
+		}
+		cfg.AutopilotInstructions = text
+	}
 	if body.MaxSteps != nil {
 		if *body.MaxSteps < 1 {
 			return fmt.Errorf("max_steps must be positive")
@@ -1228,7 +1298,8 @@ func (s *appServer) applySettings(body agentSettings) error {
 			cfg.ExternalClient.APIKey = k
 		}
 	}
-	if err := s.persistAgentConfig(writeProviderKey || writeProviders, writeOpenAIKey); err != nil {
+	writeInstructions := resetInstructions || body.AutopilotInstructions != nil
+	if err := s.persistAgentConfig(writeProviderKey || writeProviders, writeOpenAIKey, writeInstructions); err != nil {
 		return fmt.Errorf("persist config: %w", err)
 	}
 	if writeProviders {
@@ -1505,7 +1576,7 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) error {
+func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAutopilotInstructions bool) error {
 	path := strings.TrimSpace(s.agent.Cfg.ConfigPath)
 	if path == "" {
 		return nil
@@ -1526,6 +1597,9 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey bool) er
 		fc.Features.WebSearch = &web
 		auto := cfg.Autopilot
 		fc.Features.Autopilot = &auto
+		if writeAutopilotInstructions {
+			fc.Features.AutopilotInstructions = cfg.AutopilotInstructions
+		}
 		fc.Reasoning = cfg.Reasoning
 		fc.VoiceModel = cfg.VoiceModel
 		fc.MaxSteps = cfg.MaxSteps

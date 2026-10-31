@@ -79,7 +79,13 @@ names the affected path, and file edits show the old/new preview above the
 - Repeated identical results and repeated identical failures stop supervision
   and hand control back to the human.
 - The supervisor is an AI, not the user. Its instructions can steer strategy but
-  never grant approvals or authorize sensitive actions.
+  never grant approvals or authorize sensitive actions. The approval mode
+  (`ask` / `auto` / `yolo`) is separate from the supervisor prompt.
+- Settings can replace the whole supervisor prompt. A thread can replace that
+  again. An empty text cannot be saved. Reset in Settings returns to the
+  built-in prompt. Reset on the thread (More → Autopilot instructions) drops
+  the thread text so later global edits apply again. A thread with no saved
+  text follows the global prompt live.
 
 ## Delegation
 

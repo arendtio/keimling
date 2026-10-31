@@ -192,7 +192,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			}
 			pilotCycles++
 			a.printf("\n◌ Autopilot reviewing %d-round limit (supervision %d/200)…\n", a.Cfg.MaxSteps, pilotCycles)
-			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, "Worker reached its API-round limit without completing the active task. Review progress and decide whether to continue for another block of rounds.", a.modelInput())
+			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, "Worker reached its API-round limit without completing the active task. Review progress and decide whether to continue for another block of rounds.", a.autopilotPrompt(), a.modelInput())
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot round-limit review: %w", pilotErr)
 			}
@@ -721,7 +721,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) e
 			}
 			pilotCycles++
 			a.println("\033[36m◌\033[0m Autopilot reviewing outcome…")
-			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, report, a.modelInput())
+			decision, pilotErr := a.Client.Pilot(ctx, a.Cfg.PilotModel, a.Cfg.PilotReasoning, message, report, a.autopilotPrompt(), a.modelInput())
 			if pilotErr != nil {
 				return fmt.Errorf("autopilot review: %w", pilotErr)
 			}

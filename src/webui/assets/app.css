@@ -1299,6 +1299,14 @@ button.wide { width: 100%; max-width: 100%; }
   color: var(--danger);
 }
 
+.autopilot-instructions {
+  min-height: 10rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+.autopilot-dialog {
+  max-width: min(720px, 94vw);
+}
 .context-dialog {
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 4px);

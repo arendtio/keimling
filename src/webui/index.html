@@ -186,6 +186,18 @@
           </select>
         </label>
         <label class="check"><input id="set-autopilot" type="checkbox"> Autopilot</label>
+        <label>Autopilot instructions
+          <textarea id="set-autopilot-instructions" class="autopilot-instructions" rows="8" spellcheck="false"></textarea>
+        </label>
+        <p class="hint">Replaces the built-in supervisor prompt for every thread that has not saved its own. Approval mode is unchanged.</p>
+        <p id="set-autopilot-instructions-status" class="hint"></p>
+        <p id="set-autopilot-instructions-err" class="gate-err" hidden></p>
+        <div class="skills-row">
+          <button type="button" id="set-autopilot-instructions-undo" class="ghost" hidden>Undo reset</button>
+        </div>
+        <div class="skills-row">
+          <button type="button" id="set-autopilot-instructions-reset" class="ghost">Reset to built-in</button>
+        </div>
         <label>Max steps
           <input id="set-max-steps" type="number" min="1" step="1">
         </label>
@@ -467,6 +479,25 @@
         </form>
       </dialog>
 
+      <dialog id="autopilot-dialog" class="context-dialog autopilot-dialog">
+        <form method="dialog" class="context-panel" id="autopilot-form">
+          <header class="context-head">
+            <h2>Autopilot instructions</h2>
+            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
+          </header>
+          <p id="autopilot-instructions-status" class="hint"></p>
+          <textarea id="autopilot-instructions" class="autopilot-instructions" rows="12" spellcheck="false"></textarea>
+          <p id="autopilot-instructions-err" class="gate-err" hidden></p>
+          <div class="skills-row">
+            <button type="button" id="autopilot-instructions-save">Save for this thread</button>
+            <button type="button" id="autopilot-instructions-undo" class="ghost" hidden>Undo reset</button>
+          </div>
+          <div class="skills-row">
+            <button type="button" id="autopilot-instructions-reset" class="ghost">Reset to global</button>
+          </div>
+        </form>
+      </dialog>
+
       <dialog id="context-dialog" class="context-dialog">
         <form method="dialog" class="context-panel">
           <header class="context-head">
@@ -505,6 +536,7 @@
             <div id="paper-menu" class="paper-menu" role="menu" hidden>
               <button type="button" id="open-context" role="menuitem">Context</button>
               <button type="button" id="open-artifacts" role="menuitem">Artifacts</button>
+              <button type="button" id="open-autopilot" role="menuitem">Autopilot instructions</button>
             </div>
           </div>
         </header>

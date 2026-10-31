@@ -46,7 +46,8 @@
 | `GET`/`POST` | `/api/agents/teams` | yes | Host: list / create teams |
 | `POST` | `/api/agents/teams/spawn` | yes | Host: spawn team instances |
 | `POST` | `/api/agents/teams/delete` | yes | Host: delete team |
-| `GET`/`PUT` | `/api/settings` | yes | Runtime knobs (mode, web, autopilot, max_steps, context_limit, voice_model) plus `model_providers` / `active_model_provider_id` (mirrored to legacy `base_url` / `model` / `api_key`); write-only keys; GET exposes `api_key_set` / `openai_api_key_set` and per-provider `api_key_set`. See `04-auth-and-settings.md`. |
+| `GET`/`PUT` | `/api/settings` | yes | Runtime knobs (mode, web, autopilot, max_steps, context_limit, voice_model) plus `model_providers` / `active_model_provider_id` (mirrored to legacy `base_url` / `model` / `api_key`); write-only keys; GET exposes `api_key_set` / `openai_api_key_set` and per-provider `api_key_set`. `autopilot_instructions` replaces the factory supervisor prompt (blank is rejected); `autopilot_instructions_reset: true` clears that override. GET returns the effective text and `autopilot_instructions_custom`. See `04-auth-and-settings.md`. |
+| `GET`/`PUT` | `/api/threads/autopilot` | yes | Current thread's supervisor prompt. GET: `instructions`, `custom`, `source` (`thread` / `global` / `factory`). PUT `{instructions}` saves a full replacement (blank rejected, including a copy of the global text). PUT `{reset:true}` clears it so the thread follows the global prompt again. |
 | `GET`/`PUT` | `/api/gui-prefs` | yes | Desktop UI prefs + **server** `connections[]` / `active_connection_id` (legacy `connect` / `access_secret`). |
 | `GET`/`PUT` | `/api/client-connections` | yes | **Machine** connection book (`connections.json` next to config). Prefer native bridge when the UI origin is a remote agent. |
 | `GET`/`POST` | `/api/credentials` | yes | List credential metadata / create (vault must be unlocked). Secrets write-only. |

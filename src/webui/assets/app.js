@@ -170,6 +170,25 @@
   var setReasoning = document.getElementById("set-reasoning");
   var setWeb = document.getElementById("set-web");
   var setAutopilot = document.getElementById("set-autopilot");
+  var setAutopilotInstructions = document.getElementById("set-autopilot-instructions");
+  var setAutopilotInstructionsStatus = document.getElementById("set-autopilot-instructions-status");
+  var setAutopilotInstructionsErr = document.getElementById("set-autopilot-instructions-err");
+  var setAutopilotInstructionsReset = document.getElementById("set-autopilot-instructions-reset");
+  var setAutopilotInstructionsUndo = document.getElementById("set-autopilot-instructions-undo");
+  var autopilotSettingsCustom = false;
+  var autopilotSettingsBaseline = "";
+  var autopilotSettingsUndoText = "";
+  var openAutopilotBtn = document.getElementById("open-autopilot");
+  var autopilotDialog = document.getElementById("autopilot-dialog");
+  var autopilotInstructionsEl = document.getElementById("autopilot-instructions");
+  var autopilotInstructionsStatus = document.getElementById("autopilot-instructions-status");
+  var autopilotInstructionsErr = document.getElementById("autopilot-instructions-err");
+  var autopilotInstructionsSave = document.getElementById("autopilot-instructions-save");
+  var autopilotInstructionsReset = document.getElementById("autopilot-instructions-reset");
+  var autopilotInstructionsUndo = document.getElementById("autopilot-instructions-undo");
+  var threadAutopilotCustom = false;
+  var threadAutopilotSaved = "";
+  var threadAutopilotUndoText = "";
   var setMaxSteps = document.getElementById("set-max-steps");
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
@@ -1393,11 +1412,26 @@
     setMode.value = j.mode || "auto";
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
+    applyAutopilotSettingsFields(j);
+    if (setAutopilotInstructionsUndo) setAutopilotInstructionsUndo.hidden = true;
     setMaxSteps.value = j.max_steps != null ? j.max_steps : 200;
     setContextLimit.value = j.context_limit != null ? j.context_limit : 128000;
     setVoiceModel.value = j.voice_model || "";
     syncHiddenProviderFields();
     renderProviderList();
+  }
+
+  function applyAutopilotSettingsFields(j) {
+    autopilotSettingsCustom = !!j.autopilot_instructions_custom;
+    autopilotSettingsBaseline = j.autopilot_instructions || "";
+    if (setAutopilotInstructions) setAutopilotInstructions.value = autopilotSettingsBaseline;
+    if (setAutopilotInstructionsErr) setAutopilotInstructionsErr.hidden = true;
+    if (setAutopilotInstructionsStatus) {
+      setAutopilotInstructionsStatus.textContent = autopilotSettingsCustom
+        ? "Saved global instructions. Threads without their own text use this."
+        : "Built-in instructions. Saving replaces them.";
+    }
+    if (setAutopilotInstructionsReset) setAutopilotInstructionsReset.disabled = !autopilotSettingsCustom;
   }
 
   function loadAgentSettings() {
@@ -1452,6 +1486,19 @@
     };
     var openaiKey = setOpenAIAPIKey.value.trim();
     if (openaiKey) body.openai_api_key = openaiKey;
+    if (setAutopilotInstructions) {
+      var pilotText = setAutopilotInstructions.value;
+      if (!pilotText.trim()) {
+        if (setAutopilotInstructionsErr) {
+          setAutopilotInstructionsErr.hidden = false;
+          setAutopilotInstructionsErr.textContent = "Autopilot instructions cannot be empty. Use Reset to go back to the built-in prompt.";
+        }
+        return;
+      }
+      if (autopilotSettingsCustom || pilotText !== autopilotSettingsBaseline) {
+        body.autopilot_instructions = pilotText;
+      }
+    }
     saveSettingsBtn.disabled = true;
     fetch(apiURL("/api/settings"), {
       method: "PUT",
@@ -3453,6 +3500,182 @@
     openContextBtn.addEventListener("click", function () {
       closePaperMenu();
       openContextDialog();
+    });
+  }
+
+  function threadAutopilotStatusText(j) {
+    if (j.custom) return "Saved for this thread. It stays when the global text changes.";
+    if (j.source === "factory") return "Following the built-in instructions. Saving stores a copy for this thread.";
+    return "Following the global instructions. Saving stores a copy for this thread.";
+  }
+
+  function applyThreadAutopilot(j) {
+    threadAutopilotCustom = !!j.custom;
+    threadAutopilotSaved = j.custom ? (j.instructions || "") : "";
+    if (autopilotInstructionsEl) autopilotInstructionsEl.value = j.instructions || "";
+    if (autopilotInstructionsErr) autopilotInstructionsErr.hidden = true;
+    if (autopilotInstructionsStatus) autopilotInstructionsStatus.textContent = threadAutopilotStatusText(j);
+    if (autopilotInstructionsReset) autopilotInstructionsReset.disabled = !threadAutopilotCustom;
+  }
+
+  function readJSONResponse(r) {
+    return r.text().then(function (t) {
+      var j = {};
+      try { j = JSON.parse(t); } catch (e) {}
+      if (!r.ok) throw new Error((j && (j.message || j.error)) || t || ("HTTP " + r.status));
+      return j;
+    });
+  }
+
+  function openAutopilotDialog() {
+    if (!connected || !autopilotDialog) return;
+    fetch(apiURL("/api/threads/autopilot"), { headers: headers() })
+      .then(readJSONResponse)
+      .then(function (j) {
+        applyThreadAutopilot(j);
+        if (autopilotInstructionsUndo) autopilotInstructionsUndo.hidden = true;
+        if (typeof autopilotDialog.showModal === "function") {
+          if (!autopilotDialog.open) autopilotDialog.showModal();
+        } else autopilotDialog.setAttribute("open", "");
+      })
+      .catch(function (err) {
+        appendLive("\n[autopilot] " + err + "\n");
+      });
+  }
+
+  if (openAutopilotBtn) {
+    openAutopilotBtn.addEventListener("click", function () {
+      closePaperMenu();
+      openAutopilotDialog();
+    });
+  }
+  if (autopilotInstructionsSave) {
+    autopilotInstructionsSave.addEventListener("click", function () {
+      var text = autopilotInstructionsEl ? autopilotInstructionsEl.value : "";
+      if (!text.trim()) {
+        if (autopilotInstructionsErr) {
+          autopilotInstructionsErr.hidden = false;
+          autopilotInstructionsErr.textContent = "Autopilot instructions cannot be empty. Use Reset to follow the global prompt again.";
+        }
+        return;
+      }
+      autopilotInstructionsSave.disabled = true;
+      fetch(apiURL("/api/threads/autopilot"), {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ instructions: text }),
+      })
+        .then(readJSONResponse)
+        .then(function (j) {
+          applyThreadAutopilot(j);
+          if (autopilotInstructionsUndo) autopilotInstructionsUndo.hidden = true;
+          if (autopilotInstructionsStatus) autopilotInstructionsStatus.textContent = "Saved for this thread.";
+        })
+        .catch(function (err) {
+          if (autopilotInstructionsErr) {
+            autopilotInstructionsErr.hidden = false;
+            autopilotInstructionsErr.textContent = String(err.message || err);
+          }
+        })
+        .finally(function () { autopilotInstructionsSave.disabled = false; });
+    });
+  }
+  if (autopilotInstructionsReset) {
+    autopilotInstructionsReset.addEventListener("click", function () {
+      if (!threadAutopilotCustom) return;
+      var dirty = autopilotInstructionsEl && autopilotInstructionsEl.value !== threadAutopilotSaved;
+      var msg = "Drop this thread's instructions and follow the global prompt again?";
+      if (dirty) msg += " Unsaved edits in this box are discarded.";
+      if (!window.confirm(msg)) return;
+      threadAutopilotUndoText = threadAutopilotSaved;
+      fetch(apiURL("/api/threads/autopilot"), {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ reset: true }),
+      })
+        .then(readJSONResponse)
+        .then(function (j) {
+          applyThreadAutopilot(j);
+          if (autopilotInstructionsUndo) autopilotInstructionsUndo.hidden = false;
+          if (autopilotInstructionsStatus) autopilotInstructionsStatus.textContent = "Reset. This thread follows the global prompt again.";
+        })
+        .catch(function (err) {
+          if (autopilotInstructionsErr) {
+            autopilotInstructionsErr.hidden = false;
+            autopilotInstructionsErr.textContent = String(err.message || err);
+          }
+        });
+    });
+  }
+  if (autopilotInstructionsUndo) {
+    autopilotInstructionsUndo.addEventListener("click", function () {
+      if (!threadAutopilotUndoText.trim()) return;
+      fetch(apiURL("/api/threads/autopilot"), {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ instructions: threadAutopilotUndoText }),
+      })
+        .then(readJSONResponse)
+        .then(function (j) {
+          applyThreadAutopilot(j);
+          autopilotInstructionsUndo.hidden = true;
+          if (autopilotInstructionsStatus) autopilotInstructionsStatus.textContent = "Restored this thread's instructions.";
+        })
+        .catch(function (err) {
+          if (autopilotInstructionsErr) {
+            autopilotInstructionsErr.hidden = false;
+            autopilotInstructionsErr.textContent = String(err.message || err);
+          }
+        });
+    });
+  }
+  if (setAutopilotInstructionsReset) {
+    setAutopilotInstructionsReset.addEventListener("click", function () {
+      if (!autopilotSettingsCustom) return;
+      var dirty = setAutopilotInstructions && setAutopilotInstructions.value !== autopilotSettingsBaseline;
+      var msg = "Reset global autopilot instructions to the built-in prompt? Threads that saved their own text keep it.";
+      if (dirty) msg += " Unsaved edits in this box are discarded.";
+      if (!window.confirm(msg)) return;
+      autopilotSettingsUndoText = autopilotSettingsBaseline;
+      fetch(apiURL("/api/settings"), {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ autopilot_instructions_reset: true }),
+      })
+        .then(readJSONResponse)
+        .then(function (j) {
+          applyAutopilotSettingsFields(j);
+          if (setAutopilotInstructionsUndo) setAutopilotInstructionsUndo.hidden = false;
+          if (setAutopilotInstructionsStatus) setAutopilotInstructionsStatus.textContent = "Reset to the built-in prompt.";
+        })
+        .catch(function (err) {
+          if (setAutopilotInstructionsErr) {
+            setAutopilotInstructionsErr.hidden = false;
+            setAutopilotInstructionsErr.textContent = String(err.message || err);
+          }
+        });
+    });
+  }
+  if (setAutopilotInstructionsUndo) {
+    setAutopilotInstructionsUndo.addEventListener("click", function () {
+      if (!autopilotSettingsUndoText.trim()) return;
+      fetch(apiURL("/api/settings"), {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ autopilot_instructions: autopilotSettingsUndoText }),
+      })
+        .then(readJSONResponse)
+        .then(function (j) {
+          applyAutopilotSettingsFields(j);
+          setAutopilotInstructionsUndo.hidden = true;
+          if (setAutopilotInstructionsStatus) setAutopilotInstructionsStatus.textContent = "Restored the global instructions.";
+        })
+        .catch(function (err) {
+          if (setAutopilotInstructionsErr) {
+            setAutopilotInstructionsErr.hidden = false;
+            setAutopilotInstructionsErr.textContent = String(err.message || err);
+          }
+        });
     });
   }
   if (contextCompactBtn) {
