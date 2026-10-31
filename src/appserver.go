@@ -130,14 +130,19 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/workspaces", s.requireSecret(http.HandlerFunc(s.handleWorkspaces)))
 	s.mux.Handle("/api/workspaces/open", s.requireSecret(http.HandlerFunc(s.handleWorkspaceOpen)))
 	s.mux.Handle("/api/workspaces/switch", s.requireSecret(http.HandlerFunc(s.handleWorkspaceSwitch)))
+	s.mux.Handle("/api/workspaces/hide", s.requireSecret(http.HandlerFunc(s.handleWorkspaceHide)))
 	s.mux.Handle("/api/threads", s.requireSecret(http.HandlerFunc(s.handleThreads)))
 	s.mux.Handle("/api/threads/switch", s.requireSecret(http.HandlerFunc(s.handleThreadSwitch)))
 	s.mux.Handle("/api/threads/delete", s.requireSecret(http.HandlerFunc(s.handleThreadDelete)))
 	s.mux.Handle("/api/threads/autopilot", s.requireSecret(http.HandlerFunc(s.handleThreadAutopilot)))
 	s.mux.Handle("/api/threads/model", s.requireSecret(http.HandlerFunc(s.handleThreadModel)))
+	s.mux.Handle("/api/threads/deliver", s.requireSecret(http.HandlerFunc(s.handleThreadDeliver)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
+	s.mux.Handle("/api/instance/reset", s.requireSecret(http.HandlerFunc(s.handleInstanceReset)))
 	s.mux.Handle("/api/compact", s.requireSecret(http.HandlerFunc(s.handleCompact)))
 	s.mux.Handle("/api/skills", s.requireSecret(http.HandlerFunc(s.handleSkills)))
+	s.mux.Handle("/api/skills/enabled", s.requireSecret(http.HandlerFunc(s.handleSkillEnabled)))
+	s.mux.Handle("/api/skills/policy", s.requireSecret(http.HandlerFunc(s.handleSkillPolicy)))
 	s.mux.Handle("/api/skills/add", s.requireSecret(http.HandlerFunc(s.handleSkillsAdd)))
 	s.mux.Handle("/api/skills/search", s.requireSecret(http.HandlerFunc(s.handleSkillsSearch)))
 	s.mux.Handle("/api/skills/preview", s.requireSecret(http.HandlerFunc(s.handleSkillsPreview)))
@@ -209,6 +214,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
+	s.agent.observeAgentModelChange()
 	runningID := s.agent.Cfg.ThreadID
 	viewID := s.viewedThread()
 	background := viewID != "" && viewID != runningID && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
@@ -239,35 +245,46 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = s.agent.Cfg.Model
 	}
+	next := s.agent.effectiveChatTarget()
+	nextLabel := next.Label
+	if nextLabel == "" {
+		nextLabel = next.Model
+	}
+	locked, source, unresolved, saved := s.agent.chatModelLock()
 	limit := chat.ContextLimit
 	if limit <= 0 {
 		limit = s.agent.Cfg.ContextLimit
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"model":             label,
-		"chat_model_custom": chat.Custom,
-		"chat_provider_id":  chat.ProviderID,
-		"chat_model_id":     chat.Model,
-		"mode":              s.agent.Cfg.Mode,
-		"reasoning":         s.agent.Cfg.Reasoning,
-		"web":               s.agent.Cfg.Web,
-		"autopilot":         s.agent.Cfg.Autopilot,
-		"max_steps":         s.agent.Cfg.MaxSteps,
-		"context_limit":     limit,
-		"voice_model":       s.agent.Cfg.VoiceModel,
-		"workspace_id":      s.agent.Cfg.WorkspaceID,
-		"workspace_root":    s.agent.Cfg.WorkspaceRoot,
-		"thread_id":         threadID,
-		"running_thread":    runningID,
-		"background_busy":   background && s.isBusy(),
-		"agent_instance_id": s.agent.Cfg.AgentInstanceID,
-		"lines":             sessionTranscript(uiHistory, 200),
-		"messages":          msgs,
-		"chapters":          sessionChapters(path),
-		"working_state":     sessionWorkingState(path),
-		"busy":              s.isBusy() && !background,
-		"voice":             s.voiceAvailable(),
+		"model":                 label,
+		"chat_model_custom":     chat.Custom,
+		"chat_provider_id":      chat.ProviderID,
+		"chat_model_id":         chat.Model,
+		"chat_model_next":       nextLabel,
+		"chat_model_locked":     locked,
+		"chat_model_source":     source,
+		"chat_model_unresolved": unresolved,
+		"chat_model_saved":      saved,
+		"mode":                  s.agent.Cfg.Mode,
+		"reasoning":             s.agent.Cfg.Reasoning,
+		"web":                   s.agent.Cfg.Web,
+		"autopilot":             s.agent.Cfg.Autopilot,
+		"max_steps":             s.agent.Cfg.MaxSteps,
+		"context_limit":         limit,
+		"voice_model":           s.agent.Cfg.VoiceModel,
+		"workspace_id":          s.agent.Cfg.WorkspaceID,
+		"workspace_root":        s.agent.Cfg.WorkspaceRoot,
+		"thread_id":             threadID,
+		"running_thread":        runningID,
+		"background_busy":       background && s.isBusy(),
+		"agent_instance_id":     s.agent.Cfg.AgentInstanceID,
+		"lines":                 sessionTranscript(uiHistory, 200),
+		"messages":              msgs,
+		"chapters":              sessionChapters(path),
+		"working_state":         sessionWorkingState(path),
+		"busy":                  s.isBusy() && !background,
+		"voice":                 s.voiceAvailable(),
 		"state": func() string {
 			if s.isBusy() && !background {
 				return "running"
@@ -388,6 +405,31 @@ func (s *appServer) handleWorkspaceSwitch(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.respondWorkspaceSwitch(w, strings.TrimSpace(body.ID))
+}
+
+func (s *appServer) handleWorkspaceHide(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(body.ID)
+	if s.agent != nil && id == strings.TrimSpace(s.agent.Cfg.WorkspaceID) {
+		http.Error(w, "switch to another workspace before removing this one from the menu", http.StatusBadRequest)
+		return
+	}
+	if err := hideWorkspace(id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
 }
 
 func (s *appServer) respondWorkspaceSwitch(w http.ResponseWriter, id string) {
@@ -721,7 +763,85 @@ func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
 		"charter":  c,
 		"markdown": c.RenderMarkdown(),
 		"budget":   b,
+		"raw":      s.agent.rawContextView(),
 	})
+}
+
+func (a *Agent) rawContextView() map[string]any {
+	type part struct {
+		Name      string `json:"name"`
+		Text      string `json:"text"`
+		Chars     int    `json:"chars"`
+		EstTokens int    `json:"est_tokens"`
+	}
+	var parts []part
+	add := func(name, text string) {
+		parts = append(parts, part{Name: name, Text: text, Chars: len(text), EstTokens: len(text)/4 + 1})
+	}
+	if a == nil {
+		return map[string]any{"parts": parts}
+	}
+	instr := a.modelInstructions()
+	add("instructions", instr)
+	tools := filterGrantedTools(definitions(a.Cfg.Web, a.agentExtraTools()), a.instanceToolGrant())
+	if tb, err := json.MarshalIndent(tools, "", "  "); err == nil {
+		add("tools", string(tb))
+	}
+	for i, item := range a.wireModelInput() {
+		add(fmt.Sprintf("input %d", i+1), string(item))
+	}
+	est := 0
+	for _, p := range parts {
+		est += p.EstTokens
+	}
+	measured := 0
+	if a.Client != nil && a.Client.LastMainUsage.Available {
+		measured = int(a.Client.LastMainUsage.InputTokens)
+	}
+	return map[string]any{
+		"parts":                 parts,
+		"est_tokens":            est,
+		"measured_input_tokens": measured,
+		"note":                  "The charter is the short durable summary. The token count is the full request: instructions, tool definitions, and the transcript. Each input part is what is sent. Raw command output kept for the tool card is not included.",
+	}
+}
+
+func (s *appServer) handleInstanceReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == "" {
+		http.Error(w, "not an agent instance", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	cancel := s.cancel
+	if s.busy {
+		s.stopRequested = true
+	}
+	s.mu.Unlock()
+	_ = setAgentWakesHeld(s.agent.Cfg.AgentInstanceID, true)
+	if cancel != nil {
+		cancel()
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		busy := s.busy
+		s.mu.Unlock()
+		if !busy {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if err := s.agent.resetInstanceContext(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.hub.Broadcast("status", map[string]string{"state": "idle", "thread_id": s.agent.Cfg.ThreadID})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
 func (s *appServer) handleCompact(w http.ResponseWriter, r *http.Request) {
@@ -784,9 +904,75 @@ func (s *appServer) handleSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.agent.refreshSkills()
+	prefs := s.agent.syncSkillPrefs()
 	list := s.agent.ensureSkills().List()
+	skills := make([]map[string]any, 0, len(list))
+	for _, sk := range list {
+		if sk == nil {
+			continue
+		}
+		skills = append(skills, map[string]any{
+			"name":        sk.Name,
+			"description": sk.Description,
+			"source":      sk.Source,
+			"writable":    sk.Writable,
+			"origin_url":  sk.OriginURL,
+			"enabled":     s.agent.skillEnabled(sk.Name),
+		})
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"skills": list})
+	_ = json.NewEncoder(w).Encode(map[string]any{"skills": skills, "auto_enable_new": prefs.AutoEnableNew})
+}
+
+func (s *appServer) handleSkillEnabled(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	s.agent.refreshSkills()
+	s.agent.syncSkillPrefs()
+	if err := s.agent.setSkillEnabled(body.Name, body.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": body.Name, "enabled": body.Enabled})
+}
+
+func (s *appServer) handleSkillPolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		AutoEnableNew bool `json:"auto_enable_new"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := s.agent.setSkillAutoEnable(body.AutoEnableNew); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "auto_enable_new": body.AutoEnableNew})
 }
 
 func (s *appServer) handleArtifacts(w http.ResponseWriter, r *http.Request) {
@@ -1810,10 +1996,17 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	cancel := s.cancel
 	s.stopRequested = true
 	s.mu.Unlock()
+	if id := strings.TrimSpace(s.agent.Cfg.AgentInstanceID); id != "" {
+		_ = setAgentWakesHeld(id, true)
+	}
 
 	// A decision queued before/while stopping must not auto-approve the next run.
 	drainApproval(s.agent)
 	cancel()
+	killTrackedCommands()
+	if s.agent.Compaction != nil && s.agent.Compaction.cancel != nil {
+		s.agent.Compaction.cancel()
+	}
 	// Catch a decision that slipped in between the drain and cancel.
 	drainApproval(s.agent)
 	w.Header().Set("Content-Type", "application/json")
@@ -1844,6 +2037,10 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Text string `json:"text"`
+		To   []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"to"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1853,6 +2050,45 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if text == "" {
 		http.Error(w, "text required", http.StatusBadRequest)
 		return
+	}
+	if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == "" && strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
+		var picks []agentMentionPick
+		for _, p := range body.To {
+			picks = append(picks, agentMentionPick{ID: p.ID, Name: p.Name})
+		}
+		mentions, ambiguous, err := resolveWorkspaceAgentMentions(s.agent.Cfg.WorkspaceID, text, picks)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if ambiguous {
+			http.Error(w, "choose the agent instance", http.StatusConflict)
+			return
+		}
+		if len(mentions) > 0 {
+			bodyText := stripResolvedMentions(text, mentions)
+			if bodyText == "" {
+				http.Error(w, "write the message after the name", http.StatusBadRequest)
+				return
+			}
+			view, err := s.workspaceMentionThread()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := s.recordAgentMentions(bodyText, mentions); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			delivered := make([]map[string]string, 0, len(mentions))
+			for _, m := range mentions {
+				delivered = append(delivered, map[string]string{"id": m.ID, "name": m.Name})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": false, "delivered": delivered, "text": bodyText, "thread_id": view})
+			return
+		}
 	}
 	queued, err := s.acceptAgentText(text, "user", "message")
 	if err != nil {
@@ -1864,6 +2100,161 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": queued})
 }
 
+// workspaceMentionThread is the workspace thread a mention is recorded on.
+// The agent instance's own thread id is not a workspace thread. When the
+// worker is sitting on that placeholder, the mention moves to a real thread.
+func (s *appServer) workspaceMentionThread() (string, error) {
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+		return "", fmt.Errorf("no workspace thread")
+	}
+	view := s.viewedThread()
+	if isWorkspaceThreadID(view) {
+		return view, nil
+	}
+	list, err := listThreads(s.agent.Cfg.WorkspaceID)
+	if err != nil {
+		return "", err
+	}
+	if len(list) == 0 {
+		return "", fmt.Errorf("no workspace thread")
+	}
+	id := list[0].ID
+	s.mu.Lock()
+	busy := s.busy
+	s.mu.Unlock()
+	if busy {
+		s.mu.Lock()
+		s.viewThread = id
+		s.mu.Unlock()
+		return id, nil
+	}
+	if err := s.agent.SwitchThread(id); err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	s.viewThread = ""
+	s.mu.Unlock()
+	return id, nil
+}
+
+func (s *appServer) recordAgentMentions(text string, mentions []resolvedAgentMention) error {
+	if s.agent == nil {
+		return fmt.Errorf("no agent")
+	}
+	view := s.viewedThread()
+	running := s.agent.Cfg.ThreadID
+	s.mu.Lock()
+	busy := s.busy
+	s.mu.Unlock()
+	ws := s.agent.Cfg.WorkspaceID
+	for _, m := range mentions {
+		meta, err := readAgentInstanceMeta(m.ID)
+		if err != nil {
+			return err
+		}
+		if !agentInstanceAllowsWorkspace(meta, ws) {
+			return fmt.Errorf("agent %s is not in this workspace", m.ID)
+		}
+		name := strings.TrimSpace(meta.Name)
+		if name == "" {
+			name = m.ID
+		}
+		item := peerSentItem(name, text)
+		if view == running && s.agent.Journal != nil {
+			raw, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			if busy {
+				if err := s.agent.Journal.AppendItemFileOnly(raw); err != nil {
+					return err
+				}
+			} else if err := s.agent.add(item); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := appendSessionItem(threadSessionPath(ws, view), item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *appServer) handleThreadDeliver(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		ThreadID    string `json:"thread_id"`
+		FromName    string `json:"from_name"`
+		FromID      string `json:"from_id"`
+		Text        string `json:"text"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	wsID := strings.TrimSpace(body.WorkspaceID)
+	threadID := strings.TrimSpace(body.ThreadID)
+	text := strings.TrimSpace(body.Text)
+	name := strings.TrimSpace(body.FromName)
+	if name == "" {
+		name = strings.TrimSpace(body.FromID)
+	}
+	if s.agent == nil || wsID == "" || threadID == "" || text == "" || name == "" {
+		http.Error(w, "workspace_id, thread_id, from_name, and text required", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(s.agent.Cfg.WorkspaceID) != wsID {
+		http.Error(w, "workspace mismatch", http.StatusBadRequest)
+		return
+	}
+	if st, err := os.Stat(threadDir(wsID, threadID)); err != nil || !st.IsDir() {
+		http.Error(w, "unknown thread", http.StatusNotFound)
+		return
+	}
+	item := map[string]any{
+		"type":      "keimling_peer",
+		"direction": "received",
+		"peer":      name,
+		"text":      text,
+	}
+	running := s.agent.Cfg.ThreadID
+	s.mu.Lock()
+	busy := s.busy
+	s.mu.Unlock()
+	if threadID == running && s.agent.Journal != nil {
+		raw, err := json.Marshal(item)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if busy {
+			if err := s.agent.Journal.AppendItemFileOnly(raw); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else if err := s.agent.add(item); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if err := appendSessionItem(threadSessionPath(wsID, threadID), item); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.agent.emitJSON("message", map[string]any{
+		"role":      "peer",
+		"name":      "From " + name,
+		"text":      text,
+		"thread_id": threadID,
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
 func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -1872,6 +2263,9 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 	inst := ""
 	if s.agent != nil {
 		inst = strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
+	}
+	if inst != "" && strings.TrimSpace(from) == "" && (strings.TrimSpace(kind) == "" || kind == "message") {
+		_ = setAgentWakesHeld(inst, false)
 	}
 	if inst == "" && s.agent != nil && strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
 		view := s.viewedThread()
@@ -1980,7 +2374,7 @@ func (s *appServer) pumpAgentWakes() {
 		return
 	}
 	inst := strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
-	if inst == "" {
+	if inst == "" || agentWakesHeld(inst) {
 		return
 	}
 	s.mu.Lock()

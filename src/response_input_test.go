@@ -91,3 +91,26 @@ func TestRespondNormalizesBeforeHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRawContextOmitsStoredCommandOutput(t *testing.T) {
+	item, err := json.Marshal(map[string]any{
+		"type":       "function_call_output",
+		"call_id":    "c1",
+		"output":     "exit_code=0\n[Filtered]\nshort",
+		"raw_output": "exit_code=0\nSECRET-LISTING",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{History: []json.RawMessage{item}, Charter: &Charter{Version: charterVersion}}
+	raw, err := json.Marshal(a.rawContextView())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("SECRET-LISTING")) {
+		t.Fatalf("raw command output included in context view: %s", raw)
+	}
+	if !bytes.Contains(raw, []byte("[Filtered]")) {
+		t.Fatalf("filtered output missing: %s", raw)
+	}
+}

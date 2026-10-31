@@ -138,6 +138,7 @@
   var teamSelectIDs = {};
   var currentWorkspaceID = "";
   var currentThreadID = "";
+  var workspaceThreadID = "";
   var currentAgentInstanceID = "";
   var selectedDefinitionID = "";
   var editingDefinitionID = "";
@@ -292,7 +293,8 @@
   var heldOpen = null;
   var connected = false;
   var agentState = "idle";
-  var stopping = false;
+  var stoppingThreadID = "";
+  var stoppingAgents = {};
   var voiceOK = false;
   var mode = "local"; // local | remote
   var apiBase = ""; // empty = same origin
@@ -1626,6 +1628,11 @@
     progressDetail.textContent = parts.join(" · ");
   }
 
+  function composerIsStopping() {
+    if (currentAgentInstanceID) return !!stoppingAgents[currentAgentInstanceID];
+    return !!stoppingThreadID && currentThreadID === stoppingThreadID;
+  }
+
   function setState(s) {
     agentState = s || "idle";
     stateEl.textContent = agentState;
@@ -1639,7 +1646,6 @@
     if (agentState !== "running" && agentState !== "compacting") clearProgress();
     var waiting = agentState === "awaiting_approval";
     var busyish = agentState === "running" || agentState === "compacting" || waiting;
-    if (!busyish) stopping = false;
     approve.disabled = !waiting;
     deny.disabled = !waiting;
     // Allow typing/voice/sending while busy → server queues or steers (CLI-like).
@@ -1669,9 +1675,11 @@
       }
     }
     if (stopBtn) {
-      stopBtn.disabled = !connected || !(busyish || backgroundBusy) || stopping;
-      stopBtn.textContent = stopping ? "Stopping…" : "Interrupt";
-      stopBtn.title = "Interrupt the running agent";
+      var hereStopping = composerIsStopping();
+      var workspaceStopping = !currentAgentInstanceID && !!stoppingThreadID && (busyish || backgroundBusy);
+      stopBtn.disabled = !connected || !(busyish || backgroundBusy) || hereStopping || (workspaceStopping && !hereStopping);
+      stopBtn.textContent = hereStopping ? "Stopping…" : "Interrupt";
+      stopBtn.title = hereStopping ? "This one is stopping" : "Interrupt the running agent";
     }
     if (voiceBtn && recording) {
       voiceBtn.textContent = "Done";
@@ -1840,6 +1848,19 @@
         switchWorkspace(ws.id);
       });
       li.appendChild(btn);
+      if (!ws.builtin && ws.id !== currentWorkspaceID) {
+        var remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "ghost workspace-remove";
+        remove.textContent = "Remove";
+        remove.title = "Remove from the menu. Files stay on disk.";
+        remove.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          hideWorkspace(ws);
+        });
+        li.appendChild(remove);
+      }
       workspaceList.appendChild(li);
     });
   }
@@ -1947,6 +1968,21 @@
       });
   }
 
+  function hideWorkspace(ws) {
+    var name = (ws && (ws.name || ws.id)) || "this workspace";
+    if (!window.confirm("Remove “" + name + "” from the menu?\n\nNo files are deleted. Open the folder again to put it back.")) return;
+    fetch(apiURL("/api/workspaces/hide"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: ws.id }),
+    })
+      .then(readAPIResult)
+      .then(function () { return loadWorkspaces(); })
+      .catch(function (err) {
+        appendLive("\n[workspace] " + err + "\n");
+      });
+  }
+
   function openWorkspacePath(path) {
     path = String(path || "").trim();
     if (!path) return;
@@ -2007,6 +2043,7 @@
       var row = document.createElement("div");
       var isActive = !currentAgentInstanceID && th.id === currentThreadID;
       var showRun = !currentAgentInstanceID && runningThreadID && th.id === runningThreadID;
+      var showStop = stoppingThreadID && th.id === stoppingThreadID;
       row.className = "thread-item" + (isActive ? " active" : "");
       row.title = th.id;
 
@@ -2014,7 +2051,8 @@
       open.type = "button";
       open.className = "thread-open";
       var st = document.createElement("span");
-      st.className = "thread-status" + (showRun ? " running" : "");
+      st.className = "thread-status" + (showStop ? " stopping" : (showRun ? " running" : ""));
+      if (showStop) st.title = "Stopping";
       var title = document.createElement("span");
       title.className = "thread-title";
       title.textContent = th.title || th.id;
@@ -2143,6 +2181,7 @@
       .then(function () {
         currentAgentInstanceID = "";
         currentThreadID = id;
+        if (id !== "main") workspaceThreadID = id;
         if (es && typeof es.close === "function") {
           try { es.close(); } catch (e) {}
           es = null;
@@ -2205,7 +2244,8 @@
     }
     agentsCache.forEach(function (ag) {
       var row = document.createElement("div");
-      row.className = "thread-item" + (ag.id === currentAgentInstanceID || ag.attached ? " active" : "");
+      var rowStopping = !!stoppingAgents[ag.id];
+      row.className = "thread-item" + (ag.id === currentAgentInstanceID || ag.attached ? " active" : "") + (rowStopping ? " stopping" : "");
       row.title = ag.id;
 
       var open = document.createElement("button");
@@ -2227,14 +2267,25 @@
       actions.className = "agent-actions";
       var stop = document.createElement("button");
       stop.type = "button";
-      stop.textContent = "Stop";
-      stop.title = "Stop current run";
+      stop.textContent = rowStopping ? "Stopping…" : "Stop";
+      stop.title = rowStopping ? "This agent is stopping" : "Stop current run";
+      stop.disabled = rowStopping;
       stop.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
         stopAgent(ag.id);
       });
       actions.appendChild(stop);
+      var reset = document.createElement("button");
+      reset.type = "button";
+      reset.textContent = "Reset";
+      reset.title = "Clear this conversation. Contacts, tools, and alarms stay.";
+      reset.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        resetAgent(ag.id, ag.name || ag.id);
+      });
+      actions.appendChild(reset);
 
       row.appendChild(open);
       row.appendChild(actions);
@@ -2254,12 +2305,17 @@
         return r.json().then(function (j) {
           if (!r.ok) throw new Error((j && j.error) || r.status);
           agentsCache = j.instances || [];
+          agentsCache.forEach(function (ag) {
+            if (ag.busy || ag.running) return;
+            delete stoppingAgents[ag.id];
+          });
           if (j.attached) currentAgentInstanceID = j.attached;
           else if (!j.attached && currentAgentInstanceID) {
             // Host reports no agent attached (e.g. after thread switch).
             currentAgentInstanceID = "";
           }
           renderAgentList();
+          setState(agentState);
         });
       })
       .catch(function (err) {
@@ -2366,6 +2422,11 @@
     if (agentAccessTitle) agentAccessTitle.textContent = name || "Access";
     showAgentDefErr("");
     markAgentAccessUnsaved();
+    var accessModel = document.getElementById("agent-access-model");
+    if (accessModel) {
+      accessModel.value = "";
+      accessModel.dataset.ready = "";
+    }
     setAgentDefPane("access");
     if (agentDefDialog && typeof agentDefDialog.showModal === "function" && !agentDefDialog.open) {
       agentDefDialog.showModal();
@@ -2404,6 +2465,20 @@
         renderToolMatrix(agentAccessTools, { states: states, lock: !!j.follows, mcp: j.mcp || null });
         if (agentAccessFollow) agentAccessFollow.checked = !!j.follows;
         applyAccessFollow();
+        var accessModel = document.getElementById("agent-access-model");
+        var accessModelHint = document.getElementById("agent-access-model-hint");
+        if (accessModel) {
+          accessModel.value = j.model || "";
+          accessModel.dataset.ready = "1";
+          accessModel.oninput = markAgentAccessUnsaved;
+        }
+        if (accessModelHint) {
+          var defModel = j.definition_model || "";
+          accessModelHint.textContent = defModel
+            ? "Empty uses the definition (" + defModel + "). A model here applies only to this instance."
+            : "Empty uses the definition, which follows Settings. A model here applies only to this instance.";
+        }
+        loadModelSuggestions();
       })
       .catch(function (err) {
         showAgentDefErr(String(err.message || err));
@@ -2416,6 +2491,10 @@
     var follow = !!(agentAccessFollow && agentAccessFollow.checked);
     var tools = follow ? null : checkedToolNames(agentAccessTools);
     var body = { id: agentAccessID, workspaces: workspaces, tools: tools };
+    var accessModel = document.getElementById("agent-access-model");
+    if (accessModel && accessModel.dataset.ready === "1") {
+      body.model = accessModel.value.trim();
+    }
     if (agentAccessPeers && agentAccessPeers.dataset.ready === "1") {
       body.peers = checkedAccess(agentAccessPeers, false);
     }
@@ -2435,9 +2514,17 @@
       .then(function () {
         if (agentAccessStatus) {
           agentAccessStatus.hidden = false;
-          agentAccessStatus.textContent = follow ? "Saved. This instance uses the definition’s tools." : "Saved. This instance uses a narrower tool set.";
+          var modelNote = "";
+          if (accessModel && accessModel.dataset.ready === "1") {
+            modelNote = accessModel.value.trim()
+              ? " Model: " + accessModel.value.trim() + "."
+              : " Model follows the definition.";
+          }
+          agentAccessStatus.textContent = (follow ? "Saved. This instance uses the definition’s tools." : "Saved. This instance uses a narrower tool set.") + modelNote;
         }
-        return Promise.all([loadAgents(), loadAllInstances()]);
+        return Promise.all([loadAgents(), loadAllInstances()]).then(function () {
+          if (currentAgentInstanceID === agentAccessID) return loadSession();
+        });
       })
       .catch(function (err) {
         showAgentDefErr(String(err.message || err));
@@ -2448,16 +2535,47 @@
   }
 
   function stopAgent(id) {
-    if (!id) return;
+    if (!id || stoppingAgents[id]) return;
+    stoppingAgents[id] = true;
+    renderAgentList();
+    setState(agentState);
     fetch(apiURL("/api/agents/instances/stop"), {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ id: id }),
     })
       .then(readAPIResult)
-      .then(function () {
+      .then(function (j) {
+        if (j && j.running === false) {
+          delete stoppingAgents[id];
+        }
         return loadAgents();
       })
+      .catch(function (err) {
+        delete stoppingAgents[id];
+        renderAgentList();
+        setState(agentState);
+        appendLive("\n[agents] " + err + "\n");
+      });
+  }
+
+  function resetAgent(id, label) {
+    if (!id) return;
+    var name = label || id;
+    if (!window.confirm("Reset “" + name + "” to a fresh context?\n\nThe conversation and charter are cleared. The old transcript is kept as a backup file. Contacts, tools, and alarms stay.")) {
+      return;
+    }
+    fetch(apiURL("/api/agents/instances/reset"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id }),
+    })
+      .then(readAPIResult)
+      .then(function () {
+        delete stoppingAgents[id];
+        if (currentAgentInstanceID === id) return loadSession();
+      })
+      .then(function () { return loadAgents(); })
       .catch(function (err) {
         appendLive("\n[agents] " + err + "\n");
       });
@@ -3074,7 +3192,9 @@
         editingDefinitionID = "";
         setManageTab("definitions");
         setAgentDefPane("pick");
-        return loadDefinitions();
+        return loadDefinitions().then(function () {
+          if (currentAgentInstanceID) return loadSession();
+        });
       })
       .catch(function (err) {
         showAgentDefErr(String(err));
@@ -3683,7 +3803,9 @@
   }
 
   function handleStructuredMessage(payload) {
-    if (!eventsForThisView()) return;
+    if (payload && payload.thread_id) {
+      if (payload.thread_id !== currentThreadID) return;
+    } else if (!eventsForThisView()) return;
     var text = payload.text || "";
     var role = payload.role || "assistant";
     if (payload.delta) {
@@ -3829,17 +3951,53 @@
     if (modelEl) modelEl.setAttribute("aria-expanded", "false");
   }
 
-  function applyThreadModelView(j) {
+  function agentModelTitle(label, source, unresolved, saved) {
+    if (unresolved) {
+      return "Saved model “" + (saved || "this id") + "” is not in Settings. This chat is using " + label + " until that id is fixed on the definition or this instance.";
+    }
+    if (source === "instance") {
+      return label + ", set on this instance. Change it in the instance editor. This chat cannot change it.";
+    }
+    if (source === "definition") {
+      return label + ", from the definition. This chat cannot change it.";
+    }
+    return label + ", from Settings. The definition has no model. This chat cannot change it.";
+  }
+
+  function applyModelChrome(j) {
     if (!modelEl || !j) return;
-    var label = j.label || j.model_id || "—";
+    var label = j.label || j.model || j.model_id || "—";
     modelEl.textContent = label;
-    if (j.custom) {
+    var locked = !!(j.locked || j.chat_model_locked);
+    var source = j.source || j.chat_model_source || "";
+    var unresolved = !!(j.unresolved || j.chat_model_unresolved);
+    var custom = !!(j.custom || j.chat_model_custom);
+    if (locked) {
+      closeModelMenu();
+      modelEl.dataset.locked = "1";
+      delete modelEl.dataset.custom;
+      modelEl.removeAttribute("aria-haspopup");
+      var titleName = label;
+      var next = j.next_label || j.chat_model_next || "";
+      if (next && next !== label) titleName = next;
+      var title = agentModelTitle(titleName, source, unresolved, j.saved_model_id || j.chat_model_saved || "");
+      if (next && next !== label) title = "This run uses " + label + ". " + title;
+      modelEl.title = title;
+      return;
+    }
+    delete modelEl.dataset.locked;
+    modelEl.setAttribute("aria-haspopup", "menu");
+    if (custom) {
       modelEl.dataset.custom = "1";
       modelEl.title = "Kept on this thread (" + label + "). Pick the Settings model to follow Settings again.";
     } else {
       delete modelEl.dataset.custom;
       modelEl.title = "Follows Settings (" + label + "). Another model stays on this thread.";
     }
+  }
+
+  function applyThreadModelView(j) {
+    applyModelChrome(j);
   }
 
   function loadThreadModel() {
@@ -3853,7 +4011,7 @@
   }
 
   function openModelMenu() {
-    if (!connected) return;
+    if (!connected || (modelEl && modelEl.dataset.locked === "1")) return;
     loadThreadModel().then(function (j) {
       if (!j || !modelMenu || !modelEl) return;
       modelMenu.textContent = "";
@@ -3932,13 +4090,7 @@
 
   function applySession(j) {
     modelEl.textContent = j.model || "—";
-    if (j.chat_model_custom) {
-      modelEl.dataset.custom = "1";
-      modelEl.title = "Kept on this thread (" + (j.model || "model") + "). Pick the Settings model to follow Settings again.";
-    } else {
-      delete modelEl.dataset.custom;
-      modelEl.title = "Follows Settings (" + (j.model || "model") + "). Another model stays on this thread.";
-    }
+    applyModelChrome(j);
     modeEl.textContent = j.mode || "—";
     messages = j.messages || [];
     chapters = j.chapters || [];
@@ -3950,6 +4102,9 @@
     else if (!j.busy) runningThreadID = "";
     backgroundBusy = !!j.background_busy;
     if (j.thread_id) currentThreadID = j.thread_id;
+    if (j.thread_id && !j.agent_instance_id && j.thread_id !== "main") workspaceThreadID = j.thread_id;
+    if (!j.agent_instance_id && !j.busy && !j.background_busy) stoppingThreadID = "";
+    if (j.agent_instance_id && !j.busy) delete stoppingAgents[j.agent_instance_id];
     // Prefer host attach state; session still reveals agent worker identity.
     if (j.agent_instance_id) currentAgentInstanceID = j.agent_instance_id;
     else if (!j.agent_instance_id) currentAgentInstanceID = "";
@@ -4028,6 +4183,8 @@
                 if (payload.thread_id) runningThreadID = payload.thread_id;
                 var otherView = !currentAgentInstanceID && runningThreadID && currentThreadID && runningThreadID !== currentThreadID;
                 if (payload.state === "idle") {
+                  if (currentAgentInstanceID) delete stoppingAgents[currentAgentInstanceID];
+                  if (!currentAgentInstanceID && (!payload.thread_id || payload.thread_id === stoppingThreadID)) stoppingThreadID = "";
                   runningThreadID = "";
                   backgroundBusy = false;
                   setState("idle");
@@ -4332,6 +4489,20 @@
     document.getElementById("ctx-questions").textContent = listBlock(c.open_questions);
     document.getElementById("ctx-constraints").textContent = listBlock(c.constraints);
     document.getElementById("ctx-recent").textContent = listBlock(c.recent);
+    var raw = (data && data.raw) || {};
+    var note = raw.note || "";
+    if (raw.measured_input_tokens) note += " Last measured input: " + raw.measured_input_tokens + " tokens.";
+    if (raw.est_tokens) note += " Shown parts estimate about " + raw.est_tokens + " tokens.";
+    var noteEl = document.getElementById("ctx-raw-note");
+    if (noteEl) noteEl.textContent = note;
+    var rawEl = document.getElementById("ctx-raw");
+    if (rawEl) {
+      var chunks = [];
+      (raw.parts || []).forEach(function (p) {
+        chunks.push("## " + (p.name || "part") + " — " + (p.chars || 0) + " chars, ~" + (p.est_tokens || 0) + " tokens\n" + (p.text || ""));
+      });
+      rawEl.textContent = chunks.length ? chunks.join("\n\n") : "—";
+    }
     var pct = typeof b.used_pct === "number" ? b.used_pct : 0;
     var label = "used " + (b.used || 0) + " / " + (b.limit || 0) +
       " (" + pct.toFixed(1) + "%) · remaining " + (b.remaining || 0) +
@@ -4599,6 +4770,34 @@
     }
     list.forEach(function (sk) {
       var li = document.createElement("li");
+      var head = document.createElement("div");
+      head.className = "skill-head";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!sk.enabled;
+      box.title = "Include this skill in the prompt";
+      box.setAttribute("aria-label", "Include " + (sk.name || "skill") + " in the prompt");
+      box.addEventListener("change", function () {
+        var want = box.checked;
+        showSkillsErr("");
+        box.disabled = true;
+        fetch(apiURL("/api/skills/enabled"), {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ name: sk.name, enabled: want }),
+        })
+          .then(function (r) {
+            return r.json().then(function (j) {
+              if (!r.ok) throw new Error((j && (j.error || j.message)) || r.status);
+              return j;
+            });
+          })
+          .catch(function (e) {
+            box.checked = !want;
+            showSkillsErr(e.message || e);
+          })
+          .finally(function () { box.disabled = false; });
+      });
       var title = document.createElement("div");
       title.className = "skill-name";
       title.textContent = sk.name || "";
@@ -4609,6 +4808,7 @@
       var desc = document.createElement("div");
       desc.className = "skill-desc";
       desc.textContent = sk.description || "";
+      if (sk.description) desc.title = sk.description;
       var status = document.createElement("div");
       status.className = "skill-meta";
       var actions = document.createElement("div");
@@ -4695,8 +4895,10 @@
         });
         actions.appendChild(rmBtn);
       }
-      li.appendChild(title);
-      li.appendChild(meta);
+      head.appendChild(box);
+      head.appendChild(title);
+      head.appendChild(meta);
+      li.appendChild(head);
       li.appendChild(desc);
       if (actions.childNodes.length) {
         li.appendChild(actions);
@@ -4819,6 +5021,8 @@
         });
       })
       .then(function (j) {
+        var auto = document.getElementById("skills-auto-new");
+        if (auto) auto.checked = !!j.auto_enable_new;
         renderSkillsInstalled(j.skills || []);
       });
   }
@@ -4838,6 +5042,30 @@
   }
   if (openSkillsBtn) {
     openSkillsBtn.addEventListener("click", openSkillsDialog);
+  }
+  var skillsAutoNew = document.getElementById("skills-auto-new");
+  if (skillsAutoNew) {
+    skillsAutoNew.addEventListener("change", function () {
+      var want = skillsAutoNew.checked;
+      showSkillsErr("");
+      skillsAutoNew.disabled = true;
+      fetch(apiURL("/api/skills/policy"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ auto_enable_new: want }),
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && (j.error || j.message)) || r.status);
+            return j;
+          });
+        })
+        .catch(function (e) {
+          skillsAutoNew.checked = !want;
+          showSkillsErr(e.message || e);
+        })
+        .finally(function () { skillsAutoNew.disabled = false; });
+    });
   }
   if (skillsAddBtn) {
     skillsAddBtn.addEventListener("click", function () {
@@ -5425,7 +5653,7 @@
   if (modelEl) {
     modelEl.addEventListener("click", function (e) {
       e.stopPropagation();
-      if (!connected) return;
+      if (!connected || modelEl.dataset.locked === "1") return;
       if (modelMenu && !modelMenu.hidden) {
         closeModelMenu();
         return;
@@ -5579,7 +5807,10 @@
       })
       .then(function (j) {
         currentAgentInstanceID = "";
-        if (j && j.thread_id) currentThreadID = j.thread_id;
+        if (j && j.thread_id) {
+          currentThreadID = j.thread_id;
+          if (j.thread_id !== "main") workspaceThreadID = j.thread_id;
+        }
         if (es && typeof es.close === "function") {
           try { es.close(); } catch (e) {}
           es = null;
@@ -5608,17 +5839,177 @@
       });
   });
 
+  var mentionMenu = document.getElementById("mention-menu");
+  var mentionPicks = [];
+  var mentionItems = [];
+  var mentionIndex = 0;
+  var mentionDismissed = null;
+  var mentionLoading = false;
+
+  function closeMentionMenu() {
+    if (!mentionMenu) return;
+    mentionMenu.hidden = true;
+    mentionMenu.innerHTML = "";
+    mentionItems = [];
+  }
+
+  function activeMention(value, pos) {
+    if (currentAgentInstanceID) return null;
+    value = String(value || "");
+    pos = Math.max(0, Math.min(pos || 0, value.length));
+    var upto = value.slice(0, pos);
+    var at = -1;
+    for (var i = upto.length - 1; i >= 0; i--) {
+      var ch = upto.charAt(i);
+      if (ch === "\n") return null;
+      if (ch === "@") {
+        if (i === 0 || /\s/.test(upto.charAt(i - 1))) at = i;
+        break;
+      }
+    }
+    if (at < 0) return null;
+    var query = upto.slice(at + 1);
+    var agents = agentsCache || [];
+    var closed = false;
+    for (var n = 0; n < agents.length; n++) {
+      var name = String(agents[n].name || "");
+      if (!name || query.length <= name.length) continue;
+      if (query.slice(0, name.length).toLowerCase() !== name.toLowerCase()) continue;
+      if (!/\s/.test(query.charAt(name.length))) continue;
+      var longer = false;
+      for (var m = 0; m < agents.length; m++) {
+        var other = String(agents[m].name || "");
+        if (other.length <= name.length) continue;
+        if (query.toLowerCase().indexOf(other.toLowerCase()) === 0) longer = true;
+      }
+      if (!longer) closed = true;
+    }
+    if (closed) return null;
+    return { start: at, query: query };
+  }
+
+  function updateMentionMenu() {
+    if (!mentionMenu || currentAgentInstanceID) {
+      closeMentionMenu();
+      return;
+    }
+    var active = activeMention(msg.value, msg.selectionStart);
+    if (!active || mentionDismissed === active.query) {
+      closeMentionMenu();
+      return;
+    }
+    var q = active.query.toLowerCase();
+    var list = (agentsCache || []).filter(function (a) {
+      var name = String(a.name || "").toLowerCase();
+      var id = String(a.id || "").toLowerCase();
+      if (!q.trim()) return true;
+      if (name.indexOf(q) >= 0 || id.indexOf(q) >= 0) return true;
+      return !!(name && q.indexOf(name) === 0);
+    });
+    mentionItems = list;
+    mentionMenu.innerHTML = "";
+    mentionMenu.hidden = false;
+    if (!list.length) {
+      var empty = document.createElement("p");
+      empty.className = "mention-empty";
+      empty.textContent = "No agent in this workspace";
+      mentionMenu.appendChild(empty);
+      return;
+    }
+    if (mentionIndex >= list.length) mentionIndex = 0;
+    if (mentionIndex < 0) mentionIndex = list.length - 1;
+    list.forEach(function (a, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "mention-option" + (i === mentionIndex ? " active" : "");
+      b.setAttribute("role", "option");
+      var label = document.createElement("span");
+      label.className = "mention-name";
+      label.textContent = a.name || a.id;
+      var id = document.createElement("span");
+      id.className = "mention-id";
+      id.textContent = a.id || "";
+      b.appendChild(label);
+      b.appendChild(id);
+      b.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        applyMention(a);
+      });
+      mentionMenu.appendChild(b);
+    });
+    placeMentionMenu();
+  }
+
+  function placeMentionMenu() {
+    if (!mentionMenu || mentionMenu.hidden || !msg) return;
+    if (mentionMenu.parentElement !== document.body) document.body.appendChild(mentionMenu);
+    var box = msg.getBoundingClientRect();
+    var width = Math.max(220, box.width);
+    var left = Math.max(8, box.left);
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    mentionMenu.style.width = width + "px";
+    mentionMenu.style.left = left + "px";
+    var gap = 6;
+    var height = mentionMenu.offsetHeight || 0;
+    var top = box.top - height - gap;
+    if (top < 8) top = Math.min(box.bottom + gap, Math.max(8, window.innerHeight - height - 8));
+    mentionMenu.style.top = Math.max(8, top) + "px";
+  }
+
+  function ensureMentionAgents() {
+    if (mentionLoading) return;
+    mentionLoading = true;
+    Promise.resolve(loadAgents()).finally(function () {
+      mentionLoading = false;
+      updateMentionMenu();
+    });
+  }
+
+  function applyMention(agent) {
+    var active = activeMention(msg.value, msg.selectionStart);
+    if (!active || !agent) return;
+    var name = agent.name || agent.id;
+    var insert = "@" + name + " ";
+    var caret = active.start + insert.length;
+    msg.value = msg.value.slice(0, active.start) + insert + msg.value.slice(msg.selectionStart);
+    msg.setSelectionRange(caret, caret);
+    mentionPicks.push({ id: agent.id, name: name });
+    mentionDismissed = null;
+    closeMentionMenu();
+    msg.focus();
+  }
+
+  if (msg) {
+    msg.addEventListener("input", function () {
+      mentionDismissed = null;
+      if (activeMention(msg.value, msg.selectionStart)) ensureMentionAgents();
+      updateMentionMenu();
+    });
+    msg.addEventListener("keyup", function (e) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape") return;
+      updateMentionMenu();
+    });
+    msg.addEventListener("click", function () { updateMentionMenu(); });
+  }
+  window.addEventListener("resize", placeMentionMenu);
+  var threadEl = document.getElementById("thread");
+  if (threadEl) threadEl.addEventListener("scroll", placeMentionMenu);
+  var mainEl = document.querySelector("main");
+  if (mainEl) mainEl.addEventListener("scroll", placeMentionMenu);
+
   function sendMessage(text) {
     text = String(text || "").trim();
     if (!text) return;
     send.disabled = true;
     clearLive();
+    closeMentionMenu();
     var wasBusy = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
     var otherThread = backgroundBusy;
+    var picks = currentAgentInstanceID ? [] : mentionPicks.slice();
     fetch(apiURL("/api/message"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ text: text }),
+      body: JSON.stringify({ text: text, to: picks }),
     })
       .then(function (r) {
         return r.text().then(function (t) {
@@ -5629,7 +6020,55 @@
         });
       })
       .then(function (j) {
+        if (j && j.delivered && j.delivered.length) {
+          msg.value = "";
+          mentionPicks = [];
+          var bodyText = j.text != null ? String(j.text) : text;
+          var shown = currentThreadID;
+          var fromID = (j && j.thread_id) || "";
+          if (!fromID || fromID === "main") fromID = workspaceThreadID || currentThreadID;
+          if (fromID && fromID !== "main") {
+            currentThreadID = fromID;
+            workspaceThreadID = fromID;
+          }
+          var threadTitle = "";
+          (threadsCache || []).forEach(function (th) {
+            if (th && th.id === fromID) threadTitle = th.title || th.name || "";
+          });
+          j.delivered.forEach(function (d) {
+            messages.push({ role: "peer", name: "To " + (d.name || d.id), text: bodyText });
+          });
+          renderThread();
+          setState(agentState);
+          return Promise.all(j.delivered.map(function (d) {
+            return fetch(apiURL("/api/agents/instances/message"), {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({
+                id: d.id,
+                text: bodyText,
+                kind: "thread",
+                from: fromID,
+                from_name: threadTitle,
+                workspace: currentWorkspaceID,
+              }),
+            }).then(function (r) {
+              return r.text().then(function (t) {
+                if (!r.ok) throw new Error(t || r.status);
+              });
+            });
+          })).catch(function (err) {
+            appendLive("\n[agents] The thread has the message. Waking the agent failed: " + err + "\n");
+          }).then(function () {
+            if (!fromID || fromID === shown) return;
+            return loadSession().then(function () {
+              renderThread();
+              return loadThreads();
+            });
+          });
+        }
         msg.value = "";
+        mentionPicks = [];
         messages.push({ role: "user", text: text });
         if (j && j.queued) {
           messages.push({
@@ -5647,7 +6086,12 @@
         setState(agentState); // refresh Send/Queue label + enabled state
       })
       .catch(function (err) {
-        appendLive("\n[send] " + err + "\n");
+        var note = String((err && err.message) || err || "");
+        if (note.indexOf("choose the agent instance") >= 0) {
+          mentionDismissed = null;
+          updateMentionMenu();
+        }
+        appendLive("\n[send] " + note + "\n");
         setState(agentState);
       });
   }
@@ -5655,9 +6099,17 @@
   // /api/stop reaches the worker's appServer both when the GUI is served directly
   // and when it is proxied through the host (/api/ prefix is proxied).
   function stopCurrentRun() {
-    if (stopping) return;
-    stopping = true;
+    if (currentAgentInstanceID) {
+      if (stoppingAgents[currentAgentInstanceID]) return;
+      stopAgent(currentAgentInstanceID);
+      appendLive("\n[stop] Stopping…\n");
+      return;
+    }
+    var runID = runningThreadID || currentThreadID;
+    if (!runID || stoppingThreadID === runID) return;
+    stoppingThreadID = runID;
     setState(agentState);
+    renderThreadListFromCache();
     appendLive("\n[stop] Stopping…\n");
     fetch(apiURL("/api/stop"), { method: "POST", headers: headers() })
       .then(function (r) {
@@ -5669,9 +6121,10 @@
         });
       })
       .catch(function (err) {
-        appendLive("\n[stop] " + err + "\n");
-        stopping = false;
+        if (stoppingThreadID === runID) stoppingThreadID = "";
         setState(agentState);
+        renderThreadListFromCache();
+        appendLive("\n[stop] " + err + "\n");
       });
   }
 
@@ -5842,6 +6295,30 @@
         stopRecording(false);
       }
       return;
+    }
+
+    if (mentionMenu && !mentionMenu.hidden && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Escape" || (e.key === "Enter" && mentionItems.length))) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        mentionIndex += e.key === "ArrowDown" ? 1 : -1;
+        updateMentionMenu();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        var dismissed = activeMention(msg.value, msg.selectionStart);
+        mentionDismissed = dismissed ? dismissed.query : "";
+        closeMentionMenu();
+        return;
+      }
+      var chosen = mentionItems[mentionIndex];
+      var typing = activeMention(msg.value, msg.selectionStart);
+      var exact = chosen && typing && String(chosen.name || "").toLowerCase() === typing.query.trim().toLowerCase();
+      if (chosen && !exact) {
+        e.preventDefault();
+        applyMention(chosen);
+        return;
+      }
     }
 
     if (e.key === "Enter" && !e.shiftKey) {

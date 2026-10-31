@@ -29,10 +29,11 @@
 | `GET` | `/api/workspaces` | yes | Host: list workspaces + `current` (attached) + `running` |
 | `POST` | `/api/workspaces/open` | yes | Host: register folder, ensure worker, attach `{ "path" }` → `{ "relaunch": false }` |
 | `POST` | `/api/workspaces/switch` | yes | Host: ensure worker + attach `{ "id" }` → `{ "relaunch": false }` |
+| `POST` | `/api/workspaces/hide` | yes | Host: `{ "id" }` removes the workspace from the menu. Does not delete files. Refuses the open workspace and Home. Opening the path again lists it. |
 | `GET`/`POST` | `/api/threads` | yes | Host: list workspace threads (`?workspace=`); create on workspace worker (reattaches workspace if an agent was open) |
 | `POST` | `/api/threads/switch` | yes | Host→workspace worker thread switch `{ "id" }` (leaves agent view) |
 | `POST` | `/api/threads/delete` | yes | Host→workspace worker delete `{ "id" }` |
-| `POST` | `/api/message` | yes | Send user instruction `{ "text": "..." }` |
+| `POST` | `/api/message` | yes | Send user instruction `{ "text": "..." }`. Optional `to`: picks `{ id, name }` when the text addresses a workspace agent by name. Response `text` is the message after those names are removed. |
 | `POST` | `/api/stop` | yes | Cancel in-flight agent run (worker) |
 | `POST` | `/api/newchat` | yes | New thread in workspace (or legacy archive when no workspace) |
 | `GET`/`POST` | `/api/agents/recipes` | yes | Host: list / create definitions |
@@ -40,16 +41,21 @@
 | `POST` | `/api/agents/recipes/delete` | yes | Host: delete definition (no remaining instances) |
 | `GET`/`POST` | `/api/agents/instances` | yes | Host: list (`?workspace=`) / create instance + attach |
 | `POST` | `/api/agents/instances/attach` | yes | Host: attach UI to agent worker `{ "id" }` |
-| `POST` | `/api/agents/instances/stop` | yes | Host: stop run on instance `{ "id" }` |
+| `POST` | `/api/agents/instances/stop` | yes | Host: cancel the running worker for `{ "id" }` and hold alarms until the user sends a message. Does not start a worker that is idle. |
+| `POST` | `/api/agents/instances/reset` | yes | Host: archive the instance transcript and clear its charter and queue. Contacts, tools, and alarms stay. |
 | `POST` | `/api/agents/instances/delete` | yes | Host: delete instance `{ "id" }` |
-| `POST` | `/api/agents/instances/message` | yes | Host: enqueue wake `{ id, text }` |
-| `GET`/`POST` | `/api/agents/instances/access` | yes | Host: workspaces, tools, and contacts. GET `?id=` includes `peers`. POST `{ id, workspaces, tools, peers? }`. Omit `peers` to leave contacts unchanged. |
+| `POST` | `/api/agents/instances/message` | yes | Host: enqueue wake `{ id, text, from, from_name, workspace, kind }`. `kind` `thread` names the sending thread. |
+| `POST` | `/api/threads/deliver` | yes | Host forwards to that workspace worker. Body `{ workspace_id, thread_id, from_name, from_id, text }` appends a received line and emits it on that thread. |
+| `GET`/`POST` | `/api/agents/instances/access` | yes | Host: workspaces, tools, and contacts. GET `?id=` includes `peers`, `model`, and `definition_model`. POST `{ id, workspaces, tools, peers?, model? }`. Omit `peers` to leave contacts unchanged. Omit `model` to leave the instance model unchanged. `model: ""` follows the definition. An unknown model id is rejected. |
 | `GET`/`POST` | `/api/agents/teams` | yes | Host: list / create teams |
 | `POST` | `/api/agents/teams/spawn` | yes | Host: spawn team instances |
 | `POST` | `/api/agents/teams/delete` | yes | Host: delete team |
+| `GET` | `/api/skills` | yes | Installed skills with `enabled`, plus `auto_enable_new`. |
+| `POST` | `/api/skills/enabled` | yes | `{ "name", "enabled" }` turns one skill into or out of the prompt. |
+| `POST` | `/api/skills/policy` | yes | `{ "auto_enable_new" }` chooses whether a skill seen for the first time starts in the prompt. |
 | `GET`/`PUT` | `/api/settings` | yes | Runtime knobs (mode, web, autopilot, max_steps, context_limit, voice_model) plus `model_providers` / `active_model_provider_id` (mirrored to legacy `base_url` / `model` / `api_key`); write-only keys; GET exposes `api_key_set` / `openai_api_key_set` and per-provider `api_key_set`. `autopilot_instructions` replaces the factory supervisor prompt (blank is rejected); `autopilot_instructions_reset: true` clears that override. GET returns the effective text and `autopilot_instructions_custom`. See `04-auth-and-settings.md`. |
 | `GET`/`PUT` | `/api/threads/autopilot` | yes | Current thread's supervisor prompt. GET: `instructions`, `custom`, `source` (`thread` / `global` / `factory`). PUT `{instructions}` saves a full replacement (blank rejected, including a copy of the global text). PUT `{reset:true}` clears it so the thread follows the global prompt again. |
-| `GET`/`PUT` | `/api/threads/model` | yes | Current thread's main chat model, chosen from configured providers. GET: effective `provider_id`, `model_id`, `label`, `custom`, `reasoning`, `context_limit`, `settings_provider_id`, `settings_model_id`, and `providers` (no API keys). PUT `{provider_id, model_id}` saves that pair. The pair Settings currently use clears the thread choice. Unknown provider or model is rejected. |
+| `GET`/`PUT` | `/api/threads/model` | yes | Current thread's main chat model, chosen from configured providers. GET: effective `provider_id`, `model_id`, `label`, `custom`, `reasoning`, `context_limit`, `settings_provider_id`, `settings_model_id`, and `providers` (no API keys). An agent chat adds `locked: true`, `source` (`definition`, `instance`, or `settings`), `unresolved`, and `saved_model_id`. PUT `{provider_id, model_id}` saves that pair on a workspace thread. The pair Settings currently use clears the thread choice. Unknown provider or model is rejected. PUT on an agent chat is rejected. |
 | `GET`/`PUT` | `/api/gui-prefs` | yes | Desktop UI prefs + **server** `connections[]` / `active_connection_id` (legacy `connect` / `access_secret`). |
 | `GET`/`PUT` | `/api/client-connections` | yes | **Machine** connection book (`connections.json` next to config). Prefer native bridge when the UI origin is a remote agent. |
 | `GET`/`POST` | `/api/credentials` | yes | List credential metadata / create (vault must be unlocked). Secrets write-only. |

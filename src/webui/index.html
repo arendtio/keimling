@@ -381,7 +381,7 @@
               <span>Model</span>
               <input id="agent-def-model" type="text" list="agent-model-suggestions" placeholder="Empty uses Settings">
             </label>
-            <p class="hint">Optional model id from your providers. A new run of this definition uses it when the agent process starts. Empty follows Settings.</p>
+            <p class="hint">Optional. Agents of this definition use this model. Empty follows Settings.</p>
             <section>
               <h3 class="settings-section-title">Tools</h3>
               <p class="hint">Read and write are separate. The names beside a check are the tools it turns on. An instance can only narrow this.</p>
@@ -405,7 +405,7 @@
               <span>Model</span>
               <input id="agent-def-edit-model" type="text" list="agent-model-suggestions" placeholder="Empty uses Settings">
             </label>
-            <p class="hint">Optional model id. Used the next time this definition’s process starts. A running agent keeps its current model until then.</p>
+            <p class="hint">Optional. Agents of this definition use this model. Empty follows Settings. One instance can use a different model. A run already going keeps the model it started with.</p>
             <section>
               <h3 class="settings-section-title">Tools</h3>
               <p class="hint">Read and write are separate. The names beside a check are the tools it turns on. An instance can only narrow this.</p>
@@ -436,6 +436,11 @@
           </div>
           <div id="agent-def-access" class="agent-def-pane" hidden>
             <p id="agent-access-title" class="hint"></p>
+            <label class="agent-def-field">
+              <span>Model</span>
+              <input id="agent-access-model" type="text" list="agent-model-suggestions" placeholder="Empty uses the definition" autocomplete="off">
+            </label>
+            <p id="agent-access-model-hint" class="hint">Empty uses the definition. A model here applies only to this instance.</p>
             <div class="agent-access-grid">
               <section>
                 <h3 class="settings-section-title">Workspaces</h3>
@@ -475,6 +480,10 @@
           <p class="hint">Agent Skills (agentskills.io). Search online, preview the full folder (all linked files), optionally AI-review, then install.</p>
           <section>
             <h3>Installed</h3>
+            <label class="skill-enable" title="Off: a skill that appears later stays out of the prompt until you turn it on. On: it is included. A skill you turn off stays off.">
+              <input id="skills-auto-new" type="checkbox">
+              <span>New skills start in the prompt</span>
+            </label>
             <ul id="skills-list" class="skills-list"></ul>
           </section>
           <section>
@@ -591,6 +600,11 @@
             <section><h3>Open questions</h3><pre id="ctx-questions" class="context-body"></pre></section>
             <section><h3>Constraints</h3><pre id="ctx-constraints" class="context-body"></pre></section>
             <section><h3>Recent</h3><pre id="ctx-recent" class="context-body"></pre></section>
+            <section>
+              <h3>Raw context</h3>
+              <p id="ctx-raw-note" class="hint"></p>
+              <pre id="ctx-raw" class="context-body"></pre>
+            </section>
           </div>
         </form>
       </dialog>
@@ -648,6 +662,7 @@
                 </p>
                 <div id="model-menu" class="model-menu" role="menu" hidden></div>
                 <div class="composer-input">
+                  <div id="mention-menu" class="mention-menu" role="listbox" hidden></div>
                   <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
                 </div>
               </div>

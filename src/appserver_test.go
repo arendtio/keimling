@@ -550,3 +550,107 @@ func TestBusyWorkspaceQueuesOnViewedThread(t *testing.T) {
 		t.Fatalf("new thread while busy: %d %s journal=%s", rec.Code, rec.Body.String(), a.Cfg.ThreadID)
 	}
 }
+
+func TestMessageToWorkspaceAgentDoesNotStartRun(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, err := createAgentInstance(recipe, ws.ID, "Entertainer 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := OpenJournal(session, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg:     Config{Model: "m", Mode: "ask", WorkspaceID: ws.ID, ThreadID: th.ID, SessionPath: session},
+		Journal: j,
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	req := httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"text":"@Entertainer 4 look at this"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), ada.ID) || !strings.Contains(rec.Body.String(), `"text":"look at this"`) || !strings.Contains(rec.Body.String(), `"thread_id":"`+th.ID+`"`) {
+		t.Fatalf("deliver: %d %s", rec.Code, rec.Body.String())
+	}
+	if srv.isBusy() {
+		t.Fatal("addressing an agent must not start the workspace run")
+	}
+	events, err := originalEvents(session)
+	if err != nil || len(events) != 1 || !strings.Contains(string(events[0]), "Entertainer 4") || !strings.Contains(string(events[0]), "look at this") || strings.Contains(string(events[0]), "@Entertainer") {
+		t.Fatalf("thread record: %v %v", events, err)
+	}
+	queued, err := dequeueAgentMessages(ada.ID)
+	if err != nil || len(queued) != 0 {
+		t.Fatalf("record must not also enqueue: %+v %v", queued, err)
+	}
+	bare := httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"text":"@Entertainer 4"}`))
+	bare.Header.Set("Authorization", "Bearer tok")
+	bareRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(bareRec, bare)
+	if bareRec.Code != http.StatusBadRequest {
+		t.Fatalf("name without a message: %d %s", bareRec.Code, bareRec.Body.String())
+	}
+}
+
+func TestMentionOnAgentPlaceholderUsesWorkspaceThread(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, err := createAgentInstance(recipe, ws.ID, "Entertainer 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, realSession, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainSession := threadSessionPath(ws.ID, "main")
+	j, err := OpenJournal(mainSession, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg:     Config{Model: "m", Mode: "ask", WorkspaceID: ws.ID, ThreadID: "main", SessionPath: mainSession},
+		Journal: j,
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	req := httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"text":"@Entertainer 4 hello from the thread"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"thread_id":"`+th.ID+`"`) {
+		t.Fatalf("deliver: %d %s", rec.Code, rec.Body.String())
+	}
+	if a.Cfg.ThreadID != th.ID {
+		t.Fatalf("worker stayed on %s", a.Cfg.ThreadID)
+	}
+	events, err := originalEvents(realSession)
+	if err != nil || len(events) != 1 || !strings.Contains(string(events[0]), "hello from the thread") {
+		t.Fatalf("real thread: %v %v", events, err)
+	}
+	queued, err := dequeueAgentMessages(ada.ID)
+	if err != nil || len(queued) != 0 {
+		t.Fatalf("record must not enqueue: %+v %v", queued, err)
+	}
+}
