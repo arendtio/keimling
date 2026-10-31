@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -195,32 +196,97 @@ func (h *Host) handleAgentStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(body.ID)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	worker, err := h.EnsureAgentWorker(ctx, id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+	_ = setAgentWakesHeld(id, true)
+	addr, secret, ok := h.liveAgentWorker(id)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id, "running": false})
 		return
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+worker.Addr+"/api/stop", nil)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/api/stop", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+worker.Secret)
-	res, err := h.client.Do(req)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	client := &http.Client{Timeout: 3 * time.Second}
+	res, err := client.Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer res.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
-	if m, e := readAgentInstanceMeta(id); e == nil {
-		m.Status = agentStatusStopped
-		_ = writeAgentInstanceMeta(m)
+	running := res.StatusCode/100 == 2
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id, "running": running})
+}
+
+func (h *Host) handleAgentReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(body.ID)
+	if _, err := readAgentInstanceMeta(id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if addr, secret, ok := h.liveAgentWorker(id); ok {
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/api/instance/reset", nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+secret)
+		res, err := (&http.Client{Timeout: 8 * time.Second}).Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer res.Body.Close()
+		payload, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
+		if res.StatusCode/100 != 2 {
+			http.Error(w, strings.TrimSpace(string(payload)), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(res.StatusCode)
+		_, _ = w.Write(payload)
+		return
+	}
+	if err := resetAgentInstanceFiles(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
+}
+
+func resetAgentInstanceFiles(id string) error {
+	id = strings.TrimSpace(id)
+	session := agentInstanceSessionPath(id)
+	if st, err := os.Stat(session); err == nil && st.Size() > 0 {
+		archive := fmt.Sprintf("%s.%s.bak", session, time.Now().Format("20060102-150405.000000000"))
+		if err := os.Rename(session, archive); err != nil {
+			return err
+		}
+	}
+	_ = os.Remove(charterPath(session))
+	_ = os.Remove(indexPath(session))
+	_ = os.Remove(agentInstanceQueuePath(id))
+	return setAgentWakesHeld(id, false)
 }
 
 func (h *Host) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
@@ -310,10 +376,12 @@ func (h *Host) handleAgentInstanceMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
-		From string `json:"from"`
-		Kind string `json:"kind"`
+		ID        string `json:"id"`
+		Text      string `json:"text"`
+		From      string `json:"from"`
+		FromName  string `json:"from_name"`
+		Workspace string `json:"workspace"`
+		Kind      string `json:"kind"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -329,7 +397,16 @@ func (h *Host) handleAgentInstanceMessage(w http.ResponseWriter, r *http.Request
 	if kind == "" {
 		kind = "message"
 	}
-	if err := enqueueAgentMessage(id, text, body.From, kind); err != nil {
+	if kind == "message" || kind == "thread" {
+		_ = setAgentWakesHeld(id, false)
+	}
+	if err := enqueueAgentQueueItem(id, AgentQueueItem{
+		Text:      text,
+		From:      body.From,
+		FromName:  body.FromName,
+		Workspace: body.Workspace,
+		Kind:      kind,
+	}); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -435,7 +512,9 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": m.ID, "name": m.Name, "follows": follows, "workspaces": workspaces, "tools": tools, "groups": agentToolGroups(),
-			"peers": peers,
+			"peers":            peers,
+			"model":            strings.TrimSpace(m.Model),
+			"definition_model": strings.TrimSpace(rec.Model),
 			"mcp": map[string]any{
 				"allowed_all": defAllMCP,
 				"allowed":     defIDs,
@@ -449,10 +528,17 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 			Workspaces []string  `json:"workspaces"`
 			Tools      *[]string `json:"tools"`
 			Peers      *[]string `json:"peers"`
+			Model      *string   `json:"model"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
 			http.Error(w, "id required", http.StatusBadRequest)
 			return
+		}
+		if body.Model != nil {
+			if err := validateKnownModel(h.config, *body.Model); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		m, err := setAgentInstanceAccess(body.ID, body.Workspaces, body.Tools)
 		if err != nil {
@@ -461,6 +547,13 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 		}
 		if body.Peers != nil {
 			m, err = setAgentInstancePeers(body.ID, *body.Peers)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if body.Model != nil {
+			m, err = setAgentInstanceModel(body.ID, *body.Model)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -497,7 +590,7 @@ func (h *Host) wakeQueuedAgentsOnce() {
 		h.waking = map[string]bool{}
 	}
 	for _, m := range list {
-		if h.waking[m.ID] || (!agentQueuePending(m.ID) && !agentAlarmDue(m.ID, time.Now())) {
+		if h.waking[m.ID] || m.WakesHeld || (!agentQueuePending(m.ID) && !agentAlarmDue(m.ID, time.Now())) {
 			continue
 		}
 		h.waking[m.ID] = true

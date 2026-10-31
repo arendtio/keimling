@@ -239,7 +239,20 @@ func (r *SkillRegistry) Get(name string) *SkillMeta {
 }
 
 func (r *SkillRegistry) CatalogBlock() string {
+	return r.catalogBlock(nil)
+}
+
+func (r *SkillRegistry) catalogBlock(allow func(string) bool) string {
 	list := r.List()
+	if allow != nil {
+		kept := make([]*SkillMeta, 0, len(list))
+		for _, sk := range list {
+			if sk != nil && allow(sk.Name) {
+				kept = append(kept, sk)
+			}
+		}
+		list = kept
+	}
 	if len(list) == 0 {
 		return ""
 	}
@@ -337,8 +350,20 @@ func (a *Agent) refreshSkills() {
 	a.Skills = LoadSkillRegistry("")
 }
 
+func (a *Agent) enabledSkillsCatalog() string {
+	if a != nil {
+		a.syncSkillPrefs()
+	}
+	return a.ensureSkills().catalogBlock(func(name string) bool {
+		if a == nil || strings.TrimSpace(a.Cfg.ConfigPath) == "" {
+			return true
+		}
+		return a.skillEnabled(name)
+	})
+}
+
 func (a *Agent) skillsCatalogBlock() string {
-	cat := a.ensureSkills().CatalogBlock()
+	cat := a.enabledSkillsCatalog()
 	instr := strings.TrimSpace(a.Cfg.AgentInstructions)
 	agents := ""
 	if a != nil {
@@ -356,6 +381,9 @@ func (a *Agent) skillsCatalogBlock() string {
 	}
 	if tip := a.agentToolPrompt(); tip != "" {
 		parts = append(parts, tip)
+	}
+	if where := a.workspacePrompt(); where != "" {
+		parts = append(parts, where)
 	}
 	return strings.Join(parts, "\n\n")
 }

@@ -9,7 +9,7 @@ import (
 // maybeGenerateThreadTitle names a provisional thread from the first user message.
 // Uses the fast delegate model when set, otherwise the compaction/main model.
 func (a *Agent) maybeGenerateThreadTitle(ctx context.Context, seed string) {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) != "" || a.Cfg.WorkspaceID == "" || !isWorkspaceThreadID(a.Cfg.ThreadID) {
 		return
 	}
 	seed = strings.TrimSpace(seed)

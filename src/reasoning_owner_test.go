@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -191,6 +192,31 @@ func TestChatModelChangeWithoutBlobsIsSilent(t *testing.T) {
 	}
 	if n := noticeCount(a.History); n != 0 {
 		t.Fatalf("notices: %d", n)
+	}
+}
+
+func TestAgentReasoningOwnersStayOnTheInstance(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Owner", "Keep notes on the instance.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := createAgentInstance(recipe, ws.ID, "Owner 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{WorkspaceID: ws.ID, ThreadID: "main", AgentInstanceID: inst.ID}}
+	a.persistReasoningOwners(map[string]modelPair{"rs_1": {Provider: "p", Model: "m"}})
+	if _, err := os.Stat(threadDir(ws.ID, "main")); !os.IsNotExist(err) {
+		t.Fatalf("agent created a workspace thread: %v", err)
+	}
+	meta, err := readThreadMetaFile(filepath.Join(agentInstanceThreadDir(inst.ID), "thread.json"))
+	if err != nil || len(meta.ReasoningOwners) != 1 || meta.ReasoningOwners[0].Key != "rs_1" {
+		t.Fatalf("instance meta: %v %#v", err, meta)
 	}
 }
 

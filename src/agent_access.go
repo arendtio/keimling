@@ -260,9 +260,36 @@ func filterGrantedTools(tools []map[string]any, grant []string) []map[string]any
 	return out
 }
 
+func (a *Agent) agentIdentityPrompt() string {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		return ""
+	}
+	meta, err := readAgentInstanceMeta(a.Cfg.AgentInstanceID)
+	name := strings.TrimSpace(a.Cfg.AgentInstanceID)
+	id := name
+	if err == nil {
+		if strings.TrimSpace(meta.Name) != "" {
+			name = strings.TrimSpace(meta.Name)
+		}
+		id = meta.ID
+	}
+	return fmt.Sprintf("You are an agent instance named %q.\nYour instance id is %s.\nYou are this agent. You are not the workspace assistant.", name, id)
+}
+
 func (a *Agent) agentToolPrompt() string {
 	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		return ""
+	}
+	var b strings.Builder
+	b.WriteString("This chat is your channel with the user. Text you write here is not sent to other agents or to workspace threads.\n")
+	b.WriteString("You work in your own context. Another agent or a workspace thread does not see this chat, your alarms, your tool results, or what just happened to you. They have their own context. When you message one, name the thing, the fact, and what you want, so they can act without your context.\n")
+	b.WriteString("A line [From thread_id=<id> via message_agent] or [From <name> instance_id=<id> via message_agent] was delivered by message_agent. The marker is how you see that. It is not the user.\n")
+	if a.instanceToolGranted("message_agent") {
+		b.WriteString("You do not have to answer. Reasoning may stay in your thinking. If you answer that line, the answer must be a message_agent call to that id copied exactly, with only the reply text. Do not add a prefix. An assistant message in this chat does not deliver it.\n")
+		b.WriteString("A request from another agent is for you. Send the answer back to that agent. Do not rewrite it as a delivery to the user. The user is only the person in this chat.\n")
+	}
+	if a.instanceToolGranted("set_alarm") {
+		b.WriteString("set_alarm wakes only you. When the user asks you to do something later or again, call set_alarm yourself. Do not ask another agent to set that alarm, and do not set an alarm because another agent asked you to wake them. A line [Alarm] is a reminder you wrote for yourself, not a new instruction from the user.\n")
 	}
 	grant := a.instanceToolGrant()
 	names := grant
@@ -276,7 +303,87 @@ func (a *Agent) agentToolPrompt() string {
 	if len(names) > 0 {
 		list = strings.Join(names, ", ")
 	}
-	return "Tools this agent instance may use: " + list + ". Other tools are not available. When the user asks which tools you have, answer in text with these names. For a later or repeating wake, call set_alarm when it is in the list. Do not invent a shell script or a file for that."
+	fmt.Fprintf(&b, "Tools this agent instance may use: %s. Other tools are not available. When the user asks which tools you have, answer in text with these names. For a later or repeating wake, call set_alarm when it is in the list. Do not invent a shell script or a file for that.", list)
+	return b.String()
+}
+
+// workspacePrompt tells the model which workspace it is in and the directory
+// commands start in. It is rebuilt on each request, including after a workspace change.
+func (a *Agent) workspacePrompt() string {
+	if a == nil {
+		return ""
+	}
+	id := strings.TrimSpace(a.Cfg.WorkspaceID)
+	root := strings.TrimSpace(a.Cfg.WorkspaceRoot)
+	name := ""
+	if id != "" {
+		if meta, err := readWorkspaceMeta(id); err == nil {
+			name = strings.TrimSpace(meta.Name)
+			if root == "" {
+				root = strings.TrimSpace(meta.Root)
+			}
+		}
+	}
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+		root = cwd
+	}
+	if id == "" && root == "" {
+		return ""
+	}
+	var b strings.Builder
+	switch {
+	case name != "" && id != "":
+		fmt.Fprintf(&b, "Workspace %s (%s).\n", name, id)
+	case id != "":
+		fmt.Fprintf(&b, "Workspace %s.\n", id)
+	}
+	if root != "" {
+		fmt.Fprintf(&b, "Working directory: %s.\n", root)
+	}
+	b.WriteString("Commands start in this directory.")
+	return b.String()
+}
+
+// modelInstructions is the system prompt for one request.
+// A workspace thread keeps the Keimling assistant prompt.
+// An agent instance gets its own prompt: who it is, its task, where it works, then how tools work.
+func (a *Agent) modelInstructions() string {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		base := keimlingBaseInstructions()
+		if a == nil {
+			return base
+		}
+		if cat := strings.TrimSpace(a.skillsCatalogBlock()); cat != "" {
+			return base + "\n\n" + cat
+		}
+		return base
+	}
+	return a.agentInstanceInstructions()
+}
+
+func (a *Agent) agentInstanceInstructions() string {
+	var parts []string
+	if id := strings.TrimSpace(a.agentIdentityPrompt()); id != "" {
+		parts = append(parts, id)
+	}
+	if task := strings.TrimSpace(a.Cfg.AgentInstructions); task != "" {
+		parts = append(parts, "Your task:\n"+task)
+	}
+	if where := strings.TrimSpace(a.workspacePrompt()); where != "" {
+		parts = append(parts, where)
+	}
+	if ch := strings.TrimSpace(a.agentToolPrompt()); ch != "" {
+		parts = append(parts, ch)
+	}
+	if agents := strings.TrimSpace(a.agentsMarkdownBlock()); agents != "" {
+		parts = append(parts, agents)
+	}
+	if cat := strings.TrimSpace(a.enabledSkillsCatalog()); cat != "" {
+		parts = append(parts, cat)
+	}
+	work := strings.TrimSuffix(sharedWorkInstructions(), "The user controls the PTY directly. ")
+	parts = append(parts, "How to use tools:\n"+strings.TrimSpace(work))
+	return strings.Join(parts, "\n\n")
 }
 
 // syncInstanceWorkspace reloads the saved workspace grant into the running worker.
@@ -405,12 +512,21 @@ func parsePeerUserText(s string) (name, body string, ok bool) {
 	if i <= 0 {
 		return "", "", false
 	}
-	name = strings.TrimSpace(rest[:i])
+	name = strings.TrimSuffix(strings.TrimSpace(rest[:i]), " via message_agent")
 	body = strings.TrimSpace(rest[i+2:])
 	if name == "" || body == "" {
 		return "", "", false
 	}
 	return name, body, true
+}
+
+func peerSentItem(peerName, text string) map[string]any {
+	return map[string]any{
+		"type":      "keimling_peer",
+		"direction": "sent",
+		"peer":      peerName,
+		"text":      text,
+	}
 }
 
 func (a *Agent) recordPeerSent(peerName, text string) {
@@ -427,10 +543,5 @@ func (a *Agent) recordPeerSent(peerName, text string) {
 	if a.Journal == nil {
 		return
 	}
-	_ = a.add(map[string]any{
-		"type":      "keimling_peer",
-		"direction": "sent",
-		"peer":      peerName,
-		"text":      text,
-	})
+	_ = a.add(peerSentItem(peerName, text))
 }

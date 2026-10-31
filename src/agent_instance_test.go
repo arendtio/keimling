@@ -137,3 +137,55 @@ func TestChangeWorkspaceToolACL(t *testing.T) {
 		t.Fatalf("expected success, got %q", out)
 	}
 }
+
+func TestResolveWorkspaceAgentMentions(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, err := createAgentInstance(recipe, ws.ID, "Entertainer 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada2, err := createAgentInstance(recipe, ws.ID, "Entertainer 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, err := createAgentInstance(recipe, ws.ID, "Entertainer 40")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsider, err := createAgentInstance(recipe, other.ID, "Outsider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ambiguous, err := resolveWorkspaceAgentMentions(ws.ID, "please @Entertainer 40 look", nil)
+	if err != nil || ambiguous || len(got) != 1 || got[0].ID != long.ID {
+		t.Fatalf("longer name: %+v %v %v", got, ambiguous, err)
+	}
+	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Entertainer 4 hello", nil)
+	if err != nil || !ambiguous || len(got) != 0 {
+		t.Fatalf("shared name needs a choice: %+v %v %v", got, ambiguous, err)
+	}
+	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Entertainer 4 hello", []agentMentionPick{{ID: ada2.ID, Name: "Entertainer 4"}})
+	if err != nil || ambiguous || len(got) != 1 || got[0].ID != ada2.ID {
+		t.Fatalf("picked id: %+v %v %v", got, ambiguous, err)
+	}
+	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "mail me at a@Entertainer 4", []agentMentionPick{{ID: ada.ID}})
+	if err != nil || ambiguous || len(got) != 0 {
+		t.Fatalf("@ inside a word is not an address: %+v %v %v", got, ambiguous, err)
+	}
+	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Outsider hi", nil)
+	if err != nil || ambiguous || len(got) != 0 || outsider.ID == "" {
+		t.Fatalf("other workspace is not offered: %+v %v %v", got, ambiguous, err)
+	}
+}

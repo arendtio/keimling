@@ -47,6 +47,10 @@ type Agent struct {
 	Credentials *CredentialBroker
 	// runChat is the main chat model frozen for the current Run. Nil when idle.
 	runChat *chatTarget
+	// notedChat is the agent chat model last shown, so a later change can say
+	// when encrypted reasoning will be left out. Idle only.
+	modelNoted bool
+	notedChat  chatTarget
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -177,11 +181,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 	defer a.finishRun(&err)
 	// Agent instances own a fixed main thread under their data dir — don't rename workspace threads.
 	if a.Cfg.WorkspaceID != "" && a.Cfg.ThreadID != "" && strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
-		titleCtx := ctx
-		if a.SessionCtx != nil {
-			titleCtx = a.SessionCtx
-		}
-		go a.maybeGenerateThreadTitle(titleCtx, message)
+		go a.maybeGenerateThreadTitle(ctx, message)
 	}
 	if message != "" {
 		if err := a.add(map[string]any{"role": "user", "content": message}); err != nil {
@@ -613,6 +613,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 						}
 						if e := decodeArgs(item.Arguments, &args); e != nil {
 							result = e.Error()
+						} else if !a.skillEnabled(args.Name) {
+							result = "activate_skill: skill " + args.Name + " is turned off"
 						} else {
 							text, e := a.ensureSkills().Activate(args.Name)
 							if e != nil {
@@ -629,6 +631,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 						}
 						if e := decodeArgs(item.Arguments, &args); e != nil {
 							result = e.Error()
+						} else if !a.skillEnabled(args.Name) {
+							result = "read_skill_file: skill " + args.Name + " is turned off"
 						} else {
 							text, e := a.ensureSkills().ReadFile(args.Name, args.Path)
 							if e != nil {
@@ -748,6 +752,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 			}
 		}
 		a.PendingSteering = false
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if a.Cfg.Autopilot && (a.TaskDone || a.TaskBlocked || calls == 0) {
 			report := a.PilotReport
 			if report == "" {
@@ -851,6 +858,32 @@ func (a *Agent) NewChat() error {
 	return nil
 }
 
+// resetInstanceContext archives this instance's transcript and drops the charter
+// and pending queue. The instance, its contacts, tools, and alarms stay.
+func (a *Agent) resetInstanceContext() error {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		return fmt.Errorf("not an agent instance")
+	}
+	if a.Journal != nil {
+		if err := a.Journal.NewChat(); err != nil {
+			return err
+		}
+	}
+	a.History = nil
+	a.Plan = nil
+	a.Charter = &Charter{Version: charterVersion}
+	a.TaskActive = false
+	a.LastTaskMessage = ""
+	a.ResumeAvailable = false
+	if a.Client != nil {
+		a.Client.LastMainUsage = MainUsage{}
+	}
+	_ = os.Remove(charterPath(a.Cfg.SessionPath))
+	_ = os.Remove(indexPath(a.Cfg.SessionPath))
+	_ = os.Remove(agentInstanceQueuePath(a.Cfg.AgentInstanceID))
+	return setAgentWakesHeld(a.Cfg.AgentInstanceID, false)
+}
+
 // DeleteThread permanently removes a thread. If it was active, switches to another
 // existing thread or creates a fresh one.
 func (a *Agent) DeleteThread(threadID string) error {
@@ -916,6 +949,9 @@ func (a *Agent) SwitchThread(threadID string) error {
 	}
 	if threadID == a.Cfg.ThreadID {
 		return nil
+	}
+	if !isWorkspaceThreadID(threadID) {
+		return fmt.Errorf("unknown thread %q", threadID)
 	}
 	session := threadSessionPath(a.Cfg.WorkspaceID, threadID)
 	if _, err := os.Stat(filepath.Dir(session)); err != nil {

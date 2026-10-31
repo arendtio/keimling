@@ -93,6 +93,7 @@ type fileConfig struct {
 	MCPServers            map[string]MCPServerConfig `json:"mcpServers,omitempty"`
 	ModelProviders        []modelProvider            `json:"model_providers,omitempty"`
 	ActiveModelProviderID string                     `json:"active_model_provider_id,omitempty"`
+	Skills                skillPrefsConfig           `json:"skills,omitempty"`
 }
 
 func readConfiguration(path string) (fileConfig, error) {

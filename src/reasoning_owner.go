@@ -287,10 +287,7 @@ func jsonStringField(raw json.RawMessage) (string, bool) {
 
 func (a *Agent) reasoningOwnerMap() map[string]modelPair {
 	out := map[string]modelPair{}
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
-		return out
-	}
-	meta, err := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
+	meta, err := a.readOwnThreadMeta()
 	if err != nil {
 		return out
 	}
@@ -304,11 +301,10 @@ func (a *Agent) reasoningOwnerMap() map[string]modelPair {
 }
 
 func (a *Agent) persistReasoningOwners(owners map[string]modelPair) {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
+	meta, err := a.readOwnThreadMeta()
+	if err != nil && meta.ID == "" {
 		return
 	}
-	meta, _ := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
-	meta.ID = a.Cfg.ThreadID
 	keys := make([]string, 0, len(owners))
 	for key, owner := range owners {
 		if key == "" || owner.Model == "" {
@@ -323,5 +319,5 @@ func (a *Agent) persistReasoningOwners(owners map[string]modelPair) {
 		list = append(list, reasoningOwner{Key: key, ProviderID: owner.Provider, ModelID: owner.Model})
 	}
 	meta.ReasoningOwners = list
-	_ = writeThreadMeta(a.Cfg.WorkspaceID, meta)
+	_ = a.writeOwnThreadMeta(meta)
 }

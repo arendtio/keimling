@@ -42,6 +42,48 @@
 
 **Acceptance:** traces REQ-AG-11. The run's record stays intact. A message queued on another thread waits there.
 
+## US-25 — Message an agent from a workspace thread
+
+**As** a user, **I want** to address an agent that belongs to this workspace from a normal thread, by name, and pick the instance when the name is not enough, **so that** I can hand it a message without leaving the thread.
+
+**Acceptance:** traces REQ-AG-15. The choice list is fully visible. The delivered text does not include the name used to pick the instance.
+
+## US-26 — Answer the sender
+
+**As** a user, **I want** an agent that chooses to answer to send that answer back to the thread or agent that wrote, **so that** I see the reply where I asked.
+
+**Acceptance:** traces REQ-AG-16 and REQ-AG-17. The agent's own channel is not a broadcast. An agent does not have to answer. The incoming line names the workspace thread that sent the message, by that thread's id, not by the agent instance's own thread id.
+
+## US-27 — Say enough for the recipient
+
+**As** a user, **I want** an agent that writes to another agent or a thread to include what that recipient needs, **so that** the recipient is not left guessing about an alarm or an event it never saw.
+
+**Acceptance:** traces REQ-AG-18.
+
+## US-28 — Stop one agent and keep moving
+
+**As** a user, **I want** stop to abort that agent or thread at once, **so that** it spends no further tokens and leaves no command running, while I keep moving through the app.
+
+**Acceptance:** traces REQ-AG-19. The sidebar stop and the chat interrupt are the same stop. After stop, that run starts no further model request and leaves no command running, including a background one. A due alarm does not start the agent again until the user sends it a message. The alarm remains.
+
+## US-29 — Reset an instance
+
+**As** a user, **I want** to reset an agent instance to a fresh context of its type, **so that** it forgets the conversation without losing who it is.
+
+**Acceptance:** traces REQ-AG-20.
+
+## US-30 — Read the raw context
+
+**As** a user, **I want** to read the raw context behind the token count, **so that** a one-line charter does not hide where the tokens went.
+
+**Acceptance:** traces REQ-AG-21.
+
+## US-31 — A repeated request stays between the agents
+
+**As** a user, **I want** an agent I told to ask another agent on a schedule to set that alarm itself and to keep the reply between them, **so that** the other agent is not told to set the alarm and the result is not redirected to me.
+
+**Acceptance:** traces REQ-AG-22.
+
 ## US-24 — Opened messages stay open
 
 **As** a user, **I want** an opened message to stay open when a later message arrives, **so that** I can keep reading it.
@@ -87,3 +129,21 @@
 **As** a user, **I want** to say which instances may contact each other while managing agents, **so that** they can reply to one another and cannot message everyone.
 
 **Acceptance:** traces to REQ-AG-9. Including B on A lets A message B and B message A. Neither can message an instance that was not included. The user changes this set while managing instances.
+
+## US-36 — Know the working directory
+
+**As** an agent, **I want** the workspace information to include the directory commands start in, **so that** I do not have to discover it with a shell command.
+
+**Acceptance:** traces REQ-WS-1.
+
+## US-38 — The agent’s model comes from its definition
+
+**As** a user, **I want** an agent chat to use the model on its definition, **so that** the chat box does not quietly pick a different one.
+
+**Acceptance:** traces REQ-AG-24 and REQ-AG-25. The agent chat shows the model and does not change it. The instance editor can set a model for that instance only. Empty there uses the definition. Empty on the definition uses Settings. Another instance of the same definition is unchanged.
+
+## US-37 — An agent prompt that is about that agent
+
+**As** a user, **I want** an agent instance to be instructed as that agent, **so that** it is not also told it is the workspace assistant.
+
+**Acceptance:** traces REQ-AG-23.

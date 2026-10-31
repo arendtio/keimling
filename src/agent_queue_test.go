@@ -26,7 +26,7 @@ func TestAgentQueueRoundTrip(t *testing.T) {
 	if err != nil || len(items) != 2 {
 		t.Fatalf("%v %v", items, err)
 	}
-	if formatQueueWake(items[0]) != "[From peer-1] hello" {
+	if formatQueueWake(items[0]) != "[From peer-1 via message_agent] hello" {
 		t.Fatalf("format %q", formatQueueWake(items[0]))
 	}
 	again, err := dequeueAgentMessages(inst.ID)

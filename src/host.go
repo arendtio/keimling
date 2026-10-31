@@ -34,6 +34,35 @@ type hostWorker struct {
 	Cmd    *exec.Cmd
 }
 
+func (h *Host) workerEnv() []string {
+	env := append(os.Environ(), keimlingRoleEnv+"=worker")
+	if base := strings.TrimSpace(h.baseURL); base != "" {
+		env = append(env, "KEIMLING_HOST="+base)
+	}
+	if secret := strings.TrimSpace(h.secret); secret != "" {
+		env = append(env, "KEIMLING_SECRET="+secret)
+	}
+	return env
+}
+
+func hostBaseForWorkers(listen string) string {
+	listen = strings.TrimSpace(listen)
+	if listen == "" {
+		return ""
+	}
+	if strings.HasPrefix(listen, ":") {
+		return "http://127.0.0.1" + listen
+	}
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
 func workspaceWorkerKey(id string) string { return "ws:" + strings.TrimSpace(id) }
 func agentWorkerKey(id string) string     { return "agent:" + strings.TrimSpace(id) }
 
@@ -47,6 +76,7 @@ type Host struct {
 	waking         map[string]bool
 	attached       string
 	focusWorkspace string // sidebar workspace; kept when an agent instance is attached
+	baseURL        string // http://127.0.0.1:port workers call back
 	client         *http.Client
 }
 
@@ -133,7 +163,7 @@ func (h *Host) EnsureWorker(ctx context.Context, workspaceID string) (*hostWorke
 		args = append(args, "--config", h.config)
 	}
 	cmd := exec.Command(h.exe, args...)
-	cmd.Env = append(os.Environ(), keimlingRoleEnv+"=worker")
+	cmd.Env = h.workerEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Dir = meta.Root
@@ -151,6 +181,19 @@ func (h *Host) EnsureWorker(ctx context.Context, workspaceID string) (*hostWorke
 	}
 	go h.reap(key, cmd)
 	return w, nil
+}
+
+func (h *Host) liveAgentWorker(instanceID string) (addr, secret string, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	w := h.workers[agentWorkerKey(instanceID)]
+	if w == nil || w.Cmd == nil || w.Cmd.Process == nil {
+		return "", "", false
+	}
+	if w.Cmd.ProcessState != nil && w.Cmd.ProcessState.Exited() {
+		return "", "", false
+	}
+	return w.Addr, w.Secret, true
 }
 
 func (h *Host) EnsureAgentWorker(ctx context.Context, instanceID string) (*hostWorker, error) {
@@ -201,7 +244,7 @@ func (h *Host) EnsureAgentWorker(ctx context.Context, instanceID string) (*hostW
 		args = append(args, "--config", h.config)
 	}
 	cmd := exec.Command(h.exe, args...)
-	cmd.Env = append(os.Environ(), keimlingRoleEnv+"=worker")
+	cmd.Env = h.workerEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Dir = ws.Root
@@ -480,12 +523,14 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/workspaces", auth(h.handleWorkspaces))
 	mux.Handle("/api/workspaces/open", auth(h.handleWorkspaceOpen))
 	mux.Handle("/api/workspaces/switch", auth(h.handleWorkspaceSwitch))
+	mux.Handle("/api/workspaces/hide", auth(h.handleWorkspaceHide))
 	mux.Handle("/api/agents/recipes", auth(h.handleAgentRecipes))
 	mux.Handle("/api/agents/recipes/update", auth(h.handleAgentRecipeUpdate))
 	mux.Handle("/api/agents/recipes/delete", auth(h.handleAgentRecipeDelete))
 	mux.Handle("/api/agents/instances", auth(h.handleAgentInstances))
 	mux.Handle("/api/agents/instances/attach", auth(h.handleAgentAttach))
 	mux.Handle("/api/agents/instances/stop", auth(h.handleAgentStop))
+	mux.Handle("/api/agents/instances/reset", auth(h.handleAgentReset))
 	mux.Handle("/api/agents/instances/delete", auth(h.handleAgentDelete))
 	mux.Handle("/api/agents/instances/message", auth(h.handleAgentInstanceMessage))
 	mux.Handle("/api/agents/instances/access", auth(h.handleAgentInstanceAccess))
@@ -496,6 +541,7 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/threads", auth(h.handleHostThreads))
 	mux.Handle("/api/threads/switch", auth(h.proxyToWorkspace().ServeHTTP))
 	mux.Handle("/api/threads/view", auth(h.handleThreadView))
+	mux.Handle("/api/threads/deliver", auth(h.handleThreadDeliver))
 	mux.Handle("/api/threads/delete", auth(h.proxyToWorkspace().ServeHTTP))
 	mux.Handle("/api/", auth(h.proxy().ServeHTTP))
 	mux.Handle("/events", auth(h.proxy().ServeHTTP))
@@ -648,6 +694,53 @@ func (h *Host) handleThreadView(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Host) handleThreadDeliver(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+		ThreadID    string `json:"thread_id"`
+		FromName    string `json:"from_name"`
+		FromID      string `json:"from_id"`
+		Text        string `json:"text"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil || json.Unmarshal(raw, &body) != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	wsID := strings.TrimSpace(body.WorkspaceID)
+	if wsID == "" {
+		http.Error(w, "workspace_id required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	worker, err := h.EnsureWorker(ctx, wsID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+worker.Addr+"/api/threads/deliver", strings.NewReader(string(raw)))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+worker.Secret)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := h.client.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer res.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(res.StatusCode)
+	_, _ = io.Copy(w, res.Body)
+}
+
 func (h *Host) handleWorkspaceOpen(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -686,6 +779,31 @@ func (h *Host) handleWorkspaceSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.respondAttach(w, id)
+}
+
+func (h *Host) handleWorkspaceHide(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(body.ID)
+	if id == h.focusWorkspaceID() {
+		http.Error(w, "switch to another workspace before removing this one from the menu", http.StatusBadRequest)
+		return
+	}
+	if err := hideWorkspace(id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
 }
 
 func (h *Host) respondAttach(w http.ResponseWriter, id string) {

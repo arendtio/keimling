@@ -5,7 +5,11 @@ func (a *Agent) rawModelContextEstimate() int {
 	if a == nil {
 		return budgetBlockOverhead
 	}
-	return contextEstimate(a.modelInputCore()) + budgetBlockOverhead
+	core := a.modelInputCore()
+	if normalized, err := normalizeResponseInput(core); err == nil {
+		core = normalized
+	}
+	return contextEstimate(core) + budgetBlockOverhead
 }
 
 // contextOccupancyEstimate calibrates the raw JSON-size heuristic against the

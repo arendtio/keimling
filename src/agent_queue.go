@@ -13,10 +13,12 @@ import (
 
 // AgentQueueItem is one durable inbound wake for an agent instance.
 type AgentQueueItem struct {
-	Text string    `json:"text"`
-	From string    `json:"from,omitempty"` // agent instance id or label
-	Kind string    `json:"kind,omitempty"` // message | alarm | peer
-	At   time.Time `json:"at"`
+	Text      string    `json:"text"`
+	From      string    `json:"from,omitempty"` // agent instance id, thread id, or label
+	FromName  string    `json:"from_name,omitempty"`
+	Workspace string    `json:"workspace,omitempty"`
+	Kind      string    `json:"kind,omitempty"` // message | alarm | peer | thread
+	At        time.Time `json:"at"`
 }
 
 func agentInstanceQueuePath(id string) string {
@@ -26,22 +28,27 @@ func agentInstanceQueuePath(id string) string {
 var agentQueueMu sync.Mutex
 
 func enqueueAgentMessage(instanceID, text, from, kind string) error {
+	return enqueueAgentQueueItem(instanceID, AgentQueueItem{Text: text, From: from, Kind: kind})
+}
+
+func enqueueAgentQueueItem(instanceID string, item AgentQueueItem) error {
 	instanceID = strings.TrimSpace(instanceID)
-	text = strings.TrimSpace(text)
-	if instanceID == "" || text == "" {
+	item.Text = strings.TrimSpace(item.Text)
+	if instanceID == "" || item.Text == "" {
 		return fmt.Errorf("instance id and text required")
 	}
 	if _, err := readAgentInstanceMeta(instanceID); err != nil {
 		return err
 	}
-	item := AgentQueueItem{
-		Text: text,
-		From: strings.TrimSpace(from),
-		Kind: strings.TrimSpace(kind),
-		At:   time.Now().UTC(),
-	}
+	item.From = strings.TrimSpace(item.From)
+	item.FromName = strings.TrimSpace(item.FromName)
+	item.Workspace = strings.TrimSpace(item.Workspace)
+	item.Kind = strings.TrimSpace(item.Kind)
 	if item.Kind == "" {
 		item.Kind = "message"
+	}
+	if item.At.IsZero() {
+		item.At = time.Now().UTC()
 	}
 	b, err := json.Marshal(item)
 	if err != nil {
@@ -196,7 +203,13 @@ func formatQueueWake(it AgentQueueItem) string {
 	case "alarm":
 		return "[Alarm] " + it.Text
 	case "peer":
-		return formatPeerUserText(agentInstanceDisplayName(it.From), it.Text)
+		label := agentInstanceDisplayName(it.From)
+		if id := strings.TrimSpace(it.From); id != "" && label != id {
+			label = label + " instance_id=" + id
+		}
+		return formatPeerUserText(label+" via message_agent", it.Text)
+	case "thread":
+		return formatPeerUserText("thread_id="+strings.TrimSpace(it.From)+" via message_agent", it.Text)
 	default:
 		if it.From != "" {
 			return "[" + it.From + "] " + it.Text

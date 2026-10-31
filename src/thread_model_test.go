@@ -203,6 +203,127 @@ func TestThreadChatModel(t *testing.T) {
 	}
 }
 
+func TestAgentChatModelFollowsDefinition(t *testing.T) {
+	withTempAgentHomes(t)
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	fc := fileConfig{}
+	fc.ActiveModelProviderID = "p2"
+	fc.ModelProviders = []modelProvider{
+		{
+			ID: "p1", Name: "One", BaseURL: "https://one.example/v1", APIKey: "k1",
+			ActiveModelID: "m1",
+			Models:        []providerModel{{ID: "m1", Name: "Model One", Reasoning: "high", ContextLimit: 32000}},
+		},
+		{
+			ID: "p2", Name: "Two", BaseURL: "https://two.example/v1", APIKey: "k2",
+			ActiveModelID: "m2",
+			Models:        []providerModel{{ID: "m2", Name: "Model Two", Reasoning: "low"}},
+		},
+	}
+	writeModelConfig(t, cfgPath, fc)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Modeler", "use the definition model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err = setRecipeModel(recipe.ID, "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := createAgentInstance(recipe, ws.ID, "Modeler 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeThreadMeta(ws.ID, ThreadMeta{ID: "main", ModelProviderID: "p2", ModelID: "m2"}); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{
+		Model: "from-flags", ConfigPath: cfgPath, WorkspaceID: ws.ID, ThreadID: "main",
+		AgentInstanceID: inst.ID, ContextLimit: 8000, Reasoning: "medium",
+	}}
+
+	got := a.effectiveChatTarget()
+	if got.Model != "m1" || got.ProviderID != "p1" || got.Custom || got.Label != "Model One" {
+		t.Fatalf("definition model: %+v", got)
+	}
+	if err := a.saveThreadChatModel("p2", "m2"); err == nil {
+		t.Fatal("agent chat accepted a model change")
+	}
+	meta, _ := readThreadMeta(ws.ID, "main")
+	if meta.ModelID != "m2" {
+		t.Fatalf("thread choice was rewritten: %+v", meta)
+	}
+
+	if _, err := setAgentInstanceModel(inst.ID, "m2"); err != nil {
+		t.Fatal(err)
+	}
+	got = a.effectiveChatTarget()
+	if got.Model != "m2" || got.ProviderID != "p2" {
+		t.Fatalf("instance model: %+v", got)
+	}
+	other, err := createAgentInstance(recipe, ws.ID, "Modeler 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Agent{Cfg: Config{ConfigPath: cfgPath, WorkspaceID: ws.ID, ThreadID: "main", AgentInstanceID: other.ID}}
+	if got := b.effectiveChatTarget(); got.Model != "m1" {
+		t.Fatalf("other instance: %+v", got)
+	}
+
+	if _, err := setAgentInstanceModel(inst.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	got = a.effectiveChatTarget()
+	if got.Model != "m1" {
+		t.Fatalf("cleared instance follows definition: %+v", got)
+	}
+
+	if _, err := setRecipeModel(recipe.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	got = a.effectiveChatTarget()
+	if got.Model != "m2" || got.ProviderID != "p2" {
+		t.Fatalf("empty definition follows settings: %+v", got)
+	}
+	view := a.threadModelView()
+	if view["locked"] != true || view["source"] != "settings" || view["unresolved"] != false {
+		t.Fatalf("settings lock: %#v", view)
+	}
+
+	if _, err := setRecipeModel(recipe.ID, "missing"); err != nil {
+		t.Fatal(err)
+	}
+	got = a.effectiveChatTarget()
+	if got.Model != "m2" {
+		t.Fatalf("unknown definition id: %+v", got)
+	}
+	view = a.threadModelView()
+	if view["locked"] != true || view["source"] != "definition" || view["unresolved"] != true || view["saved_model_id"] != "missing" {
+		t.Fatalf("unresolved: %#v", view)
+	}
+	if err := validateKnownModel(cfgPath, "missing"); err == nil {
+		t.Fatal("unknown model was accepted")
+	}
+	if err := validateKnownModel(cfgPath, "m1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateKnownModel(cfgPath, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	req := httptest.NewRequest(http.MethodPut, "/api/threads/model", strings.NewReader(`{"provider_id":"p1","model_id":"m1"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT agent model: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func writeModelConfig(t *testing.T, path string, fc fileConfig) {
 	t.Helper()
 	b, err := json.MarshalIndent(fc, "", "  ")

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,6 +68,41 @@ func TestHostAttachProxiesSession(t *testing.T) {
 	defer cancel()
 	// EnsureWorker will try to spawn; with test binary it may fail fast — acceptable.
 	_ = h.Attach(ctx, ws.ID)
+}
+
+func TestHostStopIdleAgentDoesNotStartWorker(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, err := createAgentInstance(recipe, ws.ID, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := newHost("sekrit", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.StopAll()
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/instances/stop", strings.NewReader(`{"id":"`+ada.ID+`"}`))
+	req.Header.Set("Authorization", "Bearer sekrit")
+	rec := httptest.NewRecorder()
+	h.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"running":false`) {
+		t.Fatalf("idle stop: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, _, ok := h.liveAgentWorker(ada.ID); ok {
+		t.Fatal("stop started a worker")
+	}
+	meta, err := readAgentInstanceMeta(ada.ID)
+	if err != nil || meta.Status == agentStatusStopped {
+		t.Fatalf("status: %+v %v", meta, err)
+	}
 }
 
 func TestHostRequireSecret(t *testing.T) {

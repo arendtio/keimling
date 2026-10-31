@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -174,13 +175,137 @@ func TestPeerSendIsVisibleToBothChannels(t *testing.T) {
 	}
 	woke := formatQueueWake(AgentQueueItem{Text: "the joke", From: from.ID, Kind: "peer"})
 	name, body, ok := parsePeerUserText(woke)
-	if !ok || name != "Ada" || body != "the joke" {
+	if !ok || !strings.Contains(name, "Ada") || !strings.Contains(name, from.ID) || body != "the joke" {
 		t.Fatalf("receiver wake: %q", woke)
 	}
 	rawUser := []byte(`{"role":"user","content":"` + woke + `"}`)
 	recv := sessionMessages([]json.RawMessage{rawUser}, 10)
-	if len(recv) != 1 || recv[0].Role != "peer" || recv[0].Name != "From Ada" || recv[0].Text != "the joke" {
+	if len(recv) != 1 || recv[0].Role != "peer" || !strings.Contains(recv[0].Name, "From Ada") || !strings.Contains(recv[0].Name, from.ID) || recv[0].Text != "the joke" {
 		t.Fatalf("receiver channel: %+v", recv)
+	}
+}
+
+func TestAgentPromptNamesItself(t *testing.T) {
+	withTempAgentHomes(t)
+	recipe, err := createAgentRecipe("Pair", "Watch the alarm.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, err := createAgentInstance(recipe, ws.ID, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{AgentInstanceID: ada.ID, AgentInstructions: "Watch the alarm."}}
+	block := a.modelInstructions()
+	for _, want := range []string{"You are an agent instance", ada.Name, ada.ID, "Your task:\nWatch the alarm.", "not the workspace assistant", "message_agent", "is not sent", "own context", "copied exactly", "set_alarm wakes only you", "delivery to the user", "[Alarm]", "via message_agent", "must be a message_agent call"} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("prompt missing %q\n%s", want, block)
+		}
+	}
+	for _, banned := range []string{"You are keimling, a careful command-line assistant", "EXTREMELY SHORT", "German in this conversation", "Linux CLI", "Linux shell"} {
+		if strings.Contains(block, banned) {
+			t.Fatalf("agent prompt still has the thread voice %q", banned)
+		}
+	}
+	if !strings.Contains(block, "Operating system: "+hostOSName()) || !strings.Contains(block, "Shell for exec: "+selectedShell()) {
+		t.Fatal("agent prompt does not name the host system")
+	}
+	if strings.Index(block, "You are an agent instance") > strings.Index(block, "Your task:") || strings.Index(block, "Your task:") > strings.Index(block, "How to use tools:") {
+		t.Fatal("agent prompt is out of order")
+	}
+	thread := (&Agent{}).modelInstructions()
+	if !strings.Contains(thread, "You are keimling, a careful command-line assistant") || !strings.Contains(thread, "EXTREMELY SHORT") || !strings.Contains(thread, "Operating system: "+hostOSName()) || !strings.Contains(thread, "Shell for exec: "+selectedShell()) {
+		t.Fatal("workspace thread lost its own prompt")
+	}
+	if strings.Contains(thread, "You are an agent instance") {
+		t.Fatal("workspace thread was given an agent identity")
+	}
+}
+
+func TestWorkspacePromptIncludesWorkingDirectory(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	dir := t.TempDir()
+	ws, err := ensureWorkspaceForRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(ws.Root); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{WorkspaceID: ws.ID, WorkspaceRoot: ws.Root}}
+	block := a.workspacePrompt()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{ws.ID, "Working directory: " + cwd, "Commands start in this directory."} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("prompt missing %q\n%s", want, block)
+		}
+	}
+	moved := t.TempDir()
+	if err := os.Chdir(moved); err != nil {
+		t.Fatal(err)
+	}
+	again := a.workspacePrompt()
+	now, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(again, "Working directory: "+now) || strings.Contains(again, "Working directory: "+cwd) {
+		t.Fatalf("prompt kept the old directory:\n%s", again)
+	}
+}
+
+func TestMessageAgentRepliesIntoThread(t *testing.T) {
+	withTempAgentHomes(t)
+	t.Setenv("KEIMLING_HOST", "")
+	t.Setenv("KEIMLING_SECRET", "")
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, err := createAgentInstance(recipe, ws.ID, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := OpenJournal(agentInstanceSessionPath(ada.ID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	sender := &Agent{Cfg: Config{AgentInstanceID: ada.ID}, Journal: j, History: j.History}
+	out := sender.messageAgent(`{"instance_id":"` + th.ID + `","text":"twice"}`)
+	if !strings.Contains(out, "twice") {
+		t.Fatalf("tool result: %s", out)
+	}
+	events, err := originalEvents(session)
+	if err != nil || len(events) != 1 || !strings.Contains(string(events[0]), "twice") || !strings.Contains(string(events[0]), "Ada") {
+		t.Fatalf("thread: %v %v", events, err)
+	}
+	woke := formatQueueWake(AgentQueueItem{Text: "how often", From: th.ID, FromName: th.Title, Workspace: ws.ID, Kind: "thread"})
+	if woke != "[From thread_id="+th.ID+" via message_agent] how often" {
+		t.Fatalf("thread wake: %q", woke)
+	}
+	prefixed := sender.messageAgent(`{"instance_id":"agent-` + th.ID + `","text":"again"}`)
+	if !strings.Contains(prefixed, "again") {
+		t.Fatalf("prefixed thread id: %s", prefixed)
 	}
 }
 

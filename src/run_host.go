@@ -20,6 +20,7 @@ func runHostServer(listen, secret, configPath, initialWorkspace string) error {
 	if err != nil {
 		return err
 	}
+	h.baseURL = hostBaseForWorkers(listen)
 	defer h.StopAll()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -108,6 +109,7 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 		return err
 	}
 	addr := ln.Addr().String()
+	h.baseURL = "http://" + addr
 	srv := &http.Server{
 		Handler:           h.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

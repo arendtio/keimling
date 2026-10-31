@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -23,12 +25,33 @@ type AgentInstanceMeta struct {
 	Workspaces []string `json:"workspaces"` // workspace ids this instance may use
 	// Tools is nil until the user saves a tool choice. Nil grants every tool.
 	// A non-nil slice, including empty, is the saved choice.
-	Tools            *[]string `json:"tools,omitempty"`
-	Peers            []string  `json:"peers,omitempty"` // instance ids this agent may message
+	Tools *[]string `json:"tools,omitempty"`
+	Peers []string  `json:"peers,omitempty"` // instance ids this agent may message
+	// Model overrides the definition. Empty follows the definition.
+	Model            string    `json:"model,omitempty"`
 	CurrentWorkspace string    `json:"current_workspace"`
 	Status           string    `json:"status"`
+	WakesHeld        bool      `json:"wakes_held,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+func setAgentWakesHeld(id string, held bool) error {
+	m, err := readAgentInstanceMeta(id)
+	if err != nil {
+		return err
+	}
+	if m.WakesHeld == held {
+		return nil
+	}
+	m.WakesHeld = held
+	m.UpdatedAt = time.Now().UTC()
+	return writeAgentInstanceMeta(m)
+}
+
+func agentWakesHeld(id string) bool {
+	m, err := readAgentInstanceMeta(id)
+	return err == nil && m.WakesHeld
 }
 
 func agentInstancesRoot() string {
@@ -132,6 +155,145 @@ func listAgentInstancesForWorkspace(workspaceID string) ([]AgentInstanceMeta, er
 	return out, nil
 }
 
+// agentMentionPick is an instance the user chose while typing a name.
+type agentMentionPick struct {
+	ID   string
+	Name string
+}
+
+type resolvedAgentMention struct {
+	ID   string
+	Name string
+}
+
+// resolveWorkspaceAgentMentions finds @Name tokens in text. Name is an instance
+// that may use workspaceID. A name shared by several instances is resolved only
+// when picks names the id. ambiguous is true when at least one token still needs a choice.
+func resolveWorkspaceAgentMentions(workspaceID, text string, picks []agentMentionPick) ([]resolvedAgentMention, bool, error) {
+	agents, err := listAgentInstancesForWorkspace(workspaceID)
+	if err != nil {
+		return nil, false, err
+	}
+	byName := map[string][]AgentInstanceMeta{}
+	var names []string
+	seen := map[string]bool{}
+	for _, m := range agents {
+		name := strings.TrimSpace(m.Name)
+		key := strings.ToLower(name)
+		if key == "" || strings.TrimSpace(m.ID) == "" {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			names = append(names, name)
+		}
+		byName[key] = append(byName[key], m)
+	}
+	sort.Slice(names, func(i, j int) bool { return len([]rune(names[i])) > len([]rune(names[j])) })
+	used := make([]bool, len(picks))
+	var out []resolvedAgentMention
+	ambiguous := false
+	runes := []rune(text)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != '@' {
+			continue
+		}
+		if i > 0 && !unicode.IsSpace(runes[i-1]) {
+			continue
+		}
+		rest := string(runes[i+1:])
+		matched := ""
+		for _, name := range names {
+			if mentionNamePrefix(rest, name) {
+				matched = name
+				break
+			}
+		}
+		if matched == "" {
+			continue
+		}
+		cands := byName[strings.ToLower(matched)]
+		if len(cands) == 1 {
+			out = append(out, resolvedAgentMention{ID: cands[0].ID, Name: strings.TrimSpace(cands[0].Name)})
+		} else {
+			found := false
+			for pi, p := range picks {
+				if used[pi] {
+					continue
+				}
+				id := strings.TrimSpace(p.ID)
+				for _, c := range cands {
+					if c.ID == id {
+						out = append(out, resolvedAgentMention{ID: c.ID, Name: strings.TrimSpace(c.Name)})
+						used[pi] = true
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if !found {
+				ambiguous = true
+			}
+		}
+		i += len([]rune(matched))
+	}
+	return out, ambiguous, nil
+}
+
+// stripResolvedMentions removes the @Name tokens that selected those instances.
+func stripResolvedMentions(text string, mentions []resolvedAgentMention) string {
+	names := make([]string, 0, len(mentions))
+	seen := map[string]bool{}
+	for _, m := range mentions {
+		name := strings.TrimSpace(m.Name)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool { return len([]rune(names[i])) > len([]rune(names[j])) })
+	runes := []rune(text)
+	var b strings.Builder
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '@' && (i == 0 || unicode.IsSpace(runes[i-1])) {
+			rest := string(runes[i+1:])
+			matched := ""
+			for _, name := range names {
+				if mentionNamePrefix(rest, name) {
+					matched = name
+					break
+				}
+			}
+			if matched != "" {
+				i += len([]rune(matched))
+				continue
+			}
+		}
+		b.WriteRune(runes[i])
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func mentionNamePrefix(rest, name string) bool {
+	rr := []rune(rest)
+	nn := []rune(name)
+	if len(nn) == 0 || len(rr) < len(nn) {
+		return false
+	}
+	if !strings.EqualFold(string(rr[:len(nn)]), name) {
+		return false
+	}
+	if len(rr) == len(nn) {
+		return true
+	}
+	return unicode.IsSpace(rr[len(nn)])
+}
+
 func agentInstanceAllowsWorkspace(m AgentInstanceMeta, workspaceID string) bool {
 	for _, id := range m.Workspaces {
 		if id == workspaceID {
@@ -175,6 +337,44 @@ func createAgentInstance(recipe AgentRecipe, workspaceID, name string) (AgentIns
 		return AgentInstanceMeta{}, err
 	}
 	return m, nil
+}
+
+// ownThreadDir is where this process stores thread.json. An agent instance
+// uses its own directory. A workspace thread uses the workspace. The agent
+// placeholder id is never a workspace thread path.
+func (a *Agent) ownThreadDir() (dir, id string, ok bool) {
+	if a == nil {
+		return "", "", false
+	}
+	if inst := strings.TrimSpace(a.Cfg.AgentInstanceID); inst != "" {
+		return agentInstanceThreadDir(inst), agentThreadID, true
+	}
+	if a.Cfg.WorkspaceID == "" || !isWorkspaceThreadID(a.Cfg.ThreadID) {
+		return "", "", false
+	}
+	return threadDir(a.Cfg.WorkspaceID, a.Cfg.ThreadID), a.Cfg.ThreadID, true
+}
+
+func (a *Agent) readOwnThreadMeta() (ThreadMeta, error) {
+	dir, id, ok := a.ownThreadDir()
+	if !ok {
+		return ThreadMeta{Title: defaultThreadTitle}, fmt.Errorf("no thread")
+	}
+	m, err := readThreadMetaFile(filepath.Join(dir, threadMetaFile))
+	m.ID = id
+	if strings.TrimSpace(m.Title) == "" {
+		m.Title = defaultThreadTitle
+	}
+	return m, err
+}
+
+func (a *Agent) writeOwnThreadMeta(m ThreadMeta) error {
+	dir, id, ok := a.ownThreadDir()
+	if !ok {
+		return fmt.Errorf("no thread")
+	}
+	m.ID = id
+	return writeThreadMetaForPath(dir, m)
 }
 
 func writeThreadMetaForPath(threadDir string, m ThreadMeta) error {
@@ -280,6 +480,18 @@ func agentsMayContact(a, b AgentInstanceMeta) bool {
 
 // setAgentInstancePeers stores the instances id may contact and writes the
 // same link on each of them. Instances left out lose the link in both directions.
+func setAgentInstanceModel(id, model string) (AgentInstanceMeta, error) {
+	m, err := readAgentInstanceMeta(id)
+	if err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	m.Model = strings.TrimSpace(model)
+	if err := writeAgentInstanceMeta(m); err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	return m, nil
+}
+
 func setAgentInstancePeers(id string, peerIDs []string) (AgentInstanceMeta, error) {
 	id = strings.TrimSpace(id)
 	self, err := readAgentInstanceMeta(id)

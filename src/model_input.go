@@ -30,6 +30,20 @@ func (a *Agent) modelInputCore() []json.RawMessage {
 	return out
 }
 
+// wireModelInput is the transcript sent to the model. Stored fields that are
+// only for the UI, such as raw_output, are removed.
+func (a *Agent) wireModelInput() []json.RawMessage {
+	items := a.modelInput()
+	if a != nil {
+		t := a.callChatTarget()
+		items = prepareReasoningInput(items, t.ProviderID, t.Model, a.reasoningOwnerMap())
+	}
+	if normalized, err := normalizeResponseInput(items); err == nil {
+		return normalized
+	}
+	return items
+}
+
 // modelInput is what the main Responses API call receives.
 func (a *Agent) modelInput() []json.RawMessage {
 	core := a.modelInputCore()

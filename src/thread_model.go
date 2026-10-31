@@ -24,6 +24,7 @@ func (a *Agent) beginRunChat() {
 	if a == nil {
 		return
 	}
+	a.observeAgentModelChange()
 	t := a.effectiveChatTarget()
 	a.runChat = &t
 }
@@ -59,6 +60,9 @@ func (a *Agent) effectiveChatTarget() chatTarget {
 		return chatTarget{}
 	}
 	settings := a.settingsChatTarget()
+	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
+		return a.agentChatTarget(settings)
+	}
 	pid, mid := a.threadChatIDs()
 	if pid == "" || mid == "" {
 		return settings
@@ -80,6 +84,126 @@ func (a *Agent) effectiveChatTarget() chatTarget {
 	t := chatTargetFrom(p, m, a.Cfg.ContextLimit, a.Cfg.Reasoning)
 	t.Custom = true
 	return t
+}
+
+// configuredAgentModel is the instance override, else the definition, else empty.
+func (a *Agent) configuredAgentModel() (id, source string) {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		return "", ""
+	}
+	inst, err := readAgentInstanceMeta(a.Cfg.AgentInstanceID)
+	if err != nil {
+		return "", "settings"
+	}
+	if id := strings.TrimSpace(inst.Model); id != "" {
+		return id, "instance"
+	}
+	rec, err := readAgentRecipe(inst.RecipeID)
+	if err != nil {
+		return "", "settings"
+	}
+	if id := strings.TrimSpace(rec.Model); id != "" {
+		return id, "definition"
+	}
+	return "", "settings"
+}
+
+func (a *Agent) agentChatTarget(settings chatTarget) chatTarget {
+	id, _ := a.configuredAgentModel()
+	if id == "" {
+		settings.Custom = false
+		return settings
+	}
+	providers, _, ok := a.liveProviders()
+	if !ok {
+		settings.Custom = false
+		return settings
+	}
+	p, m := findProviderModel(providers, id, settings.ProviderID)
+	if p == nil || m == nil {
+		settings.Custom = false
+		return settings
+	}
+	t := chatTargetFrom(p, m, a.Cfg.ContextLimit, a.Cfg.Reasoning)
+	t.Custom = false
+	return t
+}
+
+func (a *Agent) chatModelLock() (locked bool, source string, unresolved bool, saved string) {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		return false, "", false, ""
+	}
+	id, source := a.configuredAgentModel()
+	if id == "" {
+		return true, "settings", false, ""
+	}
+	providers, _, ok := a.liveProviders()
+	if !ok {
+		return true, source, true, id
+	}
+	settings := a.settingsChatTarget()
+	p, m := findProviderModel(providers, id, settings.ProviderID)
+	if p == nil || m == nil {
+		return true, source, true, id
+	}
+	return true, source, false, id
+}
+
+// findProviderModel returns the configured model. When several providers have
+// the same id, preferProvider wins if it has that id.
+func findProviderModel(providers []modelProvider, modelID, preferProvider string) (*modelProvider, *providerModel) {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil, nil
+	}
+	var firstP *modelProvider
+	var firstM *providerModel
+	for i := range providers {
+		providers[i].ensureProviderModels()
+		m := providerModelByID(providers[i].Models, modelID)
+		if m == nil {
+			continue
+		}
+		if providers[i].ID == strings.TrimSpace(preferProvider) {
+			return &providers[i], m
+		}
+		if firstM == nil {
+			firstP = &providers[i]
+			firstM = m
+		}
+	}
+	return firstP, firstM
+}
+
+func validateKnownModel(configPath, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil
+	}
+	fc, err := readConfiguration(strings.TrimSpace(configPath))
+	if err != nil || len(fc.ModelProviders) == 0 {
+		return fmt.Errorf("unknown model")
+	}
+	fc.ensureModelProviders()
+	p, m := findProviderModel(fc.ModelProviders, modelID, fc.ActiveModelProviderID)
+	if p == nil || m == nil {
+		return fmt.Errorf("unknown model")
+	}
+	return nil
+}
+
+// observeAgentModelChange tells the user when an idle agent chat changes model
+// and encrypted reasoning will not be sent. A run in progress is left alone.
+func (a *Agent) observeAgentModelChange() {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" || a.runChat != nil {
+		return
+	}
+	next := a.effectiveChatTarget()
+	if a.modelNoted {
+		a.noteEncryptedReasoningOnModelChange(a.notedChat)
+	}
+	a.notedChat = next
+	a.modelNoted = true
 }
 
 func (a *Agent) settingsChatTarget() chatTarget {
@@ -153,10 +277,7 @@ func (a *Agent) liveProviders() ([]modelProvider, string, bool) {
 }
 
 func (a *Agent) threadChatIDs() (string, string) {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
-		return "", ""
-	}
-	meta, err := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
+	meta, err := a.readOwnThreadMeta()
 	if err != nil {
 		return "", ""
 	}
@@ -166,23 +287,25 @@ func (a *Agent) threadChatIDs() (string, string) {
 // clearThreadChatModel drops a saved pair that is no longer in Settings.
 // A newer pair written in the meantime is left alone.
 func (a *Agent) clearThreadChatModel(providerID, modelID string) {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
+	meta, err := a.readOwnThreadMeta()
+	if err != nil && meta.ID == "" {
 		return
 	}
-	meta, _ := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
 	if strings.TrimSpace(meta.ModelProviderID) != providerID || strings.TrimSpace(meta.ModelID) != modelID {
 		return
 	}
-	meta.ID = a.Cfg.ThreadID
 	meta.ModelProviderID = ""
 	meta.ModelID = ""
-	_ = writeThreadMeta(a.Cfg.WorkspaceID, meta)
+	_ = a.writeOwnThreadMeta(meta)
 }
 
 // saveThreadChatModel stores a configured pair. The current Settings pair clears the thread choice.
 func (a *Agent) saveThreadChatModel(providerID, modelID string) error {
 	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
 		return fmt.Errorf("no thread")
+	}
+	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
+		return fmt.Errorf("an agent chat uses its definition's model")
 	}
 	providers, activeID, ok := a.liveProviders()
 	if !ok {
@@ -224,7 +347,12 @@ func (a *Agent) saveThreadChatModel(providerID, modelID string) error {
 }
 
 func (a *Agent) threadModelView() map[string]any {
+	locked, source, unresolved, saved := a.chatModelLock()
 	t := a.effectiveChatTarget()
+	if locked {
+		t = a.callChatTarget()
+	}
+	next := a.effectiveChatTarget()
 	settings := a.settingsChatTarget()
 	providers, _, ok := a.liveProviders()
 	pubs := []map[string]any{}
@@ -234,6 +362,10 @@ func (a *Agent) threadModelView() map[string]any {
 	label := t.Label
 	if label == "" {
 		label = t.Model
+	}
+	nextName := next.Label
+	if nextName == "" {
+		nextName = next.Model
 	}
 	return map[string]any{
 		"provider_id":          t.ProviderID,
@@ -245,6 +377,11 @@ func (a *Agent) threadModelView() map[string]any {
 		"settings_provider_id": settings.ProviderID,
 		"settings_model_id":    settings.Model,
 		"providers":            pubs,
+		"locked":               locked,
+		"source":               source,
+		"unresolved":           unresolved,
+		"saved_model_id":       saved,
+		"next_label":           nextName,
 	}
 }
 
@@ -291,7 +428,7 @@ func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra 
 	var resp Response
 	var err error
 	a.withChatEndpoint(func(model, reasoning string) {
-		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.skillsCatalogBlock(), extra, a.instanceToolGrant())
+		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.modelInstructions(), extra, a.instanceToolGrant())
 	})
 	return resp, err
 }

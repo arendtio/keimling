@@ -42,10 +42,7 @@ func (a *Agent) globalAutopilotInstructions() string {
 }
 
 func (a *Agent) threadAutopilotText() string {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
-		return ""
-	}
-	meta, err := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
+	meta, err := a.readOwnThreadMeta()
 	if err != nil {
 		return ""
 	}
@@ -64,25 +61,23 @@ func (a *Agent) threadAutopilotView() (text string, custom bool, source string) 
 }
 
 func (a *Agent) saveThreadAutopilotInstructions(text string) error {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
-		return fmt.Errorf("no thread")
-	}
 	text, err := normalizeAutopilotInstructions(text)
 	if err != nil {
 		return err
 	}
-	meta, _ := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
-	meta.ID = a.Cfg.ThreadID
+	meta, _ := a.readOwnThreadMeta()
+	if meta.ID == "" {
+		return fmt.Errorf("no thread")
+	}
 	meta.AutopilotInstructions = text
-	return writeThreadMeta(a.Cfg.WorkspaceID, meta)
+	return a.writeOwnThreadMeta(meta)
 }
 
 func (a *Agent) resetThreadAutopilotInstructions() error {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
+	meta, err := a.readOwnThreadMeta()
+	if err != nil && meta.ID == "" {
 		return fmt.Errorf("no thread")
 	}
-	meta, _ := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
-	meta.ID = a.Cfg.ThreadID
 	meta.AutopilotInstructions = ""
-	return writeThreadMeta(a.Cfg.WorkspaceID, meta)
+	return a.writeOwnThreadMeta(meta)
 }

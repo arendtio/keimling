@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 type Journal struct {
+	mu      sync.Mutex
 	File    *os.File
 	History []json.RawMessage
 }
@@ -90,17 +92,56 @@ func OpenJournal(path string, resume bool) (*Journal, error) {
 	return &Journal{File: f, History: view}, nil
 }
 func (j *Journal) AppendItem(item json.RawMessage) error {
-	row, _ := json.Marshal(map[string]any{"type": "item", "item": item})
-	if _, err := fmt.Fprintln(j.File, string(row)); err != nil {
-		return err
-	}
-	if err := j.File.Sync(); err != nil {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.writeItemLocked(item); err != nil {
 		return err
 	}
 	j.History = append(j.History, item)
 	return nil
 }
+
+// AppendItemFileOnly writes the journal line without changing History.
+// A running turn keeps the history it already loaded.
+func (j *Journal) AppendItemFileOnly(item json.RawMessage) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.writeItemLocked(item)
+}
+
+func appendSessionItem(path string, item any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	row, err := json.Marshal(map[string]any{"type": "item", "item": json.RawMessage(b)})
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintln(f, string(row)); err != nil {
+		return err
+	}
+	return f.Sync()
+}
+
+func (j *Journal) writeItemLocked(item json.RawMessage) error {
+	row, _ := json.Marshal(map[string]any{"type": "item", "item": item})
+	if _, err := fmt.Fprintln(j.File, string(row)); err != nil {
+		return err
+	}
+	return j.File.Sync()
+}
 func (j *Journal) AppendCheckpoint(history []json.RawMessage, level string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
 	snapshot, _ := json.Marshal(history)
 	row, _ := json.Marshal(map[string]any{"type": "checkpoint", "level": level, "item": json.RawMessage(snapshot)})
 	if _, err := fmt.Fprintln(j.File, string(row)); err != nil {

@@ -235,6 +235,116 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-15 Address an agent from a workspace thread
+
+- **Bin:** explicit requirement
+- **Statement:** From a normal thread of a workspace, the user shall send a message to an agent instance that may use that same workspace. The user shall be able to start from the agent's name and choose the instance when the name alone does not identify it.
+- **Origin:** User, 2026-10-31 (quote: "I would like to be able to send messages to agents from every normal thread (where the agent is part of the same workspace) for example by writing @ and then the name of the agent like \"Entertainer 4\" and a small selection dialog should help with finding the correct instance ID." and "das Menü … ist dann leider abgeschnitten" and "es kommt als Nachricht eben auch das @ mit an, also nicht nur die Nachricht").
+- **Rationale:** The user is already in the workspace conversation and wants to hand that agent a message without leaving the thread or copying an id.
+- **Fit criterion:** A workspace thread is open. Entertainer 4 may use that workspace. The user addresses Entertainer 4 from that thread and the message is delivered to that instance. An instance that may not use the workspace is not offered. When more than one instance fits the name, the user sees each instance id and chooses one before the message is sent. The choice list is fully visible, not clipped by the chat. A message is not delivered to an instance the user did not choose when the name matches more than one. The text that arrives is the message the user wrote after the name. The name used to choose the instance is not part of that text.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-16 A reply goes back to the sender
+
+- **Bin:** explicit requirement
+- **Statement:** When an agent chooses to answer a message, that answer shall go back to the sender. The sender may be another agent or a workspace thread. Writing in the agent's own channel shall not be how that answer is delivered. The agent shall be able to address one recipient at a time. The agent does not have to answer every message.
+- **Origin:** User, 2026-10-31 (quote: "ich hätte erwartet, dass er mir dann an meinen Thread zurück antwortet" and "wenn der Instructor dem Entertainer eine Nachricht schickt, dann kriegt der Entertainer die Nachricht, er antwortet aber einfach nur in seinem normalen Chat" and "nicht alles, was sie in ihren normalen Chat schreiben, geht an alle Empfänger" and "empfängerspezifisch kommunizieren" and "an Threads schreiben oder an andere Agents" and "er muss ja nicht antworten" and "FROM THREAD NEW THREAD THREAD_ID=… WORKSPACE_ID=… Feels a bit complicated. I think FROM THREAD_ID=… should suffice" and "the Agent did not respond to the thread" and "I think the thread ID is wrong, because that message was sent by a different thread").
+- **Rationale:** The agent's own channel is a conversation with the user. A sender who is waiting in a thread, or another agent who asked something, never sees an answer that stays in that channel. A long sender line makes the thread id easy to copy wrong.
+- **Fit criterion:** A workspace thread sends a message to an agent. The line the agent sees names that same workspace thread by its thread id. That id is not the agent instance's own thread id. The line does not add the thread title or the workspace id. The agent answers that sender. The answer shows up in that thread. An agent sends a message to another agent. The reply the second agent addresses to the first shows up for the first agent. Text the agent only writes in its own channel stays there. An agent that does not answer leaves the sender without a reply.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-17 An agent knows who it is
+
+- **Bin:** explicit requirement
+- **Statement:** Every agent shall know that it is an agent, its name, its instance id, and the task from its definition. It shall know that a message names the sender and that sender's id, and that answering that sender is done by addressing that id, whether the sender is an agent or a thread.
+- **Origin:** User, 2026-10-31 (quote: "Die Agents haben anscheinend keine richtige Vorstellung davon, wer sie sind" and "das ist mein Name … das ist meine ID und das und das ist meine Aufgabe" and "dass er überhaupt weiß, dass er ein Agent ist" and "wenn mir jemand schreibt, dann kann ich ihm über das Tool antworten" and "wissen, wem sie antworten, ob sie einem anderen Agenten antworten oder ob sie einem Thread antworten" and "Agents still not respond to other agents via the tooling, but only in their own chat" and "instruct the LLM to always respond via the message_agent tool, if they are responding to a message they received via message_agent" and "does an agent see when a message came from message_agent?").
+- **Rationale:** Without its own id and the sender's id, the agent cannot address a reply, and it treats every incoming message as part of its chat with the user. A reply written as chat text never reaches the sender.
+- **Fit criterion:** The instructions an agent receives name it as an agent and include its name, its instance id, and its definition task. An incoming message from an agent includes that agent's instance id and says it arrived via message_agent. An incoming message from a thread includes that thread's id and the same marker. The instructions say that an answer to that line is a message_agent call, and that an assistant message in this chat does not deliver it. Those instructions do not also tell the agent that it is the workspace assistant.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-23 An agent prompt is not a workspace-thread prompt
+
+- **Bin:** explicit requirement
+- **Statement:** The instructions an agent instance receives shall be its own: who it is, the task from its definition, where it is working, and how its tools work. They shall not open by saying it is the workspace assistant, and they shall not impose that assistant's voice.
+- **Origin:** User, 2026-10-31 (quote: "For agent the prompt is a bit weird. First this is being told: You are keimling, a careful Linux CLI assistant. Later: You are an agent instance named \"Instructor 8\". So now thats confusing even to me and there are probably more examples. I think you should better organize the prompt and make sure the context you build for the agent, actually makes sense. I think currently you jjust dump the system prompt of a normal thread in the context, but that is probably the reason why the agents are confused and have trouble following instructions.").
+- **Rationale:** Two identities in one prompt fight each other. The definition is the task. The workspace-thread voice tells the model to be a different assistant and to stay almost silent.
+- **Fit criterion:** An agent instance's instructions start from its name and instance id, then its definition task, and do not contain "You are keimling, a careful Linux CLI assistant" or the workspace thread's "EXTREMELY SHORT" voice. A workspace thread's instructions still contain that assistant identity.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-18 A message stands on its own
+
+- **Bin:** explicit requirement
+- **Statement:** An agent shall know that another agent or a workspace thread does not share its context. When it sends a message, that message shall carry what the recipient needs in order to understand it.
+- **Origin:** User, 2026-10-31 (quote: "wenn sie einen anderen Agenten zu irgendetwas fragen, dass dieser nicht den gleichen Kontext hat" and "der Alarm ist losgegangen und deswegen frage ich dich jetzt. Das ist aber natürlich was, was der Empfänger überhaupt nicht einordnen weiß" and "sie in ihrem eigenen Kontext arbeiten" and "diese nicht den gleichen Kontext haben und in ihrer eigenen Welt leben" and "Sender-Empfänger-Problem, was sie eigentlich jetzt genau schicken").
+- **Rationale:** The recipient has its own chat, its own alarms, and its own tools. A reference to "the alarm" or "what just happened" is empty there.
+- **Fit criterion:** The instructions an agent receives say that another agent or a thread does not see this chat, these alarms, or these recent events, and that a message has to name the thing it is about so the recipient can place it.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-19 Stop one channel without locking the rest
+
+- **Bin:** explicit requirement
+- **Statement:** Stopping shall apply to the agent or thread the user stopped, and it shall take effect at once. That run shall not consume further tokens and shall not start another command. A command that run still has running, including one left in the background, shall be cancelled. The rest of the app shall stay usable: change agent, thread, or workspace, and stop another one. Another agent or thread shall not keep that stopping state.
+- **Origin:** User, 2026-10-31 (quote: "wenn ich dann aber den Agenten wechsel zu einem anderen, dann steht da immer noch Stopping" and "das scheint nicht direkt immer sich an dem aktuellen Thread oder Agenten zu orientieren" and "ich will ihn ja nicht die ganze Zeit blockiert sein" and "ich möchte, dass das dann möglichst schnell für mich einfach wie ein normales, benutzbares System ist und ich auch andere Agenten stoppen kann" and "dass wir vielleicht einen Moment brauchen, um endgültig zu stoppen" and "nicht, dass dauerhaft mein Chatfenster da blockiert ist" and "in der Seitenleiste kann ich auch auf den Stopp-Button drücken, aber auch der scheint irgendwie nicht richtig was auszulösen" and "the chat still allows to press Interrupt and the agents just keeps working" and "First there is stopping in the chat history, but then it just disappears and the agent continues" and "does a stop also pause the alarms?" and "When I say Stop I want it to stop immediately, like in not further token consumption and no more command executions, in fact it should cancel any active commands (also background commands)").
+- **Rationale:** Stop means abort that run. Letting the model finish a reply, or leaving a command running, is the run continuing.
+- **Fit criterion:** After stop, that run starts no further model request and leaves no command running, including a command whose shell already returned. Switching to another agent does not leave that other chat saying Stopping. The sidebar stop and the chat interrupt stop that same run. A due alarm does not start a new run after that stop. The alarm is still there. Sending a message to that agent lets it run again.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-20 Reset an instance to a fresh context
+
+- **Bin:** explicit requirement
+- **Statement:** The user shall reset an agent instance so its context is that of a fresh instance of the same agent type. The instance itself shall remain.
+- **Origin:** User, 2026-10-31 (quote: "the ability to reset any agent instance by giving it a context like a fresh instance of that agent type").
+- **Rationale:** The instance already has a name, contacts, and tools. The user wants the conversation forgotten, not a second copy of the agent.
+- **Fit criterion:** An instance has a conversation. The user resets it. The conversation and its durable summary are gone. The same instance id, name, contacts, tools, and alarms remain. A new message is answered without the old conversation.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-21 See the raw context
+
+- **Bin:** explicit requirement
+- **Statement:** The user shall be able to read the raw context that the token count is measuring, not only the short charter summary.
+- **Origin:** User, 2026-10-31 (quote: "I would love it to have the ability to take a look at the raw context" and "when I open the context dialog I sometimes see just one sentence and at the same time it shows 8000 Token usage. WTH are those 8000 tokens?").
+- **Rationale:** The charter can be one sentence while the request that was counted also contains the instructions, the tool definitions, and the transcript.
+- **Fit criterion:** The context view shows the charter and the raw parts that were sent: instructions, tool definitions, and the transcript items. Each part shows its size. The token number is identified as the full request, not as the charter sentence alone.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-24 An agent chat does not choose its model
+
+- **Bin:** explicit requirement
+- **Statement:** In an agent chat, the user shall not be able to choose a different model. The model that answers in that chat shall be the model on the definition. When the definition has no model, that chat shall use the model from Settings.
+- **Origin:** User, 2026-10-31 (quote: "in agent chats it should not be possible to change the model" and "in general the model should be defined in the definition of an agent").
+- **Rationale:** A model picked in the chat is easy to confuse with the model the definition names, and it is not obvious which one will answer next.
+- **Fit criterion:** An agent chat shows the model that will answer and does not offer a way to change it. A model choice stored earlier from that chat does not change which model answers. The next message uses the definition’s model, or the Settings model when the definition has none. A workspace thread still lets the user choose that thread’s model.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-25 One instance may use another model
+
+- **Bin:** explicit requirement
+- **Statement:** The user shall be able to set a model on one instance. When that instance has no model of its own, it shall use the definition’s model. Setting a model on one instance shall not change the definition or any other instance.
+- **Origin:** User, 2026-10-31 (quote: "maybe we should allow changing the model in the instance editor, because sometimes it can be helpful but in general the model should be defined in the definition of an agent").
+- **Rationale:** The definition is the usual model. One instance sometimes needs a different one, without changing every instance of that definition.
+- **Fit criterion:** The instance editor can save a configured model id, or clear it. After it is saved, that instance’s next message uses it. Another instance of the same definition still uses the definition’s model. Clearing the instance model makes the next message use the definition’s model again.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-22 A schedule and a reply stay with the agent that owns them
+
+- **Bin:** explicit requirement
+- **Statement:** When the user tells an agent to ask another agent for something on a schedule, that agent shall set its own alarm and shall ask the other agent for the thing. The other agent shall not be asked to set that alarm. A reply shall go back to the agent who asked. It shall not be rewritten as a delivery to the user.
+- **Origin:** User, 2026-10-31 (quote: "alle fünf Minuten sollst du dem Entertain Agent auffordern, dir einen Witz zu schicken" and "How stupid is that to set an alarms yourself and also let the other agent set an alarms?!?" and "Please deliver a joke to the user" and "the joke should be just an exchange between the agents. Why do they decide it should be for the user?!?").
+- **Rationale:** The user named who asks, who answers, and where the answer goes. Turning that into two alarms and a delivery to the user drops the request.
+- **Fit criterion:** The instructions say that set_alarm wakes only this agent, that another agent is not asked to create that alarm, and that a reply to another agent goes back to that agent rather than to the user. An alarm line is described as this agent's own reminder.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 Until the user saves tools on a definition, that definition grants every tool. Saving stores the checked tools. An instance with no narrower set uses that definition. Saving the same set again clears the instance override. REQ-AG-2’s unanswered default is this design, not a stakeholder shall.
@@ -243,8 +353,12 @@ Tool choices are shown as a topic table with a read column and a write column. T
 
 MCP servers are a second table: one checkbox per server, and that server’s tool names beside it. The stored choice is the server, so tools it exposes later stay included. A saved `mcp` choice from before this table still means every server until the user saves again.
 
-Contacts are set by the user on the instance. Saving the set writes the same link on both instances. A message is allowed when either instance lists the other, so an older one-way link still lets the other side reply. The model is not offered a tool that adds contacts. A definition may store a model id; the next start of that agent’s process uses it. Empty means the model from Settings.
+Contacts are set by the user on the instance. Saving the set writes the same link on both instances. A message is allowed when either instance lists the other, so an older one-way link still lets the other side reply. The model is not offered a tool that adds contacts. A definition may store a model id. Empty means Settings. An instance may store its own model id. Empty means the definition. The agent chat shows that model and does not open a picker. The choice is read again for each new message. A run already started keeps the model it started with. Compaction, autopilot, and review stay on Settings. An unknown id is rejected when saving. If one is already stored and no longer configured, the chat uses Settings and says so. When the same id exists on more than one provider, the Settings provider wins if it has that id.
 
 A message from A to B is a line in A’s channel ("To B") and, when B’s worker runs, a line in B’s channel ("From A"). The host starts B’s worker when a message is waiting. The checkbox screen is the take-back: uncheck and save again. Delete of an instance asks by name and is not beside Save. There is no restore after that confirm.
+
+Typing `@` in a workspace thread opens a list of instances that may use that workspace. The list is positioned over the page so the chat's overflow does not clip it. Each row shows the name and the instance id. Choosing one inserts the name into the draft and remembers that id. Nothing is sent until the user sends the draft. Escape or editing the draft drops the choice. A name that matches one instance is enough; a name that matches several is not sent until one id is chosen. The workspace model does not run for that send. The thread shows who received it. The addressed instance is woken with the message text after the name is removed. The wake line is `[From thread_id=<id> via message_agent]`, so the id can be copied exactly and the agent can see the line arrived through message_agent. That id is the workspace thread the message was recorded on. An agent instance keeps its own thread id on the instance. It does not create a workspace thread with that id, and the workspace thread list does not show it. The chat shows the sender without that marker. A call that prefixes `agent-` onto that thread id still reaches the thread. `message_agent` accepts another agent's instance id or a thread id in a workspace this agent may use. A reply into a thread is a line in that thread, not a new run of the workspace model. The agent's own instructions include its name, instance id, and that its chat with the user is not a broadcast. set_alarm wakes only that agent. A schedule the user gave it is its own alarm, not a request that the other agent create one. A reply to another agent goes back to that agent. An `[Alarm]` line is a reminder that agent wrote for itself.
+
+Stopping is remembered per agent id and, for a workspace run, per thread id. The chat interrupt and the sidebar stop both cancel that agent's running worker: the model request is aborted, and every command process group that run still has, including one left behind by a shell that already returned, is killed. The chat button says Stopping only until that abort has landed, and it does not offer a second Interrupt. A user stop sets a hold so due alarms and queued peer wakes do not start another run. The alarms stay on the instance. A message the user sends to that agent, from its chat or from a thread, lifts the hold. Reset archives the transcript, clears the charter and the pending queue, and leaves contacts, tools, and alarms. The context dialog's raw section is the instructions, the tool definitions, and the transcript items, with a size on each part.
 
 New ids use a dash before the nanosecond fraction. Ids that already contain a period stay valid. While a workspace run is busy, the user can open another thread, queue a message there, and open settings. The running journal stays the one the run is writing. Opened tool lines and chapter folds stay in the page when a later message is appended. The definition model field suggests ids from the configured providers. Manage tabs use `--fg` on a transparent background, because the default button color `--accent-ink` is the ink for a filled accent button and is dark in the dark theme. Dialog text uses `--fg`. `--ink` is not a theme variable.
