@@ -13,11 +13,11 @@
 
 ## Switching models and providers
 
-- On a model or provider change, visible messages and valid tool outputs are
-  transferred, while incompatible encrypted thinking blocks are excluded from
-  the new active context. The encrypted originals stay in the journal.
-- `/continue-new-model` does exactly this and does not require the original model
-  to be reachable.
+- Encrypted reasoning stays in the active context. A chat call includes a blob
+  only when the chat model is the provider and model that produced it. Readable
+  reasoning text is still sent. Switching back includes the blob again, unless
+  that span has already left the active context.
+- The thread says so at the moment of the switch, when a blob will be left out.
 - An optional semantic model handoff (turning the previous model's knowledge into
   portable text) was discussed but is neither required nor able to reconstruct
   hidden reasoning completely.

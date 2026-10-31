@@ -7,7 +7,7 @@ import (
 
 var slashCommands = []string{
 	"/help", "/status", "/skills", "/mcp", "/mode", "/compact", "/newchat", "/stop",
-	"/resume", "/continue", "/continue-new-model", "/autopilot", "/voice", "/exit",
+	"/resume", "/continue", "/autopilot", "/voice", "/exit",
 }
 
 // completeSlash returns the longest common prefix and the possible matches.

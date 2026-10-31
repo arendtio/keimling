@@ -630,18 +630,10 @@ func main() {
 			fmt.Println("Use F1 or /voice to record audio.")
 			continue
 		}
-		if line == "/resume" || line == "/continue" || line == "/continue-new-model" {
+		if line == "/resume" || line == "/continue" {
 			if !a.ResumeAvailable {
 				fmt.Println("No unfinished task to resume.")
 				continue
-			}
-			if line == "/continue-new-model" {
-				removed, err := a.prepareNewModelContinuation()
-				if err != nil {
-					fmt.Println("Model handoff:", err)
-					continue
-				}
-				fmt.Printf("Model handoff: portable context ready (%d reasoning blocks excluded; original journal preserved).\n", removed)
 			}
 			line = "" // resume without writing a synthetic user message
 		} else if strings.HasPrefix(line, "/") {
@@ -767,7 +759,6 @@ func printHelp() {
 	fmt.Println("  /stop             Cancel current work without exiting")
 	fmt.Println("  /resume           Resume unfinished task without a new user message")
 	fmt.Println("  /continue         Alias for /resume")
-	fmt.Println("  /continue-new-model Resume using portable history without encrypted thinking")
 	fmt.Println("  /autopilot on|off Enable/disable task supervision (default off)")
 	fmt.Println("  Ctrl+G            Toggle autopilot while typing (PTY excluded)")
 	fmt.Println("  During work: type a message to steer the next step")

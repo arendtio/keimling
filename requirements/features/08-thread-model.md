@@ -69,3 +69,5 @@ The choice is among models already stored on a provider in Settings. The user de
 ## Design notes (not requirements)
 
 The composer already shows the current model next to the approval mode, with the title "Model for this thread (change in Settings → Models)". That label describes the outcome. The user did not require that control. They also said they do not want a separate reset control; picking the current Settings pair is the reset.
+
+Encrypted reasoning across a model change is [feature 10](10-encrypted-reasoning.md).

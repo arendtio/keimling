@@ -54,8 +54,14 @@ func normalizeResponseInput(history []json.RawMessage) ([]json.RawMessage, error
 				"content": content,
 			}
 		case "reasoning":
-			// encrypted_content is essential for stateless reasoning continuity.
+			// encrypted_content continues stateless reasoning for the model that
+			// produced it. A content array is not valid replay input: OpenAI
+			// allows only an empty one. Readable text is added separately.
+			// Ownership stamps are local and must not be sent.
 			item = keepInputFields(item, "type", "id", "summary", "encrypted_content")
+			if encryptedBlob(item) == "" {
+				delete(item, "encrypted_content")
+			}
 		default:
 			// Future or provider-specific items: remove only top-level response
 			// metadata; never recursively modify embedded tool data.

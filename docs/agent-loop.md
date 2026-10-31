@@ -28,7 +28,6 @@
 | `/stop` | Interrupt active work while keeping plan and session |
 | `/newchat` | Archive the conversation and start fresh |
 | `/resume`, `/continue` | Resume unfinished work |
-| `/continue-new-model` | Resume unfinished work with provider-compatible context |
 | `/autopilot on\|off` | Enable or disable supervision |
 | `/voice` | Record audio; the transcript becomes an editable draft |
 | `/exit`, `/quit` | Quit |
@@ -38,12 +37,13 @@ user message to the history. After an interruption, potentially non-idempotent
 tool operations are not blindly retried; an unknown execution state is recorded
 explicitly.
 
-`/continue-new-model` resumes with provider-compatible context: old encrypted
-thinking blocks are excluded from the new API input but kept in the original
-journal. The original model does not have to be reachable. Historical Responses
-objects are normalised into valid input items before resubmission — response-level
-metadata that the API rejects is removed while tool-call relationships and valid
-reasoning content stay intact.
+A chat call sends an encrypted reasoning blob only to the provider and model
+that produced it. Readable reasoning text still goes out. Switching back to
+that model includes the blob again, unless that part of the active context was
+already compacted away. When the switch leaves such a blob behind, the thread
+shows that immediately. Historical Responses objects are normalised into valid
+input items before resubmission — response-level metadata that the API rejects
+is removed while tool-call relationships and valid reasoning content stay intact.
 
 ## Run outcomes in the chat
 

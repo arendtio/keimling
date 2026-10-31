@@ -1230,6 +1230,7 @@ func (s *appServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *appServer) applySettings(body agentSettings) error {
+	prevChat := s.agent.effectiveChatTarget()
 	resetInstructions := body.AutopilotInstructionsReset != nil && *body.AutopilotInstructionsReset
 	if !resetInstructions && body.AutopilotInstructions != nil {
 		if _, err := normalizeAutopilotInstructions(*body.AutopilotInstructions); err != nil {
@@ -1350,6 +1351,7 @@ func (s *appServer) applySettings(body agentSettings) error {
 	if writeProviders {
 		s.budgetCache.invalidate()
 	}
+	s.agent.noteEncryptedReasoningOnModelChange(prevChat)
 	return nil
 }
 

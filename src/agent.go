@@ -406,6 +406,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 				return err
 			}
 			// Persist response item before any local action; never blindly retry actions after interruption.
+			raw = a.annotateReasoning(raw)
 			if err := a.add(json.RawMessage(raw)); err != nil {
 				return err
 			}

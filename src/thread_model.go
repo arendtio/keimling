@@ -206,6 +206,7 @@ func (a *Agent) saveThreadChatModel(providerID, modelID string) error {
 	if sm := settingsP.activeModel(); sm != nil {
 		settingsModel = sm.ID
 	}
+	prev := a.effectiveChatTarget()
 	meta, _ := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
 	meta.ID = a.Cfg.ThreadID
 	if p.ID == settingsP.ID && m.ID == settingsModel {
@@ -215,7 +216,11 @@ func (a *Agent) saveThreadChatModel(providerID, modelID string) error {
 		meta.ModelProviderID = p.ID
 		meta.ModelID = m.ID
 	}
-	return writeThreadMeta(a.Cfg.WorkspaceID, meta)
+	if err := writeThreadMeta(a.Cfg.WorkspaceID, meta); err != nil {
+		return err
+	}
+	a.noteEncryptedReasoningOnModelChange(prev)
+	return nil
 }
 
 func (a *Agent) threadModelView() map[string]any {
@@ -280,6 +285,8 @@ func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra 
 	if a == nil || a.Client == nil {
 		return Response{}, fmt.Errorf("no API client")
 	}
+	t := a.callChatTarget()
+	input = prepareReasoningInput(input, t.ProviderID, t.Model, a.reasoningOwnerMap())
 	var resp Response
 	var err error
 	a.withChatEndpoint(func(model, reasoning string) {

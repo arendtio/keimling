@@ -89,7 +89,6 @@ If the model cannot be found in the provider catalog, startup exits with status 
 | `/newchat` | Archive the conversation and start fresh |
 | `/stop` | Cancel current work without exiting |
 | `/resume`, `/continue` | Resume an unfinished task |
-| `/continue-new-model` | Resume with portable history (no encrypted thinking) |
 | `/autopilot on\|off` | Enable or disable task supervision |
 | `/voice` | Record audio; the transcript becomes an editable draft |
 | `/exit`, `/quit` | Quit |
