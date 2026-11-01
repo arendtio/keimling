@@ -11,6 +11,9 @@
   var gateErr = document.getElementById("gate-err");
   var gateTitle = document.getElementById("gate-title");
   var gateCopy = document.getElementById("gate-copy");
+  var loginPanel = document.getElementById("login-panel");
+  var loginSecretEl = document.getElementById("login-secret");
+  var loginContinue = document.getElementById("login-continue");
   var urlField = document.getElementById("url-field");
   var secretField = document.getElementById("secret-field");
   var localHint = document.getElementById("local-hint");
@@ -1544,8 +1547,26 @@
       });
   }
 
+  function showLogin(error) {
+    gate.classList.add("login");
+    if (loginPanel) loginPanel.hidden = false;
+    gateTitle.textContent = "Keimling";
+    gateCopy.textContent = "Enter the connection secret to open this server.";
+    gateErr.hidden = !error;
+    gateErr.style.color = "";
+    gateErr.textContent = error || "";
+    settingsTabs.hidden = true;
+    gateCancelBtn.hidden = true;
+    gate.hidden = false;
+    app.hidden = true;
+    if (loginContinue) loginContinue.disabled = false;
+    if (loginSecretEl) loginSecretEl.focus();
+  }
+
   function showGate(opts) {
     opts = opts || {};
+    gate.classList.remove("login");
+    if (loginPanel) loginPanel.hidden = true;
     var prefs = loadPrefs();
     var first = !prefs.seen && !opts.manage;
     gateTitle.textContent = opts.manage ? "Settings" : first ? "Welcome" : "Connect";
@@ -1580,6 +1601,8 @@
   }
 
   function showApp() {
+    gate.classList.remove("login");
+    if (loginPanel) loginPanel.hidden = true;
     gate.hidden = true;
     gateManage = false;
     gateCancelBtn.hidden = true;
@@ -4233,7 +4256,35 @@
     if (/Load failed|Failed to fetch|NetworkError|NETWORK_ERR/i.test(s)) {
       return "Could not reach the agent (network, TLS, or blocked request). Check the URL and that the server is reachable from this machine.";
     }
+    if (/unauthorized|\b401\b|\b403\b|Unexpected token 'u'/i.test(s)) {
+      return "That secret was not accepted.";
+    }
     return s;
+  }
+
+  function unlockServer() {
+    var sec = loginSecretEl ? loginSecretEl.value.trim() : "";
+    if (!sec) {
+      showLogin("Connection secret required.");
+      return;
+    }
+    secretEl.value = sec;
+    apiBase = "";
+    mode = "local";
+    if (loginContinue) loginContinue.disabled = true;
+    gateErr.hidden = true;
+    fetch(apiURL("/api/health"), { headers: { Authorization: "Bearer " + sec } })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) throw new Error("That secret was not accepted.");
+        if (!r.ok) return r.text().then(function (t) {
+          throw new Error((t || "").trim() || ("HTTP " + r.status));
+        });
+        storePrefs();
+        openSession({ auto: true, stay: true, unlock: true });
+      })
+      .catch(function (e) {
+        showLogin(formatConnectError(e));
+      });
   }
 
   // Auth against the *page* agent (URL token). The form secret may be the remote
@@ -4315,6 +4366,10 @@
         return;
       }
       if (!secret()) {
+        if (opts.unlock) {
+          showLogin("Connection secret required.");
+          return;
+        }
         showGate({ error: "Access secret required for remote agents.", manage: true, keepApp: !app.hidden });
         return;
       }
@@ -4349,13 +4404,18 @@
         return;
       }
     } else {
-      // "This window" while still on a remote origin must leave that host.
-      if (!sameOriginLocal()) {
+      // "This window" while still on a remote origin must leave that host,
+      // unless this page is the server being unlocked.
+      if (!sameOriginLocal() && !opts.stay) {
         switchAwayFromRemotePage();
         return;
       }
       apiBase = "";
       if (!secret()) {
+        if (opts.unlock) {
+          showLogin("Connection secret required.");
+          return;
+        }
         // Embedded local UI should pass ?access_secret=; without it we cannot call the API.
         showGate({
           error: "No local access secret. Restart with the desktop UI, or paste the secret.",
@@ -4400,6 +4460,16 @@
         connected = false;
         stopAgentsPoll();
         setState(agentState);
+        if (opts.unlock) {
+          var msg = formatConnectError(e);
+          if (msg === "That secret was not accepted.") {
+            try { localStorage.removeItem(STORAGE_SECRET); } catch (err) {}
+            location.replace("/");
+            return;
+          }
+          showLogin(msg);
+          return;
+        }
         showGate({ error: formatConnectError(e), manage: true, keepApp: false });
       })
       .finally(function () {
@@ -6384,15 +6454,16 @@
         setChoice("remote");
         try { connectURLEl.value = location.origin + "/"; } catch (e) {}
       }
-      openSession({ auto: true });
+      openSession({ auto: true, stay: !sameOriginLocal(), unlock: true });
       return;
     }
 
     // Returning visitor with stored secret for this origin → try resume.
     if (prefs.seen && prefs.secret && !prefs.url) {
       secretEl.value = prefs.secret;
+      if (loginSecretEl) loginSecretEl.value = prefs.secret;
       setChoice("local");
-      openSession({ auto: true });
+      openSession({ auto: true, stay: true, unlock: true });
       return;
     }
     if (prefs.seen && prefs.secret && prefs.url) {
@@ -6403,6 +6474,14 @@
       return;
     }
 
-    showGate({ prefillSecret: prefs.secret || "" });
+    location.replace("/");
   })();
+  if (loginContinue) loginContinue.addEventListener("click", unlockServer);
+  if (loginSecretEl) {
+    loginSecretEl.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      unlockServer();
+    });
+  }
 })();

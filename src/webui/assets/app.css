@@ -126,6 +126,13 @@ body {
   overflow: visible;
 }
 .gate-card.gate-wide { width: min(36rem, 100%); }
+.gate.login .gate-card { width: min(22rem, 100%); }
+.gate.login #gate-title { display: none; }
+.gate.login .settings-tabs,
+.gate.login .settings-pane,
+.gate.login #gate-actions,
+.gate.login #connection-editor { display: none; }
+#login-panel label { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.2rem 0 0.8rem; }
 .settings-tabs {
   display: flex;
   gap: 0;

@@ -510,7 +510,11 @@ func (h *Host) Handler() http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(ui))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") {
+		if r.URL.Path == "/" {
+			writeWebUIPage(w, "login.html")
+			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/assets/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -520,6 +524,13 @@ func (h *Host) Handler() http.Handler {
 	auth := func(next http.HandlerFunc) http.Handler {
 		return h.requireSecret(next)
 	}
+	mux.Handle("/ui", auth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeWebUIPage(w, "index.html")
+	}))
 	mux.Handle("/api/workspaces", auth(h.handleWorkspaces))
 	mux.Handle("/api/workspaces/open", auth(h.handleWorkspaceOpen))
 	mux.Handle("/api/workspaces/switch", auth(h.handleWorkspaceSwitch))

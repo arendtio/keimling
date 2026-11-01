@@ -20,7 +20,8 @@
 
 - GUI can target a remote base URL (`--connect` / config); no local agent starts in that case.
 - CLI can `--connect` to the same server.
-- Unauthenticated requests to the API/UI are rejected.
+- Unauthenticated requests to the API are rejected.
+- Opening the server URL without a secret returns only the connection-secret prompt. That document does not contain settings, secret fields, or the app shell. A wrong secret stays on that page and does not return the app document.
 
 ## US-03 — Local GUI by default
 

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keimling</title>
+  <link rel="icon" href="/assets/keimling.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="gate login">
+    <div class="gate-card">
+      <p class="brand"><img class="brand-mark" src="/assets/keimling.svg" alt="" width="36" height="36">Keimling</p>
+      <p class="gate-copy muted">Enter the connection secret to open this server.</p>
+      <div id="login-panel">
+        <label>Connection secret
+          <input id="login-secret" type="password" autocomplete="current-password" spellcheck="false">
+        </label>
+        <div class="gate-actions">
+          <button id="login-continue" type="button">Continue</button>
+        </div>
+      </div>
+      <p id="gate-err" class="gate-err" hidden></p>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var SECRET = "keimling.access_secret";
+    var SEEN = "keimling.seen";
+    var URLKEY = "keimling.connect_url";
+    var input = document.getElementById("login-secret");
+    var btn = document.getElementById("login-continue");
+    var err = document.getElementById("gate-err");
+
+    function showErr(msg) {
+      err.hidden = !msg;
+      err.textContent = msg || "";
+      btn.disabled = false;
+      input.focus();
+    }
+
+    function openUI(sec) {
+      btn.disabled = true;
+      err.hidden = true;
+      fetch("/ui", { headers: { Authorization: "Bearer " + sec } })
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) throw new Error("That secret was not accepted.");
+          if (!r.ok) throw new Error("Could not reach the server.");
+          return r.text();
+        })
+        .then(function (html) {
+          localStorage.setItem(SEEN, "1");
+          localStorage.setItem(SECRET, sec);
+          localStorage.removeItem(URLKEY);
+          document.open();
+          document.write(html);
+          document.close();
+        })
+        .catch(function (e) {
+          try { history.replaceState(null, "", "/"); } catch (err) {}
+          showErr(e && e.message ? e.message : "That secret was not accepted.");
+        });
+    }
+
+    function submit() {
+      var sec = input.value.trim();
+      if (!sec) {
+        showErr("Connection secret required.");
+        return;
+      }
+      openUI(sec);
+    }
+
+    btn.addEventListener("click", submit);
+    input.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      submit();
+    });
+
+    var q = "";
+    try { q = new URLSearchParams(location.search).get("access_secret") || ""; } catch (e) {}
+    var stored = "";
+    try { stored = localStorage.getItem(SECRET) || ""; } catch (e) {}
+    if (q) {
+      input.value = q;
+      openUI(q);
+      return;
+    }
+    if (stored) {
+      input.value = stored;
+      openUI(stored);
+      return;
+    }
+    input.focus();
+  })();
+  </script>
+</body>
+</html>

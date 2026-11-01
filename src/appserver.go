@@ -119,12 +119,23 @@ func newAppServer(opts appServerOpts) *appServer {
 	}
 	fileServer := http.FileServer(http.FS(ui))
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") {
+		if r.URL.Path == "/" {
+			writeWebUIPage(w, "login.html")
+			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/assets/") {
 			http.NotFound(w, r)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+	s.mux.Handle("/ui", s.requireSecret(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeWebUIPage(w, "index.html")
+	})))
 	s.mux.Handle("/api/health", s.requireSecret(http.HandlerFunc(s.handleHealth)))
 	s.mux.Handle("/api/session", s.requireSecret(http.HandlerFunc(s.handleSession)))
 	s.mux.Handle("/api/workspaces", s.requireSecret(http.HandlerFunc(s.handleWorkspaces)))
@@ -173,6 +184,19 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/events", s.requireSecret(http.HandlerFunc(s.handleEvents)))
 	s.mux.HandleFunc("/files/", s.handleFileShare)
 	return s
+}
+
+func writeWebUIPage(w http.ResponseWriter, name string) {
+	b, err := webuiFS.ReadFile("webui/" + name)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(b)
 }
 
 func (s *appServer) Handler() http.Handler {

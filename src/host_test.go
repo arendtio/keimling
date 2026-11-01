@@ -105,6 +105,30 @@ func TestHostStopIdleAgentDoesNotStartWorker(t *testing.T) {
 	}
 }
 
+func TestHostLoginPageWithholdsApp(t *testing.T) {
+	h, err := newHost("sekrit", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	h.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `id="pane-secrets"`) || !strings.Contains(rec.Body.String(), `id="login-secret"`) {
+		t.Fatalf("login page: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui", nil))
+	if rec.Code != http.StatusUnauthorized || strings.Contains(rec.Body.String(), `id="app"`) {
+		t.Fatalf("ui without secret: %d %s", rec.Code, rec.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
+	req.Header.Set("Authorization", "Bearer sekrit")
+	rec = httptest.NewRecorder()
+	h.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="pane-secrets"`) {
+		t.Fatalf("ui: %d", rec.Code)
+	}
+}
+
 func TestHostRequireSecret(t *testing.T) {
 	h, err := newHost("sekrit", "")
 	if err != nil {

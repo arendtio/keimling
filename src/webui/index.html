@@ -16,6 +16,15 @@
       <p id="gate-title" class="gate-copy">Welcome</p>
       <p id="gate-copy" class="gate-copy muted"></p>
 
+      <div id="login-panel" hidden>
+        <label>Connection secret
+          <input id="login-secret" type="password" autocomplete="current-password" spellcheck="false">
+        </label>
+        <div class="gate-actions">
+          <button id="login-continue" type="button">Continue</button>
+        </div>
+      </div>
+
       <div class="settings-tabs" id="settings-tabs" hidden role="tablist" aria-label="Settings sections">
         <button type="button" class="settings-tab active" data-tab="connection" role="tab" aria-selected="true">Connection</button>
         <button type="button" class="settings-tab" data-tab="models" role="tab" aria-selected="false">Models</button>
@@ -272,7 +281,7 @@
         <button type="button" id="open-mcp">Manage MCP servers…</button>
       </div>
 
-      <div class="gate-actions">
+      <div class="gate-actions" id="gate-actions">
         <button id="gate-cancel" type="button" class="ghost" hidden>Cancel</button>
         <button id="save-settings" type="button" hidden>Save model settings</button>
         <button id="connect" type="button">Continue</button>

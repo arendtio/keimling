@@ -654,3 +654,45 @@ func TestMentionOnAgentPlaceholderUsesWorkspaceThread(t *testing.T) {
 		t.Fatalf("record must not enqueue: %+v %v", queued, err)
 	}
 }
+
+func TestUnauthenticatedPageIsLoginOnly(t *testing.T) {
+	h := newAppServer(appServerOpts{AccessSecret: "tok"}).Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login: %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="login-secret"`) {
+		t.Fatal("login field missing")
+	}
+	for _, forbidden := range []string{`id="pane-secrets"`, `id="cred-edit-secret"`, `id="app"`, `settings-tabs`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("unauthorized / contains %s", forbidden)
+		}
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("ui without secret: %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), `id="pane-secrets"`) {
+		t.Fatal("unauthorized /ui returned the app")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ui: %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `id="pane-secrets"`) || !strings.Contains(rec.Body.String(), `id="app"`) {
+		t.Fatal("authorized /ui missing the app")
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache: %q", rec.Header().Get("Cache-Control"))
+	}
+}

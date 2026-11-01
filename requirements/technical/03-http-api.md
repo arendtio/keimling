@@ -15,13 +15,14 @@
   - `X-Keimling-Access-Secret: <secret>`
 - Constant-time compare.
 - Unauthenticated requests → `401`.
-- Static UI HTML may load without secret so the login/connect form can render; **`/api/*` and `/events` always require secret**. (Alternative: protect everything except `GET /` and static assets under `/assets/`.)
+- `GET /` and `GET /assets/*` load without the secret. `GET /` is only the login page. The app document (`GET /ui`) requires the secret, as do **`/api/*` and `/events`**.
 
 ## Endpoints (MVP)
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/` | no | UI shell (`index.html`) |
+| `GET` | `/` | no | Login page only |
+| `GET` | `/ui` | yes | App document (settings, secret fields, session shell) |
 | `GET` | `/assets/*` | no | CSS/JS |
 | `GET` | `/files/{token}` | capability token | Shared file download (see `05-file-shares.md`); no access secret |
 | `GET` | `/api/health` | yes | Liveness + build/mode info |
