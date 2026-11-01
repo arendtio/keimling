@@ -47,6 +47,29 @@ func TestSessionMessagesGroupsExecResult(t *testing.T) {
 	}
 }
 
+func TestMessageAgentCardShowsTheText(t *testing.T) {
+	call, _ := json.Marshal(map[string]any{
+		"type": "function_call", "name": "message_agent", "call_id": "c1",
+		"arguments": `{"instance_id":"agent-1","text":"Tell me a joke."}`,
+	})
+	peer, _ := json.Marshal(map[string]any{
+		"type": "keimling_peer", "direction": "sent", "peer": "Entertainer 12", "text": "Tell me a joke.",
+	})
+	out, _ := json.Marshal(map[string]any{
+		"type": "function_call_output", "call_id": "c1", "output": "Sent to Entertainer 12: Tell me a joke.",
+	})
+	msgs := sessionMessages([]json.RawMessage{call, peer, out}, 10)
+	if len(msgs) != 2 || msgs[0].Role != "tool_group" || msgs[0].Command != "Tell me a joke." || msgs[0].Result != "Sent to Entertainer 12: Tell me a joke." {
+		t.Fatalf("tool card %#v", msgs)
+	}
+	if msgs[1].Role != "peer" || msgs[1].Name != "To Entertainer 12" {
+		t.Fatalf("peer %#v", msgs[1])
+	}
+	if strings.Contains(msgs[0].Command, "{") {
+		t.Fatalf("command shows JSON: %q", msgs[0].Command)
+	}
+}
+
 func TestSessionMessagesFinishTaskSummaryCard(t *testing.T) {
 	call, _ := json.Marshal(map[string]any{
 		"type": "function_call", "name": "finish_task", "call_id": "f1",

@@ -276,17 +276,29 @@ func (a *Agent) agentIdentityPrompt() string {
 	return fmt.Sprintf("You are an agent instance named %q.\nYour instance id is %s.\nYou are this agent. You are not the workspace assistant.", name, id)
 }
 
+// agentReplyRules is the reply policy that the local ling model followed.
+// A worked example made it copy the sample instead of calling the tool.
+func agentReplyRules(listAgents bool) string {
+	s := `The last message arrived via message_agent. It is not the human. Do not write a chat reply.
+Call message_agent.
+If the last message asks you for a joke, instance_id is the id on that message and text is a joke you invent. text is not the request sentence.
+If the last message is the answer you asked another agent for, instance_id is the thread_id from the first message, not the id on the last message. text is that answer.
+`
+	if listAgents {
+		s += "If the first message says to ask someone, and you have not asked yet, call list_agents.\n"
+	}
+	return s
+}
+
 func (a *Agent) agentToolPrompt() string {
 	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("This chat is your channel with the user. Text you write here is not sent to other agents or to workspace threads.\n")
 	b.WriteString("You work in your own context. Another agent or a workspace thread does not see this chat, your alarms, your tool results, or what just happened to you. They have their own context. When you message one, name the thing, the fact, and what you want, so they can act without your context.\n")
-	b.WriteString("A line [From thread_id=<id> via message_agent] or [From <name> instance_id=<id> via message_agent] was delivered by message_agent. The marker is how you see that. It is not the user.\n")
+	b.WriteString("A received line that names a thread_id or an instance_id and says via message_agent was delivered by message_agent. You never write that line. It is not the user.\n")
 	if a.instanceToolGranted("message_agent") {
-		b.WriteString("You do not have to answer. Reasoning may stay in your thinking. If you answer that line, the answer must be a message_agent call to that id copied exactly, with only the reply text. Do not add a prefix. An assistant message in this chat does not deliver it.\n")
-		b.WriteString("A request from another agent is for you. Send the answer back to that agent. Do not rewrite it as a delivery to the user. The user is only the person in this chat.\n")
+		b.WriteString("You do not have to answer. Reasoning may stay in your thinking. An assistant message in this chat does not deliver a reply.\n")
 	}
 	if a.instanceToolGranted("set_alarm") {
 		b.WriteString("set_alarm wakes only you. When the user asks you to do something later or again, call set_alarm yourself. Do not ask another agent to set that alarm, and do not set an alarm because another agent asked you to wake them. A line [Alarm] is a reminder you wrote for yourself, not a new instruction from the user.\n")
@@ -304,6 +316,10 @@ func (a *Agent) agentToolPrompt() string {
 		list = strings.Join(names, ", ")
 	}
 	fmt.Fprintf(&b, "Tools this agent instance may use: %s. Other tools are not available. When the user asks which tools you have, answer in text with these names. For a later or repeating wake, call set_alarm when it is in the list. Do not invent a shell script or a file for that.", list)
+	if a.instanceToolGranted("message_agent") {
+		b.WriteString("\n")
+		b.WriteString(agentReplyRules(a.instanceToolGranted("list_agents")))
+	}
 	return b.String()
 }
 

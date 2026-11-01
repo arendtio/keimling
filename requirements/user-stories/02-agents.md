@@ -52,7 +52,7 @@
 
 **As** a user, **I want** an agent that chooses to answer to send that answer back to the thread or agent that wrote, **so that** I see the reply where I asked.
 
-**Acceptance:** traces REQ-AG-16 and REQ-AG-17. The agent's own channel is not a broadcast. An agent does not have to answer. The incoming line names the workspace thread that sent the message, by that thread's id, not by the agent instance's own thread id.
+**Acceptance:** traces REQ-AG-16, REQ-AG-17, and REQ-AG-26. The agent's own channel is not a broadcast. An agent does not have to answer. The incoming line names the workspace thread that sent the message, by that thread's id, not by the agent instance's own thread id. Writing the result in the agent's own chat does not deliver it. On the turn a result comes back, the model is told the original sender's id and the text to pass on.
 
 ## US-27 — Say enough for the recipient
 

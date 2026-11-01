@@ -35,7 +35,11 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 		limit = 120
 	}
 	var out []sessionMessage
+	consumed := map[int]bool{}
 	for i := 0; i < len(history); i++ {
+		if consumed[i] {
+			continue
+		}
 		ev := i + 1
 		var item struct {
 			Type      string `json:"type"`
@@ -100,23 +104,12 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 			raw := ""
 			var toolOK *bool
 			endEv := ev
-			if i+1 < len(history) {
-				var next struct {
-					Type      string `json:"type"`
-					CallID    string `json:"call_id"`
-					Output    string `json:"output"`
-					RawOutput string `json:"raw_output"`
-					OK        *bool  `json:"ok"`
-				}
-				if json.Unmarshal(history[i+1], &next) == nil && next.Type == "function_call_output" {
-					if item.CallID == "" || next.CallID == "" || next.CallID == item.CallID {
-						result = strings.TrimSpace(next.Output)
-						raw = strings.TrimSpace(next.RawOutput)
-						toolOK = next.OK
-						endEv = i + 2
-						i++ // consume paired output
-					}
-				}
+			if outIdx, next, ok := findCallOutput(history, i, item.CallID); ok {
+				result = strings.TrimSpace(next.Output)
+				raw = strings.TrimSpace(next.RawOutput)
+				toolOK = next.OK
+				endEv = outIdx + 1
+				consumed[outIdx] = true
 			}
 			filtered := raw != "" && raw != result
 			if !filtered {
@@ -150,6 +143,39 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 		out = out[len(out)-limit:]
 	}
 	return out
+}
+
+type callOutput struct {
+	Output    string
+	RawOutput string
+	OK        *bool
+}
+
+// findCallOutput pairs a tool call with its result. A peer line may sit between them.
+func findCallOutput(history []json.RawMessage, callIndex int, callID string) (int, callOutput, bool) {
+	for j := callIndex + 1; j < len(history) && j < callIndex+6; j++ {
+		var next struct {
+			Type      string `json:"type"`
+			CallID    string `json:"call_id"`
+			Output    string `json:"output"`
+			RawOutput string `json:"raw_output"`
+			OK        *bool  `json:"ok"`
+		}
+		if json.Unmarshal(history[j], &next) != nil {
+			continue
+		}
+		if next.Type == "function_call" {
+			break
+		}
+		if next.Type != "function_call_output" {
+			continue
+		}
+		if callID != "" && next.CallID != "" && next.CallID != callID {
+			continue
+		}
+		return j, callOutput{Output: next.Output, RawOutput: next.RawOutput, OK: next.OK}, true
+	}
+	return 0, callOutput{}, false
 }
 
 func finishTaskSummaryMessage(args string, event int) *sessionMessage {
@@ -269,6 +295,18 @@ func toolCommandLabel(name, args string) string {
 		if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
 			return name + " " + a.Path
 		}
+	}
+	if name == "message_agent" {
+		var a struct {
+			InstanceID string `json:"instance_id"`
+			Text       string `json:"text"`
+		}
+		if json.Unmarshal([]byte(args), &a) == nil && strings.TrimSpace(a.Text) != "" {
+			return strings.TrimSpace(a.Text)
+		}
+	}
+	if name == "list_agents" {
+		return "list_agents"
 	}
 	if strings.TrimSpace(args) != "" && len(args) < 160 {
 		return name + " " + args

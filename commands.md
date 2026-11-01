@@ -54,6 +54,12 @@ cd src && CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -tags webkitgtk_41 -
 
 The image `CMD` is `--server --listen 0.0.0.0:7420`. State and CWD are `/data` (`HOME` + `WORKDIR`, uid `65532`). Mount the volume on `/data`. Secrets: `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`, `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE` (Compose secrets). Runtime toolchain for `exec`: bash, curl, git, openssh-client, build-essential (make/gcc), Go (`golang-go`), Node (`nodejs`/`npm`), Python 3 + pip/venv, wget/jq/unzip — all from Debian apt except the Keimling binary. Go/npm/pip caches use `/tmp` (not persisted on the data volume). No WebKit/GUI.
 
+## Lab
+
+| Command | Purpose |
+| --- | --- |
+| `python3 docs/lab/agent-reply/run.py --variant rules` | Replay reply cases against llama.cpp at `http://127.0.0.1:8080/v1/responses` (Ling). The server must already be running. |
+
 ## Spike / demos
 
 | Command | Purpose |

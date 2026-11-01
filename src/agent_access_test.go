@@ -201,7 +201,7 @@ func TestAgentPromptNamesItself(t *testing.T) {
 	}
 	a := &Agent{Cfg: Config{AgentInstanceID: ada.ID, AgentInstructions: "Watch the alarm."}}
 	block := a.modelInstructions()
-	for _, want := range []string{"You are an agent instance", ada.Name, ada.ID, "Your task:\nWatch the alarm.", "not the workspace assistant", "message_agent", "is not sent", "own context", "copied exactly", "set_alarm wakes only you", "delivery to the user", "[Alarm]", "via message_agent", "must be a message_agent call"} {
+	for _, want := range []string{"You are an agent instance", ada.Name, ada.ID, "Your task:\nWatch the alarm.", "not the workspace assistant", "message_agent", "own context", "set_alarm wakes only you", "[Alarm]", "via message_agent", "It is not the human.", "text is a joke you invent", "text is not the request sentence.", "call list_agents"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("prompt missing %q\n%s", want, block)
 		}
@@ -221,7 +221,10 @@ func TestAgentPromptNamesItself(t *testing.T) {
 	if !strings.Contains(thread, "You are keimling, a careful command-line assistant") || !strings.Contains(thread, "EXTREMELY SHORT") || !strings.Contains(thread, "Operating system: "+hostOSName()) || !strings.Contains(thread, "Shell for exec: "+selectedShell()) {
 		t.Fatal("workspace thread lost its own prompt")
 	}
-	if strings.Contains(thread, "You are an agent instance") {
+	if strings.Contains(block, "[From ") {
+		t.Fatal("agent prompt contains a sender line the model can copy")
+	}
+	if strings.Contains(thread, "You are an agent instance") || strings.Contains(thread, "text is a joke you invent") {
 		t.Fatal("workspace thread was given an agent identity")
 	}
 }
