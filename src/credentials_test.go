@@ -61,6 +61,33 @@ func TestUnauthorizedCredentialID(t *testing.T) {
 	}
 }
 
+func TestMCPToolWithoutVaultSkipsCredential(t *testing.T) {
+	b := NewCredentialBroker(filepath.Join(t.TempDir(), "config.json"))
+	out, sec, err := b.prepareToolArgs("mcp__Operations__list_projects", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sec != "" || strings.Contains(out, "credential") {
+		t.Fatalf("out %q secret %q", out, sec)
+	}
+	_, _, err = b.prepareToolArgs("mcp__Operations__list_projects", `{"credential_id":"missing"}`)
+	if err == nil || !strings.Contains(err.Error(), "vault locked") {
+		t.Fatalf("named credential: %v", err)
+	}
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	created := NewCredentialBroker(cfg)
+	if err := created.Create("pw"); err != nil {
+		t.Fatal(err)
+	}
+	locked := NewCredentialBroker(cfg)
+	if !locked.Exists() || locked.Unlocked() {
+		t.Fatal("want a locked vault")
+	}
+	if _, _, err := locked.prepareToolArgs("mcp__Operations__list_projects", `{}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPrepareToolArgsInjectAndStrip(t *testing.T) {
 	dir := t.TempDir()
 	b := NewCredentialBroker(filepath.Join(dir, "config.json"))

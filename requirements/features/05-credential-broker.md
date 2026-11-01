@@ -8,6 +8,26 @@ Credentials sind **unabhängig** von den bestehenden Model-/OpenAI-Keys (`api.ke
 
 Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandantentrennung.
 
+### REQ-CB-2 A remote MCP server takes a bearer token, and its transport is not a guess
+
+- **Bin:** explicit requirement
+- **Statement:** Adding a remote MCP server shall accept a bearer token, and shall not ask the user to choose HTTP or SSE.
+- **Origin:** User, 2026-11-01 (quote: "http or sse is something that should be auto detected" and "there is no field whatsoever to add a bearer toke nor something similar" and "I thought you could change the form").
+- **Rationale:** The server answers `authorization required` when the connection has no token, and the person adding it often does not know which of the two remote transports the server speaks.
+- **Fit criterion:** The add form has a bearer-token field and no HTTP/SSE choice. A URL with no declared transport is used as streamable HTTP, and as SSE when that server rejects the HTTP handshake as the older transport. A refusal for a missing token stays a token error. The token is sent as `Authorization` and is not shown in the server list.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-CB-3 An MCP call does not need a vault unless it asks for one
+
+- **Bin:** explicit requirement
+- **Statement:** Calling an MCP tool shall succeed without a vault when the call does not ask for a vault credential. A bearer token stored with that MCP server shall be used without creating or unlocking a vault.
+- **Origin:** User, 2026-11-01 (quote: "credential error: vault locked or unavailable" and "I placed the token in the mcp settings. But I was never asked to unlok the vault at any time. in fact I did not even create a vault with this client yet.").
+- **Rationale:** The connection token and the vault are different secrets. A tool such as listing projects only needs the server connection. Refusing that call because no vault exists blocks the server the person just configured.
+- **Fit criterion:** With no vault file, an MCP tool call that does not name a credential is sent to the server and is not answered with "vault locked". A call that names a credential while the vault is locked is still refused. The bearer token on the MCP server is unchanged by either call.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
 - OAuth-Flows, Token-Refresh, externe Vaults
@@ -55,7 +75,7 @@ Mehrere Credentials für denselben Service sind erlaubt.
 
 1. **Discovery:** eingebautes Tool `list_credentials` mit Pflichtargument `tool` → nur Metadaten der Credentials, deren `allowed_tools` dieses Tool enthalten.
 2. **Selection:** Tool-Aufruf darf `credential_id` tragen (interne Referenz, kein Auth-Beweis).
-3. **Auto-pick:** Ist für das Tool genau ein freigegebenes Credential vorhanden und fehlt `credential_id` → dieses verwenden. 0 → kein Secret (oder Fehler, wenn das Tool eins verlangt). >1 ohne ID → Fehler / Agent muss wählen.
+3. **Auto-pick:** Ist für das Tool genau ein freigegebenes Credential vorhanden und fehlt `credential_id` → dieses verwenden. 0 → kein Secret. >1 ohne ID → Fehler / Agent muss wählen. Kein Vault, oder ein gesperrter Vault ohne `credential_id` → kein Secret und kein Fehler (die Verbindung nutzt ihr eigenes Token). `credential_id` bei gesperrtem Vault → Fehler.
 4. **Authorization:** Laufzeit prüft: Credential existiert; Tool ∈ `allowed_tools`; (v1) Operator = Prozessbesitzer.
 5. **Injection:** Secret nur an den **vertrauenswürdigen** Tool-Adapter / MCP-Connector der Laufzeit — nie zurück an das Modell. Konkrete Form (Header, Env für stdio-MCP, …) pro Connector; v1 mindestens ein klarer Pfad für MCP dokumentieren.
 6. **Ergebnis:** nur bereinigtes Tool-Ergebnis an den Agenten.

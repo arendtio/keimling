@@ -23,6 +23,39 @@ type mcpFile struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
+// remoteTypeSet is true when the entry names SSE or streamable HTTP.
+// An empty type with a URL is probed.
+func (c MCPServerConfig) remoteTypeSet() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Type)) {
+	case "sse", "http", "streamablehttp":
+		return true
+	default:
+		return false
+	}
+}
+
+func mcpAuthorizationHeader(token string) string {
+	token = strings.TrimSpace(token)
+	if len(token) >= 7 && strings.EqualFold(token[:7], "bearer ") {
+		token = strings.TrimSpace(token[7:])
+	}
+	if token == "" {
+		return ""
+	}
+	return "Bearer " + token
+}
+
+func (c *MCPServerConfig) setBearer(token string) {
+	value := mcpAuthorizationHeader(token)
+	if value == "" {
+		return
+	}
+	if c.Headers == nil {
+		c.Headers = map[string]string{}
+	}
+	c.Headers["Authorization"] = value
+}
+
 func (c MCPServerConfig) transportKind() string {
 	t := strings.ToLower(strings.TrimSpace(c.Type))
 	switch t {

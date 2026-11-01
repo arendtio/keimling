@@ -65,19 +65,21 @@ func (a *Agent) saveThreadAutopilotInstructions(text string) error {
 	if err != nil {
 		return err
 	}
-	meta, _ := a.readOwnThreadMeta()
-	if meta.ID == "" {
-		return fmt.Errorf("no thread")
-	}
-	meta.AutopilotInstructions = text
-	return a.writeOwnThreadMeta(meta)
+	return a.updateOwnThreadMeta(func(meta *ThreadMeta) error {
+		if meta.ID == "" {
+			return fmt.Errorf("no thread")
+		}
+		meta.AutopilotInstructions = text
+		return nil
+	})
 }
 
 func (a *Agent) resetThreadAutopilotInstructions() error {
-	meta, err := a.readOwnThreadMeta()
-	if err != nil && meta.ID == "" {
-		return fmt.Errorf("no thread")
-	}
-	meta.AutopilotInstructions = ""
-	return a.writeOwnThreadMeta(meta)
+	return a.updateOwnThreadMeta(func(meta *ThreadMeta) error {
+		if meta.ID == "" {
+			return fmt.Errorf("no thread")
+		}
+		meta.AutopilotInstructions = ""
+		return nil
+	})
 }

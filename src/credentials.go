@@ -314,11 +314,19 @@ func (b *CredentialBroker) ListForTool(tool string) ([]map[string]any, error) {
 
 // ResolveSecret returns the secret for tool+credential_id (auto-pick when id empty and exactly one match).
 func (b *CredentialBroker) ResolveSecret(tool, credentialID string) (cred Credential, secret string, err error) {
-	if b == nil || !b.Unlocked() {
-		return Credential{}, "", fmt.Errorf("vault locked or unavailable")
+	if b == nil {
+		return Credential{}, "", nil
 	}
 	tool = strings.TrimSpace(tool)
 	credentialID = strings.TrimSpace(credentialID)
+	// A connection token lives on the MCP server. The vault is only involved
+	// when this call names a credential, or when an unlocked vault can auto-pick one.
+	if !b.Unlocked() {
+		if credentialID != "" {
+			return Credential{}, "", fmt.Errorf("vault locked or unavailable")
+		}
+		return Credential{}, "", nil
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	var matches []Credential

@@ -301,8 +301,7 @@ func (a *Agent) reasoningOwnerMap() map[string]modelPair {
 }
 
 func (a *Agent) persistReasoningOwners(owners map[string]modelPair) {
-	meta, err := a.readOwnThreadMeta()
-	if err != nil && meta.ID == "" {
+	if a == nil {
 		return
 	}
 	keys := make([]string, 0, len(owners))
@@ -318,6 +317,8 @@ func (a *Agent) persistReasoningOwners(owners map[string]modelPair) {
 		owner := owners[key]
 		list = append(list, reasoningOwner{Key: key, ProviderID: owner.Provider, ModelID: owner.Model})
 	}
-	meta.ReasoningOwners = list
-	_ = a.writeOwnThreadMeta(meta)
+	_ = a.updateOwnThreadMeta(func(meta *ThreadMeta) error {
+		meta.ReasoningOwners = list
+		return nil
+	})
 }

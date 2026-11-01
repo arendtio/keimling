@@ -89,6 +89,45 @@ func TestMaybeGenerateThreadTitle(t *testing.T) {
 	if err != nil || meta.Title != "Auth token refresh" {
 		t.Fatalf("%v %#v", err, meta)
 	}
+	hold := make(chan struct{})
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(hold)
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "completed",
+			"output": []map[string]any{{
+				"type":    "message",
+				"content": []map[string]any{{"type": "output_text", "text": "Renamed Thread"}},
+			}},
+		})
+	}))
+	defer slow.Close()
+	fresh, session2, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = session2
+	a2 := &Agent{
+		Cfg:    Config{WorkspaceID: ws.ID, ThreadID: fresh.ID, DelegateFast: "fast-model"},
+		Client: &Client{BaseURL: slow.URL + "/v1", HTTP: slow.Client()},
+	}
+	done := make(chan struct{})
+	go func() {
+		a2.maybeGenerateThreadTitle(context.Background(), "please rename this thread from the first line")
+		close(done)
+	}()
+	<-hold
+	if err := writeThreadMeta(ws.ID, ThreadMeta{ID: fresh.ID, Title: defaultThreadTitle, ModelProviderID: "prov", ModelID: "kept-model"}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	<-done
+	kept, err := readThreadMeta(ws.ID, fresh.ID)
+	if err != nil || kept.ModelID != "kept-model" || kept.ModelProviderID != "prov" || kept.Title != "Renamed Thread" {
+		t.Fatalf("title rewrite dropped the model: %+v %v", kept, err)
+	}
+
 	// Second call should not overwrite.
 	a.Emit = func(kind, text string) { t.Fatal("should not emit again") }
 	a.maybeGenerateThreadTitle(context.Background(), "another message")

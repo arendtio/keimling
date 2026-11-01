@@ -47,8 +47,10 @@
   var mcpKind = document.getElementById("mcp-kind");
   var mcpCommand = document.getElementById("mcp-command");
   var mcpUrl = document.getElementById("mcp-url");
+  var mcpToken = document.getElementById("mcp-token");
   var mcpStdioRow = document.getElementById("mcp-stdio-row");
   var mcpUrlRow = document.getElementById("mcp-url-row");
+  var mcpTokenRow = document.getElementById("mcp-token-row");
   var mcpAddBtn = document.getElementById("mcp-add-btn");
   var mcpReloadBtn = document.getElementById("mcp-reload-btn");
   var mcpErr = document.getElementById("mcp-err");
@@ -4010,12 +4012,18 @@
     }
     delete modelEl.dataset.locked;
     modelEl.setAttribute("aria-haspopup", "menu");
-    if (custom) {
-      modelEl.dataset.custom = "1";
+    var next = j.next_label || j.chat_model_next || "";
+    if (next && next !== label) {
+      modelEl.title = "This run uses " + label + ". The next message uses " + next + ".";
+    } else if (custom) {
       modelEl.title = "Kept on this thread (" + label + "). Pick the Settings model to follow Settings again.";
     } else {
-      delete modelEl.dataset.custom;
       modelEl.title = "Follows Settings (" + label + "). Another model stays on this thread.";
+    }
+    if (custom) {
+      modelEl.dataset.custom = "1";
+    } else {
+      delete modelEl.dataset.custom;
     }
   }
 
@@ -4097,17 +4105,23 @@
     });
   }
 
+  var modelSave = Promise.resolve();
+
   function chooseThreadModel(providerID, modelID) {
     closeModelMenu();
-    fetch(apiURL("/api/threads/model"), {
+    modelSave = fetch(apiURL("/api/threads/model"), {
       method: "PUT",
       headers: headers(),
       body: JSON.stringify({ provider_id: providerID, model_id: modelID }),
     })
       .then(readJSONResponse)
-      .then(applyThreadModelView)
+      .then(function (j) {
+        applyThreadModelView(j);
+      })
       .catch(function (e) {
         appendLive(e && e.message ? e.message : String(e));
+        modelSave = Promise.resolve();
+        throw e;
       });
   }
 
@@ -5275,10 +5289,10 @@
     mcpErr.textContent = msg;
   }
   function syncMcpKindUI() {
-    var kind = (mcpKind && mcpKind.value) || "stdio";
-    var remote = kind === "http" || kind === "sse";
+    var remote = mcpKind && mcpKind.value === "url";
     if (mcpStdioRow) mcpStdioRow.hidden = remote;
     if (mcpUrlRow) mcpUrlRow.hidden = !remote;
+    if (mcpTokenRow) mcpTokenRow.hidden = !remote;
   }
   function renderMcpServers(servers) {
     if (!mcpList) return;
@@ -5297,8 +5311,10 @@
       title.textContent = s.name || "";
       var meta = document.createElement("div");
       meta.className = "skill-meta";
+      var errText = s.error || "";
+      if (/authorization required/i.test(errText)) errText = "The server requires a bearer token.";
       meta.textContent = (s.transport || "") + " · " + (s.status || "") +
-        (s.error ? " — " + s.error : "") +
+        (errText ? " — " + errText : "") +
         (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : "");
       var tools = document.createElement("div");
       tools.className = "skill-desc";
@@ -5609,7 +5625,8 @@
           return;
         }
         body.url = url;
-        body.type = kind === "sse" ? "sse" : "streamableHttp";
+        var token = (mcpToken && mcpToken.value || "").trim();
+        if (token) body.bearer = token;
       }
       mcpAddBtn.disabled = true;
       fetch(apiURL("/api/mcp/add"), {
@@ -5620,13 +5637,22 @@
         .then(function (r) {
           return r.text().then(function (t) {
             if (!r.ok) throw new Error(t || r.status);
+            var j = {};
+            try { j = JSON.parse(t); } catch (e) {}
+            return j;
           });
         })
-        .then(function () {
+        .then(function (j) {
+          var mine = (j.servers || []).filter(function (s) { return s.name === name; })[0];
+          renderMcpServers(j.servers || []);
+          if (mine && mine.status === "error") {
+            showMcpErr(/authorization required/i.test(mine.error || "") ? "The server requires a bearer token." : (mine.error || "Could not connect."));
+            return;
+          }
           if (mcpName) mcpName.value = "";
           if (mcpCommand) mcpCommand.value = "";
           if (mcpUrl) mcpUrl.value = "";
-          return loadMcpList();
+          if (mcpToken) mcpToken.value = "";
         })
         .catch(function (e) { showMcpErr(e.message || e); })
         .finally(function () { mcpAddBtn.disabled = false; });
@@ -6070,6 +6096,16 @@
   function sendMessage(text) {
     text = String(text || "").trim();
     if (!text) return;
+    if (!sendMessage.releasing) {
+      send.disabled = true;
+      Promise.resolve(modelSave).then(function () {
+        sendMessage.releasing = true;
+        try { sendMessage(text); } finally { sendMessage.releasing = false; }
+      }, function () {
+        send.disabled = false;
+      });
+      return;
+    }
     send.disabled = true;
     clearLive();
     closeMentionMenu();

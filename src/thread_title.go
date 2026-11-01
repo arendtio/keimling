@@ -39,14 +39,21 @@ func (a *Agent) maybeGenerateThreadTitle(ctx context.Context, seed string) {
 	if title == "" || isProvisionalThreadTitle(title) {
 		return
 	}
-	meta.ID = a.Cfg.ThreadID
-	meta.Title = title
-	if err := writeThreadMeta(a.Cfg.WorkspaceID, meta); err != nil {
+	wrote := false
+	err = updateWorkspaceThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID, func(meta *ThreadMeta) error {
+		if !isProvisionalThreadTitle(meta.Title) {
+			return errThreadMetaSkip
+		}
+		meta.Title = title
+		wrote = true
+		return nil
+	})
+	if err != nil || !wrote {
 		return
 	}
 	a.emitJSON("thread", map[string]any{
-		"id":           meta.ID,
-		"title":        meta.Title,
+		"id":           a.Cfg.ThreadID,
+		"title":        title,
 		"workspace_id": a.Cfg.WorkspaceID,
 	})
 }

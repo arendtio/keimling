@@ -265,11 +265,15 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	chat := s.agent.callChatTarget()
+	next := s.agent.effectiveChatTarget()
+	if background {
+		chat = s.agent.effectiveChatTargetFor(viewID)
+		next = chat
+	}
 	label := chat.Label
 	if label == "" {
 		label = s.agent.Cfg.Model
 	}
-	next := s.agent.effectiveChatTarget()
 	nextLabel := next.Label
 	if nextLabel == "" {
 		nextLabel = next.Model
@@ -282,7 +286,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"model":                 label,
-		"chat_model_custom":     chat.Custom,
+		"chat_model_custom":     next.Custom,
 		"chat_provider_id":      chat.ProviderID,
 		"chat_model_id":         chat.Model,
 		"chat_model_next":       nextLabel,
@@ -547,6 +551,9 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.mu.Lock()
+		s.viewThread = ""
+		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":        true,
@@ -739,14 +746,29 @@ func (s *appServer) writeThreadAutopilot(w http.ResponseWriter) {
 	})
 }
 
+func (s *appServer) composerThreadID() string {
+	if s.agent == nil {
+		return ""
+	}
+	if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+		return s.agent.Cfg.ThreadID
+	}
+	id := s.viewedThread()
+	if !isWorkspaceThreadID(id) {
+		return s.agent.Cfg.ThreadID
+	}
+	return id
+}
+
 func (s *appServer) handleThreadModel(w http.ResponseWriter, r *http.Request) {
-	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.WorkspaceID) == "" || strings.TrimSpace(s.agent.Cfg.ThreadID) == "" {
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.WorkspaceID) == "" || strings.TrimSpace(s.composerThreadID()) == "" {
 		http.Error(w, "no thread", http.StatusServiceUnavailable)
 		return
 	}
+	threadID := s.composerThreadID()
 	switch r.Method {
 	case http.MethodGet:
-		s.writeThreadModel(w)
+		s.writeThreadModel(w, threadID)
 	case http.MethodPut:
 		var body struct {
 			ProviderID string `json:"provider_id"`
@@ -756,19 +778,19 @@ func (s *appServer) handleThreadModel(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		if err := s.agent.saveThreadChatModel(body.ProviderID, body.ModelID); err != nil {
+		if err := s.agent.saveThreadChatModelOn(threadID, body.ProviderID, body.ModelID); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s.writeThreadModel(w)
+		s.writeThreadModel(w, threadID)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (s *appServer) writeThreadModel(w http.ResponseWriter) {
+func (s *appServer) writeThreadModel(w http.ResponseWriter, threadID string) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.agent.threadModelView())
+	_ = json.NewEncoder(w).Encode(s.agent.threadModelViewFor(threadID))
 }
 
 func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
@@ -1044,6 +1066,7 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Env     map[string]string `json:"env"`
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers"`
+		Bearer  string            `json:"bearer"`
 		Type    string            `json:"type"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
@@ -1058,6 +1081,7 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Headers: body.Headers,
 		Type:    body.Type,
 	}
+	cfg.setBearer(body.Bearer)
 	if err := UpsertUserMCPServer(body.Name, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

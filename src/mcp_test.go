@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mark3labs/mcp-go/server/servertest"
 )
 
 func TestMCPExposedName(t *testing.T) {
@@ -70,6 +74,83 @@ func TestLoadMCPServerConfigsMerge(t *testing.T) {
 	}
 	if got["side"].URL == "" {
 		t.Fatal("missing side server")
+	}
+}
+
+func TestMCPBearerHeader(t *testing.T) {
+	if got := mcpAuthorizationHeader("secret-token"); got != "Bearer secret-token" {
+		t.Fatalf("got %q", got)
+	}
+	if got := mcpAuthorizationHeader("Bearer secret-token"); got != "Bearer secret-token" {
+		t.Fatalf("double prefix: %q", got)
+	}
+	if got := mcpAuthorizationHeader("  "); got != "" {
+		t.Fatalf("blank: %q", got)
+	}
+	cfg := MCPServerConfig{}
+	cfg.setBearer("secret-token")
+	if cfg.Headers["Authorization"] != "Bearer secret-token" {
+		t.Fatalf("%v", cfg.Headers)
+	}
+}
+
+func TestRemoteURLDetectsSSE(t *testing.T) {
+	mcpSrv := server.NewMCPServer("sse-test", "1.0.0", server.WithToolCapabilities(true))
+	ts := servertest.NewTestServer(mcpSrv)
+	defer ts.Close()
+	m := NewMCPManager()
+	defer m.Close()
+	m.ConnectAll(context.Background(), map[string]MCPServerConfig{
+		"legacy": {URL: ts.URL + "/sse"},
+	})
+	st := m.Status()
+	if len(st) != 1 || st[0].Status != "connected" || st[0].Transport != "sse" {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestRemoteURLUsesStreamableHTTP(t *testing.T) {
+	mcpSrv := server.NewMCPServer("http-test", "1.0.0", server.WithToolCapabilities(true))
+	ts := servertest.NewTestStreamableHTTPServer(mcpSrv)
+	defer ts.Close()
+	m := NewMCPManager()
+	defer m.Close()
+	m.ConnectAll(context.Background(), map[string]MCPServerConfig{
+		"modern": {URL: ts.URL},
+	})
+	st := m.Status()
+	if len(st) != 1 || st[0].Status != "connected" || st[0].Transport != "streamableHttp" {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestRemoteURLAuthorizationRequiredDoesNotProbeSSE(t *testing.T) {
+	var gets int
+	var auth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			gets++
+		}
+		if auth == "" {
+			auth = r.Header.Get("Authorization")
+		}
+		http.Error(w, "no", http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+	cfg := MCPServerConfig{URL: ts.URL}
+	cfg.setBearer("secret-token")
+	m := NewMCPManager()
+	defer m.Close()
+	m.ConnectAll(context.Background(), map[string]MCPServerConfig{"locked": cfg})
+	st := m.Status()
+	if len(st) != 1 || st[0].Status != "error" || !strings.Contains(st[0].Error, "authorization required") {
+		t.Fatalf("%+v", st)
+	}
+	if auth != "Bearer secret-token" {
+		t.Fatalf("auth %q", auth)
+	}
+	if gets != 0 {
+		t.Fatalf("401 should stay on HTTP, gets=%d", gets)
 	}
 }
 

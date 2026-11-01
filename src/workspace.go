@@ -4,11 +4,13 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -351,7 +353,18 @@ func readThreadMetaFile(path string) (ThreadMeta, error) {
 	return m, nil
 }
 
+var (
+	threadMetaMu      sync.Mutex
+	errThreadMetaSkip = errors.New("thread meta unchanged")
+)
+
 func writeThreadMeta(workspaceID string, m ThreadMeta) error {
+	threadMetaMu.Lock()
+	defer threadMetaMu.Unlock()
+	return writeThreadMetaUnlocked(workspaceID, m)
+}
+
+func writeThreadMetaUnlocked(workspaceID string, m ThreadMeta) error {
 	if err := os.MkdirAll(threadDir(workspaceID, m.ID), 0o700); err != nil {
 		return err
 	}
@@ -367,6 +380,29 @@ func writeThreadMeta(workspaceID string, m ThreadMeta) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// updateWorkspaceThreadMeta re-reads the thread file under the meta lock and
+// writes it back. A slow caller must not keep an older copy and write that.
+func updateWorkspaceThreadMeta(workspaceID, threadID string, fn func(*ThreadMeta) error) error {
+	threadID = strings.TrimSpace(threadID)
+	if strings.TrimSpace(workspaceID) == "" || threadID == "" {
+		return fmt.Errorf("no thread")
+	}
+	threadMetaMu.Lock()
+	defer threadMetaMu.Unlock()
+	meta, err := readThreadMeta(workspaceID, threadID)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	meta.ID = threadID
+	if err := fn(&meta); err != nil {
+		if errors.Is(err, errThreadMetaSkip) {
+			return nil
+		}
+		return err
+	}
+	return writeThreadMetaUnlocked(workspaceID, meta)
 }
 
 func isProvisionalThreadTitle(title string) bool {

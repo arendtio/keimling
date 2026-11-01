@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -369,12 +370,37 @@ func (a *Agent) readOwnThreadMeta() (ThreadMeta, error) {
 }
 
 func (a *Agent) writeOwnThreadMeta(m ThreadMeta) error {
+	threadMetaMu.Lock()
+	defer threadMetaMu.Unlock()
+	return a.writeOwnThreadMetaUnlocked(m)
+}
+
+func (a *Agent) writeOwnThreadMetaUnlocked(m ThreadMeta) error {
 	dir, id, ok := a.ownThreadDir()
 	if !ok {
 		return fmt.Errorf("no thread")
 	}
 	m.ID = id
 	return writeThreadMetaForPath(dir, m)
+}
+
+func (a *Agent) updateOwnThreadMeta(fn func(*ThreadMeta) error) error {
+	if a == nil {
+		return fmt.Errorf("no thread")
+	}
+	threadMetaMu.Lock()
+	defer threadMetaMu.Unlock()
+	meta, err := a.readOwnThreadMeta()
+	if err != nil && meta.ID == "" {
+		return fmt.Errorf("no thread")
+	}
+	if err := fn(&meta); err != nil {
+		if errors.Is(err, errThreadMetaSkip) {
+			return nil
+		}
+		return err
+	}
+	return a.writeOwnThreadMetaUnlocked(meta)
 }
 
 func writeThreadMetaForPath(threadDir string, m ThreadMeta) error {

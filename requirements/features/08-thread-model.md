@@ -46,9 +46,9 @@ A run already started keeps the chat model it started with. The thread choice is
 
 - **Bin:** explicit requirement
 - **Statement:** The product shall let the user switch the thread's chat model during the thread. A run already started shall keep the model it started with. The new choice shall be used when a message is sent.
-- **Origin:** User, 2026-10-31 (quote: "innerhalb eines Threads in der Lage sein, das Modell zu wechseln" and "ein Lauf, der schon gestartet ist, wird nicht beeinflusst, sondern erst mit dem Absenden einer Nachricht wird dann das neue Modell eingesetzt").
-- **Rationale:** The model is not fixed for the life of the thread, and an in-flight run is not retargeted.
-- **Fit criterion:** A run that started on M1 finishes on M1 after the user selects M2 during that run. The next message the user sends is answered as M2. Earlier messages stay in the thread. Reopening the thread shows M2.
+- **Origin:** User, 2026-10-31 (quote: "innerhalb eines Threads in der Lage sein, das Modell zu wechseln" and "ein Lauf, der schon gestartet ist, wird nicht beeinflusst, sondern erst mit dem Absenden einer Nachricht wird dann das neue Modell eingesetzt"). User, 2026-11-01 (quote: "in the settings I had the local llama.cpp as the default provider and model. But in the chat I selected openais luna and startet the chat. But then I noticed that it was still using the llama.cpp model").
+- **Rationale:** The model is not fixed for the life of the thread, and an in-flight run is not retargeted. The model chosen in the thread on screen is the one that answers the next message there.
+- **Fit criterion:** A run that started on M1 finishes on M1 after the user selects M2 during that run. While that run continues, the composer shows M1 and says the next message uses M2. The next message the user sends is answered as M2. Earlier messages stay in the thread. Reopening the thread shows M2. Choosing M2 while looking at a thread whose run has not started stores M2 on that thread, including when another thread is still running. A later title update does not drop M2.
 - **Priority:** shall
 - **Status:** confirmed
 

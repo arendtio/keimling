@@ -324,6 +324,94 @@ func TestAgentChatModelFollowsDefinition(t *testing.T) {
 	}
 }
 
+func TestModelChoiceStaysOnViewedThread(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := createParkedThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := fileConfig{}
+	fc.ActiveModelProviderID = "p2"
+	fc.ModelProviders = []modelProvider{
+		{ID: "p1", Name: "OpenAI", BaseURL: "https://api.openai.com/v1", APIKey: "k1", ActiveModelID: "m1", Models: []providerModel{{ID: "m1", Name: "Luna"}}},
+		{ID: "p2", Name: "Local", BaseURL: "http://127.0.0.1:9931/v1", APIKey: "k2", ActiveModelID: "m2", Models: []providerModel{{ID: "m2", Name: "llama.cpp"}}},
+	}
+	writeModelConfig(t, cfgPath, fc)
+	j, err := OpenJournal(session, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg: Config{
+			Model: "m2", BaseURL: "http://127.0.0.1:9931/v1", Key: "k2",
+			ConfigPath: cfgPath, WorkspaceID: ws.ID, ThreadID: running.ID, SessionPath: session,
+		},
+		Client:  &Client{BaseURL: "http://127.0.0.1:9931/v1", APIKey: "k2"},
+		Journal: j,
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.viewThread = other.ID
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPut, "/api/threads/model", strings.NewReader(`{"provider_id":"p1","model_id":"m1"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"custom":true`) || !strings.Contains(rec.Body.String(), "Luna") {
+		t.Fatalf("PUT viewed: %d %s", rec.Code, rec.Body.String())
+	}
+	runMeta, _ := readThreadMeta(ws.ID, running.ID)
+	if runMeta.ModelID != "" || runMeta.ModelProviderID != "" {
+		t.Fatalf("running thread changed: %+v", runMeta)
+	}
+	viewMeta, err := readThreadMeta(ws.ID, other.ID)
+	if err != nil || viewMeta.ModelID != "m1" || viewMeta.ModelProviderID != "p1" {
+		t.Fatalf("viewed thread: %+v %v", viewMeta, err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"model":"Luna"`) {
+		t.Fatalf("session model: %d %s", rec.Code, rec.Body.String())
+	}
+	if a.Cfg.ThreadID != running.ID {
+		t.Fatalf("worker moved: %s", a.Cfg.ThreadID)
+	}
+
+	srv.mu.Lock()
+	srv.busy = false
+	srv.mu.Unlock()
+	if err := a.SwitchThread(other.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.beginRunChat()
+	var model, base string
+	a.withChatEndpoint(func(m, _ string) {
+		model = m
+		base = a.Client.BaseURL
+	})
+	a.endRunChat()
+	if model != "m1" || base != "https://api.openai.com/v1" {
+		t.Fatalf("fresh thread ran %s at %s", model, base)
+	}
+	if a.Client.BaseURL != "http://127.0.0.1:9931/v1" {
+		t.Fatalf("settings endpoint not restored: %s", a.Client.BaseURL)
+	}
+}
+
 func writeModelConfig(t *testing.T, path string, fc fileConfig) {
 	t.Helper()
 	b, err := json.MarshalIndent(fc, "", "  ")

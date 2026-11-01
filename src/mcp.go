@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -110,28 +111,12 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 	}
 	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	cli, err := openMCPClient(cfg)
+	cli, kind, err := dialMCP(cctx, cfg)
+	if kind != "" {
+		sess.cfg.Type = kind
+	}
 	if err != nil {
 		sess.err = err.Error()
-		m.mu.Lock()
-		m.sessions[name] = sess
-		m.mu.Unlock()
-		return
-	}
-	if err := cli.Start(cctx); err != nil {
-		_ = cli.Close()
-		sess.err = "start: " + err.Error()
-		m.mu.Lock()
-		m.sessions[name] = sess
-		m.mu.Unlock()
-		return
-	}
-	initReq := mcp.InitializeRequest{}
-	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initReq.Params.ClientInfo = mcp.Implementation{Name: "keimling", Version: "1.0.0"}
-	if _, err := cli.Initialize(cctx, initReq); err != nil {
-		_ = cli.Close()
-		sess.err = "initialize: " + err.Error()
 		m.mu.Lock()
 		m.sessions[name] = sess
 		m.mu.Unlock()
@@ -154,6 +139,51 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 	m.mu.Lock()
 	m.sessions[name] = sess
 	m.mu.Unlock()
+}
+
+func dialMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, string, error) {
+	kind := cfg.transportKind()
+	if kind == "streamableHttp" && !cfg.remoteTypeSet() {
+		cli, err := connectMCP(ctx, cfg)
+		if err == nil {
+			return cli, "streamableHttp", nil
+		}
+		if legacySSEServer(err) {
+			sse := cfg
+			sse.Type = "sse"
+			cli, err2 := connectMCP(ctx, sse)
+			if err2 == nil {
+				return cli, "sse", nil
+			}
+			return nil, "sse", err2
+		}
+		return nil, "streamableHttp", err
+	}
+	cli, err := connectMCP(ctx, cfg)
+	return cli, kind, err
+}
+
+func legacySSEServer(err error) bool {
+	return err != nil && (errors.Is(err, transport.ErrLegacySSEServer) || strings.Contains(err.Error(), "legacy SSE"))
+}
+
+func connectMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, error) {
+	cli, err := openMCPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := cli.Start(ctx); err != nil {
+		_ = cli.Close()
+		return nil, fmt.Errorf("start: %w", err)
+	}
+	initReq := mcp.InitializeRequest{}
+	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initReq.Params.ClientInfo = mcp.Implementation{Name: "keimling", Version: "1.0.0"}
+	if _, err := cli.Initialize(ctx, initReq); err != nil {
+		_ = cli.Close()
+		return nil, fmt.Errorf("initialize: %w", err)
+	}
+	return cli, nil
 }
 
 func openMCPClient(cfg MCPServerConfig) (*mcpclient.Client, error) {

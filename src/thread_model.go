@@ -59,11 +59,21 @@ func (a *Agent) effectiveChatTarget() chatTarget {
 	if a == nil {
 		return chatTarget{}
 	}
+	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
+		return a.agentChatTarget(a.settingsChatTarget())
+	}
+	return a.effectiveChatTargetFor(a.Cfg.ThreadID)
+}
+
+func (a *Agent) effectiveChatTargetFor(threadID string) chatTarget {
 	settings := a.settingsChatTarget()
+	if a == nil {
+		return settings
+	}
 	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
 		return a.agentChatTarget(settings)
 	}
-	pid, mid := a.threadChatIDs()
+	pid, mid := a.savedChatIDs(threadID)
 	if pid == "" || mid == "" {
 		return settings
 	}
@@ -78,7 +88,7 @@ func (a *Agent) effectiveChatTarget() chatTarget {
 		m = providerModelByID(p.Models, mid)
 	}
 	if p == nil || m == nil {
-		a.clearThreadChatModel(pid, mid)
+		a.clearThreadChatModelOn(threadID, pid, mid)
 		return settings
 	}
 	t := chatTargetFrom(p, m, a.Cfg.ContextLimit, a.Cfg.Reasoning)
@@ -276,37 +286,57 @@ func (a *Agent) liveProviders() ([]modelProvider, string, bool) {
 	return fc.ModelProviders, fc.ActiveModelProviderID, true
 }
 
-func (a *Agent) threadChatIDs() (string, string) {
-	meta, err := a.readOwnThreadMeta()
-	if err != nil {
+func (a *Agent) savedChatIDs(threadID string) (string, string) {
+	if a == nil {
+		return "", ""
+	}
+	threadID = strings.TrimSpace(threadID)
+	var meta ThreadMeta
+	var err error
+	if threadID == "" || threadID == strings.TrimSpace(a.Cfg.ThreadID) {
+		meta, err = a.readOwnThreadMeta()
+	} else {
+		meta, err = readThreadMeta(a.Cfg.WorkspaceID, threadID)
+	}
+	if err != nil && strings.TrimSpace(meta.ModelID) == "" && strings.TrimSpace(meta.ModelProviderID) == "" {
 		return "", ""
 	}
 	return strings.TrimSpace(meta.ModelProviderID), strings.TrimSpace(meta.ModelID)
 }
 
-// clearThreadChatModel drops a saved pair that is no longer in Settings.
+// clearThreadChatModelOn drops a saved pair that is no longer in Settings.
 // A newer pair written in the meantime is left alone.
-func (a *Agent) clearThreadChatModel(providerID, modelID string) {
-	meta, err := a.readOwnThreadMeta()
-	if err != nil && meta.ID == "" {
+func (a *Agent) clearThreadChatModelOn(threadID, providerID, modelID string) {
+	if a == nil {
 		return
 	}
-	if strings.TrimSpace(meta.ModelProviderID) != providerID || strings.TrimSpace(meta.ModelID) != modelID {
-		return
-	}
-	meta.ModelProviderID = ""
-	meta.ModelID = ""
-	_ = a.writeOwnThreadMeta(meta)
+	_ = updateWorkspaceThreadMeta(a.Cfg.WorkspaceID, threadID, func(meta *ThreadMeta) error {
+		if strings.TrimSpace(meta.ModelProviderID) != providerID || strings.TrimSpace(meta.ModelID) != modelID {
+			return errThreadMetaSkip
+		}
+		meta.ModelProviderID = ""
+		meta.ModelID = ""
+		return nil
+	})
 }
 
-// saveThreadChatModel stores a configured pair. The current Settings pair clears the thread choice.
+// saveThreadChatModel stores a configured pair on the worker's current thread.
+// The current Settings pair clears the thread choice.
 func (a *Agent) saveThreadChatModel(providerID, modelID string) error {
-	if a == nil || a.Cfg.WorkspaceID == "" || a.Cfg.ThreadID == "" {
+	if a == nil {
+		return fmt.Errorf("no thread")
+	}
+	return a.saveThreadChatModelOn(a.Cfg.ThreadID, providerID, modelID)
+}
+
+func (a *Agent) saveThreadChatModelOn(threadID, providerID, modelID string) error {
+	if a == nil || a.Cfg.WorkspaceID == "" || strings.TrimSpace(threadID) == "" {
 		return fmt.Errorf("no thread")
 	}
 	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
 		return fmt.Errorf("an agent chat uses its definition's model")
 	}
+	threadID = strings.TrimSpace(threadID)
 	providers, activeID, ok := a.liveProviders()
 	if !ok {
 		return fmt.Errorf("no configured providers")
@@ -329,30 +359,46 @@ func (a *Agent) saveThreadChatModel(providerID, modelID string) error {
 	if sm := settingsP.activeModel(); sm != nil {
 		settingsModel = sm.ID
 	}
-	prev := a.effectiveChatTarget()
-	meta, _ := readThreadMeta(a.Cfg.WorkspaceID, a.Cfg.ThreadID)
-	meta.ID = a.Cfg.ThreadID
-	if p.ID == settingsP.ID && m.ID == settingsModel {
-		meta.ModelProviderID = ""
-		meta.ModelID = ""
-	} else {
+	clear := p.ID == settingsP.ID && m.ID == settingsModel
+	var prev chatTarget
+	if threadID == a.Cfg.ThreadID {
+		prev = a.effectiveChatTarget()
+	}
+	if err := updateWorkspaceThreadMeta(a.Cfg.WorkspaceID, threadID, func(meta *ThreadMeta) error {
+		if clear {
+			meta.ModelProviderID = ""
+			meta.ModelID = ""
+			return nil
+		}
 		meta.ModelProviderID = p.ID
 		meta.ModelID = m.ID
-	}
-	if err := writeThreadMeta(a.Cfg.WorkspaceID, meta); err != nil {
+		return nil
+	}); err != nil {
 		return err
 	}
-	a.noteEncryptedReasoningOnModelChange(prev)
+	if threadID == a.Cfg.ThreadID {
+		a.noteEncryptedReasoningOnModelChange(prev)
+	}
 	return nil
 }
 
 func (a *Agent) threadModelView() map[string]any {
+	if a == nil {
+		return map[string]any{}
+	}
+	return a.threadModelViewFor(a.Cfg.ThreadID)
+}
+
+func (a *Agent) threadModelViewFor(threadID string) map[string]any {
 	locked, source, unresolved, saved := a.chatModelLock()
-	t := a.effectiveChatTarget()
-	if locked {
+	next := a.effectiveChatTarget()
+	if strings.TrimSpace(a.Cfg.AgentInstanceID) == "" && strings.TrimSpace(threadID) != "" && threadID != a.Cfg.ThreadID {
+		next = a.effectiveChatTargetFor(threadID)
+	}
+	t := next
+	if locked || (a.runChat != nil && threadID == a.Cfg.ThreadID) {
 		t = a.callChatTarget()
 	}
-	next := a.effectiveChatTarget()
 	settings := a.settingsChatTarget()
 	providers, _, ok := a.liveProviders()
 	pubs := []map[string]any{}
@@ -367,11 +413,15 @@ func (a *Agent) threadModelView() map[string]any {
 	if nextName == "" {
 		nextName = next.Model
 	}
+	chosen := t
+	if !locked {
+		chosen = next
+	}
 	return map[string]any{
-		"provider_id":          t.ProviderID,
-		"model_id":             t.Model,
+		"provider_id":          chosen.ProviderID,
+		"model_id":             chosen.Model,
 		"label":                label,
-		"custom":               t.Custom,
+		"custom":               chosen.Custom,
 		"reasoning":            t.Reasoning,
 		"context_limit":        t.ContextLimit,
 		"settings_provider_id": settings.ProviderID,

@@ -537,7 +537,7 @@
             <h2>MCP</h2>
             <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
           </header>
-          <p class="hint">Model Context Protocol servers run in the Keimling backend (no browser CORS). Tools are exposed as mcp__server__tool.</p>
+          <p class="hint">Model Context Protocol servers run in the Keimling backend (no browser CORS). A remote URL is tried as HTTP, then as SSE. Tools are exposed as mcp__server__tool.</p>
           <section>
             <h3>Servers</h3>
             <ul id="mcp-list" class="skills-list"></ul>
@@ -549,10 +549,9 @@
             <h3>Add server</h3>
             <div class="skills-row">
               <input id="mcp-name" type="text" placeholder="name" autocomplete="off">
-              <select id="mcp-kind" aria-label="Transport">
-                <option value="stdio">stdio</option>
-                <option value="http">HTTP</option>
-                <option value="sse">SSE</option>
+              <select id="mcp-kind" aria-label="How to reach the server">
+                <option value="stdio">Local command</option>
+                <option value="url">Remote URL</option>
               </select>
             </div>
             <div class="skills-row" id="mcp-stdio-row">
@@ -560,6 +559,9 @@
             </div>
             <div class="skills-row" id="mcp-url-row" hidden>
               <input id="mcp-url" type="text" placeholder="https://…" autocomplete="off">
+            </div>
+            <div class="skills-row" id="mcp-token-row" hidden>
+              <input id="mcp-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token, if the server asks for one" aria-label="Bearer token">
             </div>
             <div class="skills-row">
               <button type="button" id="mcp-add-btn">Add</button>
