@@ -23,6 +23,8 @@
       <stop offset="1" stop-color="#68B946"/>
     </linearGradient>
   </defs>
+  <g transform="translate(0 18)">
+
   <!-- Sprout: organic asymmetry, matching the selected concept. -->
   <path d="M252 341 C252 302 254 272 247 250 C238 228 225 220 194 216 C139 208 115 182 95 128 C87 107 76 89 66 76 C60 68 67 60 79 57 C161 36 232 65 248 132 C256 167 253 210 260 236 C269 205 290 173 332 155 C375 135 414 134 451 137 C463 138 467 145 460 158 C440 198 425 234 391 251 C358 268 321 261 297 269 C280 275 273 304 272 341 Z" fill="url(#leaf)"/>
   <!-- Subtle veining/shadows inside leaves -->
@@ -40,4 +42,6 @@
   <!-- Eyes remain understated: two slender luminous apertures -->
   <rect x="226" y="385" width="15" height="26" rx="7.5" fill="url(#eyes)"/>
   <rect x="271" y="385" width="15" height="26" rx="7.5" fill="url(#eyes)"/>
+
+  </g>
 </svg>
