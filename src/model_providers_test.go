@@ -5,6 +5,38 @@ import (
 	"testing"
 )
 
+func TestEnsureLeavesDefaultOpenAIEmpty(t *testing.T) {
+	fc := fileConfig{}
+	fc.API.BaseURL = defaultBaseURL
+	fc.API.Model = "gpt-6-luna"
+	fc.ensureModelProviders()
+	if len(fc.ModelProviders) != 0 || fc.ActiveModelProviderID != "" {
+		t.Fatalf("invented provider: %#v", fc.ModelProviders)
+	}
+}
+
+func TestSeedOpenAIOnlyWhenNoProvider(t *testing.T) {
+	fc := fileConfig{}
+	if !seedOpenAIProvider(&fc, "sk-file") {
+		t.Fatal("expected seed")
+	}
+	if len(fc.ModelProviders) != 1 || fc.ModelProviders[0].APIKey != "sk-file" || fc.ModelProviders[0].Kind != "openai" {
+		t.Fatalf("%#v", fc.ModelProviders)
+	}
+	kept := fileConfig{ModelProviders: []modelProvider{{ID: "local", Name: "Local", BaseURL: "http://127.0.0.1:9931/v1"}}}
+	if seedOpenAIProvider(&kept, "sk-file") {
+		t.Fatal("seeded over an existing provider")
+	}
+	if len(kept.ModelProviders) != 1 || kept.ModelProviders[0].ID != "local" {
+		t.Fatalf("%#v", kept.ModelProviders)
+	}
+	legacy := fileConfig{}
+	legacy.API.BaseURL = "http://127.0.0.1:9931/v1"
+	if seedOpenAIProvider(&legacy, "sk-file") {
+		t.Fatal("seeded over a legacy endpoint")
+	}
+}
+
 func TestEnsureModelProvidersFromLegacyAPI(t *testing.T) {
 	fc := fileConfig{}
 	fc.API.BaseURL = "https://openrouter.ai/api/v1"

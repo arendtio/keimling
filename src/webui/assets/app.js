@@ -204,6 +204,18 @@
   var setMaxSteps = document.getElementById("set-max-steps");
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
+  var setVoiceProvider = document.getElementById("set-voice-provider");
+  var setSearchKind = document.getElementById("set-search-kind");
+  var setSearchURL = document.getElementById("set-search-url");
+  var setSearchKey = document.getElementById("set-search-key");
+  var searchURLLabel = document.getElementById("search-url-label");
+  var searchURLHint = document.getElementById("search-url-hint");
+  var searchKeyLabel = document.getElementById("search-key-label");
+  var searchKeyHint = document.getElementById("search-key-hint");
+  var providerBanner = document.getElementById("provider-banner");
+  var providerDialog = document.getElementById("provider-dialog");
+  var needsProvider = false;
+  var agentSettingsLoaded = false;
   var clientConnectionsCache = [];
   var clientActiveID = "";
   var serverConnectionsCache = [];
@@ -1315,7 +1327,7 @@
         ? "Key is set. Leave blank to keep it, or paste a new key."
         : "Required for OpenRouter and most remote APIs.";
     }
-    if (provEditDelete) provEditDelete.hidden = !p || providersCache.length <= 1;
+    if (provEditDelete) provEditDelete.hidden = !p;
     closeModelForm();
     renderProvModelList();
   }
@@ -1383,17 +1395,124 @@
   }
 
   function deleteProviderEditor() {
-    if (!editingProviderID || providersCache.length <= 1) return;
-    if (!window.confirm("Delete this model provider?")) return;
+    if (!editingProviderID) return;
+    var current = null;
+    for (var i = 0; i < providersCache.length; i++) {
+      if (providersCache[i].id === editingProviderID) { current = providersCache[i]; break; }
+    }
+    var name = (current && current.name) || "this provider";
+    var last = providersCache.length <= 1;
+    var ask = last
+      ? "Remove “" + name + "”? Chat cannot call a model until you add one. Save settings to keep this. The saved API key is removed with it."
+      : "Remove “" + name + "”? Save settings to keep this. The saved API key is removed with it.";
+    if (!window.confirm(ask)) return;
     providersCache = providersCache.filter(function (p) { return p.id !== editingProviderID; });
-    if (activeProviderID === editingProviderID) activeProviderID = providersCache[0].id;
+    if (activeProviderID === editingProviderID) activeProviderID = providersCache[0] ? providersCache[0].id : "";
     closeProviderEditor();
     syncHiddenProviderFields();
     renderProviderList();
   }
 
+  function fillVoiceAndSearch(j) {
+    j = j || {};
+    if (setVoiceProvider) {
+      var current = setVoiceProvider.value;
+      setVoiceProvider.innerHTML = '<option value="">Off</option>';
+      providersCache.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name || p.id;
+        setVoiceProvider.appendChild(opt);
+      });
+      setVoiceProvider.value = j.voice_provider_id || current || "";
+      if (setVoiceProvider.value !== (j.voice_provider_id || "")) setVoiceProvider.value = j.voice_provider_id || "";
+    }
+    fillVoiceModels(j.voice_model || "");
+    if (setSearchKind) setSearchKind.value = j.search_kind || "";
+    if (setSearchURL) setSearchURL.value = j.search_url || "";
+    if (setSearchKey) {
+      setSearchKey.value = "";
+      setSearchKey.placeholder = j.search_api_key_set ? "Set — leave blank to keep" : "Not set";
+    }
+    if (searchKeyHint) {
+      searchKeyHint.textContent = j.search_api_key_set
+        ? "Key is set. Leave blank to keep it, or paste a new key."
+        : "Required for Brave and OpenAI.";
+    }
+    syncSearchFields();
+  }
+
+  function fillVoiceModels(selected) {
+    if (!setVoiceModel || !setVoiceProvider) return;
+    var pid = setVoiceProvider.value;
+    var p = null;
+    for (var i = 0; i < providersCache.length; i++) {
+      if (providersCache[i].id === pid) { p = providersCache[i]; break; }
+    }
+    setVoiceModel.innerHTML = "";
+    var models = (p && p.models) || [];
+    var seen = {};
+    models.forEach(function (m) {
+      if (!m || !m.id || seen[m.id]) return;
+      seen[m.id] = true;
+      var opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.name || m.id;
+      setVoiceModel.appendChild(opt);
+    });
+    if (selected && !seen[selected]) {
+      var extra = document.createElement("option");
+      extra.value = selected;
+      extra.textContent = selected;
+      setVoiceModel.appendChild(extra);
+    }
+    if (!setVoiceModel.options.length) {
+      var empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = pid ? "No model on this provider" : "Off";
+      setVoiceModel.appendChild(empty);
+    }
+    setVoiceModel.value = selected || (setVoiceModel.options[0] && setVoiceModel.options[0].value) || "";
+    setVoiceModel.disabled = !pid;
+  }
+
+  function syncSearchFields() {
+    var kind = setSearchKind ? setSearchKind.value : "";
+    if (searchURLLabel) searchURLLabel.hidden = kind === "" || kind === "openai";
+    if (searchURLHint) searchURLHint.hidden = kind !== "url" && kind !== "brave";
+    if (searchKeyLabel) searchKeyLabel.hidden = kind === "";
+    if (searchKeyHint) searchKeyHint.hidden = kind === "";
+    if (setSearchURL && kind === "brave" && !setSearchURL.placeholder) {
+      setSearchURL.placeholder = "https://api.search.brave.com/res/v1/web/search";
+    }
+    if (kind === "brave" && setSearchURL) setSearchURL.placeholder = "https://api.search.brave.com/res/v1/web/search";
+    if (kind === "url" && setSearchURL) setSearchURL.placeholder = "https://search.example/search?q={query}";
+  }
+
+  function openProviderSetup() {
+    if (providerDialog) providerDialog.hidden = true;
+    try { sessionStorage.setItem("keimling.provider_skip", "1"); } catch (e) { /* keep the banner */ }
+    showGate({ manage: true, keepApp: true, tab: "models" });
+    openProviderEditor(null);
+  }
+
+  function applyProviderGate(needs) {
+    needsProvider = !!needs;
+    if (providerBanner) providerBanner.hidden = !needsProvider;
+    if (!providerDialog) return;
+    var skipped = false;
+    try { skipped = sessionStorage.getItem("keimling.provider_skip") === "1"; } catch (e) { skipped = false; }
+    if (!needsProvider) {
+      try { sessionStorage.removeItem("keimling.provider_skip"); } catch (e) { /* ignore */ }
+      providerDialog.hidden = true;
+      return;
+    }
+    providerDialog.hidden = skipped;
+  }
+
   function fillAgentSettings(j) {
     if (!j) return;
+    agentSettingsLoaded = true;
     providersCache = (j.model_providers || []).map(function (p) {
       return {
         id: p.id,
@@ -1408,33 +1527,17 @@
       };
     });
     activeProviderID = j.active_model_provider_id || (providersCache[0] && providersCache[0].id) || "";
-    if (!providersCache.length) {
-      providersCache = [{
-        id: "default",
-        name: "Default",
-        base_url: j.base_url || "",
-        kind: "auto",
-        model: j.model || "",
-        reasoning: j.reasoning || "high",
-        active_model_id: j.model || "",
-        models: j.model ? [{ id: j.model, reasoning: j.reasoning || "high" }] : [],
-        api_key_set: !!j.api_key_set,
-      }];
-      activeProviderID = "default";
-    }
     setOpenAIAPIKey.value = "";
-    setOpenAIAPIKey.placeholder = j.openai_api_key_set ? "Set — leave blank to keep" : "Not set";
-    openaiKeyHint.textContent = j.openai_api_key_set
-      ? "OpenAI key is set. Leave blank to keep it, or paste a new key."
-      : "Optional unless you use web search or voice transcription.";
+    if (openaiKeyHint) openaiKeyHint.hidden = true;
     setMode.value = j.mode || "auto";
+    fillVoiceAndSearch(j);
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
     applyAutopilotSettingsFields(j);
     if (setAutopilotInstructionsUndo) setAutopilotInstructionsUndo.hidden = true;
     setMaxSteps.value = j.max_steps != null ? j.max_steps : 200;
     setContextLimit.value = j.context_limit != null ? j.context_limit : 128000;
-    setVoiceModel.value = j.voice_model || "";
+    if (setVoiceModel && !setVoiceProvider) setVoiceModel.value = j.voice_model || "";
     syncHiddenProviderFields();
     renderProviderList();
   }
@@ -1470,15 +1573,21 @@
   function saveAgentSettings() {
     gateErr.hidden = true;
     syncHiddenProviderFields();
+    if (setWeb && setSearchKind && agentSettingsLoaded) setWeb.checked = setSearchKind.value !== "";
     var body = {
       mode: setMode.value,
-      web: setWeb.checked,
       autopilot: setAutopilot.checked,
       max_steps: parseInt(setMaxSteps.value, 10),
       context_limit: parseInt(setContextLimit.value, 10),
-      voice_model: setVoiceModel.value.trim(),
-      active_model_provider_id: activeProviderID,
-      model_providers: providersCache.map(function (p) {
+    };
+    if (agentSettingsLoaded) {
+      body.web = setWeb ? setWeb.checked : false;
+      body.voice_model = setVoiceModel ? setVoiceModel.value.trim() : "";
+      body.voice_provider_id = setVoiceProvider ? setVoiceProvider.value : "";
+      body.search_kind = setSearchKind ? setSearchKind.value : "";
+      body.search_url = setSearchURL ? setSearchURL.value.trim() : "";
+      body.active_model_provider_id = activeProviderID;
+      body.model_providers = providersCache.map(function (p) {
         var row = {
           id: p.id,
           name: p.name,
@@ -1500,9 +1609,11 @@
         };
         if (p.api_key) row.api_key = p.api_key;
         return row;
-      }),
-    };
-    var openaiKey = setOpenAIAPIKey.value.trim();
+      });
+      var searchKey = setSearchKey ? setSearchKey.value.trim() : "";
+      if (searchKey) body.search_api_key = searchKey;
+    }
+    var openaiKey = setOpenAIAPIKey ? setOpenAIAPIKey.value.trim() : "";
     if (openaiKey) body.openai_api_key = openaiKey;
     if (setAutopilotInstructions) {
       var pilotText = setAutopilotInstructions.value;
@@ -1531,6 +1642,8 @@
           // Clear one-shot keys from cache after successful save.
           providersCache.forEach(function (p) { delete p.api_key; });
           fillAgentSettings(j);
+          applyProviderGate(!!j.needs_provider);
+          if (typeof loadSession === "function") loadSession();
           loadThreadModel();
           modeEl.textContent = j.mode || "—";
           refreshBudget(true);
@@ -1676,9 +1789,10 @@
     // Allow typing/voice/sending while busy → server queues or steers (CLI-like).
     // While recording, Send/Queue = stop mic + transcribe + send/queue.
     var queueHere = busyish || backgroundBusy;
-    send.disabled = !connected;
-    msg.disabled = !connected;
-    if (modelEl) modelEl.disabled = !connected;
+    send.disabled = !connected || needsProvider;
+    msg.disabled = !connected || needsProvider;
+    if (msg) msg.placeholder = needsProvider ? "Add a model provider before sending" : "Message Keimling…";
+    if (modelEl) modelEl.disabled = !connected || needsProvider;
     voiceBtn.disabled = !connected || !voiceOK;
     newChatBtn.disabled = !connected;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
@@ -3991,6 +4105,12 @@
 
   function applyModelChrome(j) {
     if (!modelEl || !j) return;
+    if (needsProvider) {
+      modelEl.textContent = "—";
+      modelEl.title = "No model provider";
+      modelEl.disabled = true;
+      return;
+    }
     var label = j.label || j.model || j.model_id || "—";
     modelEl.textContent = label;
     var locked = !!(j.locked || j.chat_model_locked);
@@ -4126,7 +4246,8 @@
   }
 
   function applySession(j) {
-    modelEl.textContent = j.model || "—";
+    applyProviderGate(!!j.needs_provider);
+    modelEl.textContent = needsProvider ? "—" : (j.model || "—");
     applyModelChrome(j);
     modeEl.textContent = j.mode || "—";
     messages = j.messages || [];
@@ -4527,6 +4648,17 @@
   if (credEditDelete) credEditDelete.addEventListener("click", deleteCredentialEditor);
   if (providerNewBtn) providerNewBtn.addEventListener("click", function () {
     openProviderEditor(null);
+  });
+  if (setVoiceProvider) setVoiceProvider.addEventListener("change", function () { fillVoiceModels(""); });
+  if (setSearchKind) setSearchKind.addEventListener("change", syncSearchFields);
+  var providerDialogAdd = document.getElementById("provider-dialog-add");
+  var providerDialogSkip = document.getElementById("provider-dialog-skip");
+  var providerBannerAdd = document.getElementById("provider-banner-add");
+  if (providerDialogAdd) providerDialogAdd.addEventListener("click", openProviderSetup);
+  if (providerBannerAdd) providerBannerAdd.addEventListener("click", openProviderSetup);
+  if (providerDialogSkip) providerDialogSkip.addEventListener("click", function () {
+    try { sessionStorage.setItem("keimling.provider_skip", "1"); } catch (e) { /* banner stays */ }
+    if (providerDialog) providerDialog.hidden = true;
   });
   if (provEditCancel) provEditCancel.addEventListener("click", closeProviderEditor);
   if (provEditSave) provEditSave.addEventListener("click", saveProviderEditor);

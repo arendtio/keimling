@@ -10,6 +10,16 @@
   <link rel="stylesheet" href="/assets/highlight-github-dark.min.css" media="(prefers-color-scheme: dark)">
 </head>
 <body>
+  <div id="provider-dialog" class="provider-dialog" hidden>
+    <div class="gate-card" role="dialog" aria-labelledby="provider-dialog-title">
+      <p id="provider-dialog-title" class="gate-copy">A model provider is required</p>
+      <p class="gate-copy muted">Chat, compaction, and the other model tasks need at least one provider. You can add one now, or skip and keep using the app without calling a model. The warning stays until a provider is saved.</p>
+      <div class="gate-actions">
+        <button type="button" id="provider-dialog-add">Add a provider</button>
+        <button type="button" id="provider-dialog-skip" class="ghost">Skip</button>
+      </div>
+    </div>
+  </div>
   <div id="gate" class="gate" hidden>
     <div class="gate-card gate-wide">
       <p class="brand"><img class="brand-mark" src="/assets/keimling.svg" alt="" width="36" height="36">Keimling</p>
@@ -175,16 +185,38 @@
           <option value="max">max</option>
         </select>
 
-        <p class="settings-section-title">OpenAI services</p>
-        <p class="hint">Separate key for web search and voice transcription only. Not sent to a custom model provider.</p>
-        <label>OpenAI API key
-          <input id="set-openai-api-key" type="password" autocomplete="off" placeholder="">
+        <p class="settings-section-title">Voice</p>
+        <p class="hint">Transcription uses the selected provider’s audio endpoint. A text-only model will not transcribe. Off sends no audio.</p>
+        <label>Provider
+          <select id="set-voice-provider">
+            <option value="">Off</option>
+          </select>
         </label>
-        <p id="openai-key-hint" class="hint">Leave blank to keep the current key.</p>
-        <label class="check"><input id="set-web" type="checkbox"> Web search</label>
-        <label>Voice model
-          <input id="set-voice-model" type="text" autocomplete="off">
+        <label>Model
+          <select id="set-voice-model"></select>
         </label>
+        <input id="set-openai-api-key" type="hidden" value="">
+        <p id="openai-key-hint" class="hint" hidden></p>
+
+        <p class="settings-section-title">Web search</p>
+        <p class="hint">Choose who receives the query. Off sends nothing.</p>
+        <label>Service
+          <select id="set-search-kind">
+            <option value="">Off</option>
+            <option value="brave">Brave</option>
+            <option value="url">URL</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </label>
+        <label id="search-url-label">URL
+          <input id="set-search-url" type="url" autocomplete="off" placeholder="https://search.example/search?q={query}">
+        </label>
+        <p id="search-url-hint" class="hint">GET this URL with the query. Put <code>{query}</code> in the URL to place it yourself. Brave and SearXNG JSON are read as a result list.</p>
+        <label id="search-key-label">API key
+          <input id="set-search-key" type="password" autocomplete="off">
+        </label>
+        <p id="search-key-hint" class="hint">Leave blank to keep the current key.</p>
+        <input id="set-web" type="checkbox" hidden>
 
         <p class="settings-section-title">Behaviour</p>
         <label>Approval mode
@@ -644,6 +676,10 @@
             <pre id="working" class="block-body"></pre>
           </details>
 
+          <div id="provider-banner" class="provider-banner" hidden>
+            <p>No model provider. Chat cannot call a model until you add one.</p>
+            <button type="button" id="provider-banner-add">Add a provider</button>
+          </div>
           <div id="thread" class="thread" aria-live="polite"></div>
 
           <p id="agent-status" class="agent-status" hidden aria-live="polite">

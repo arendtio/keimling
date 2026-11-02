@@ -1984,3 +1984,27 @@ button.wide { width: 100%; max-width: 100%; }
     inset: 2vh 2vw;
   }
 }
+
+.provider-banner[hidden] { display: none; }
+.provider-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--danger, #c45c26);
+  border-radius: 6px;
+}
+.provider-banner p { margin: 0; }
+.provider-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.45);
+}
+.provider-dialog[hidden] { display: none; }

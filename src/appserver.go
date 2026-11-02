@@ -301,6 +301,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"max_steps":             s.agent.Cfg.MaxSteps,
 		"context_limit":         limit,
 		"voice_model":           s.agent.Cfg.VoiceModel,
+		"needs_provider":        !s.agent.Cfg.HasModelProvider,
 		"workspace_id":          s.agent.Cfg.WorkspaceID,
 		"workspace_root":        s.agent.Cfg.WorkspaceRoot,
 		"thread_id":             threadID,
@@ -1178,12 +1179,11 @@ func (s *appServer) handleSkillsSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	client := s.agent.Cfg.ExternalClient
-	if client == nil {
-		http.Error(w, "web search unavailable", http.StatusServiceUnavailable)
+	if !s.agent.Cfg.Web || !s.agent.Cfg.Search.enabled() {
+		http.Error(w, "web search is off", http.StatusServiceUnavailable)
 		return
 	}
-	cands, raw, err := SearchSkillsOnline(r.Context(), client, body.Query)
+	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, body.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -1482,6 +1482,10 @@ type agentSettings struct {
 	MaxSteps                   *int            `json:"max_steps,omitempty"`
 	ContextLimit               *int            `json:"context_limit,omitempty"`
 	VoiceModel                 string          `json:"voice_model,omitempty"`
+	VoiceProviderID            *string         `json:"voice_provider_id,omitempty"`
+	SearchKind                 *string         `json:"search_kind,omitempty"`
+	SearchURL                  *string         `json:"search_url,omitempty"`
+	SearchAPIKey               *string         `json:"search_api_key,omitempty"`
 	APIKey                     *string         `json:"api_key,omitempty"`        // write-only
 	OpenAIAPIKey               *string         `json:"openai_api_key,omitempty"` // write-only
 	APIKeySet                  bool            `json:"api_key_set"`              // GET only
@@ -1521,6 +1525,11 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"max_steps":                     steps,
 		"context_limit":                 limit,
 		"voice_model":                   s.agent.Cfg.VoiceModel,
+		"voice_provider_id":             s.agent.Cfg.VoiceProviderID,
+		"needs_provider":                !s.agent.Cfg.HasModelProvider,
+		"search_kind":                   s.agent.Cfg.Search.Kind,
+		"search_url":                    s.agent.Cfg.Search.URL,
+		"search_api_key_set":            strings.TrimSpace(s.agent.Cfg.Search.APIKey) != "",
 		"api_key_set":                   providerKey != "",
 		"openai_api_key_set":            openaiSet,
 		"model_providers":               publicModelProviders(providers),
@@ -1534,14 +1543,9 @@ func (s *appServer) loadModelProvidersForSettings() ([]modelProvider, string) {
 	if err != nil {
 		fc = fileConfig{}
 	}
-	// Seed from live agent if config empty.
-	if strings.TrimSpace(fc.API.BaseURL) == "" {
-		fc.API.BaseURL = s.agent.Cfg.BaseURL
-	}
-	if strings.TrimSpace(fc.API.Model) == "" {
-		fc.API.Model = s.agent.Cfg.Model
-	}
-	if strings.TrimSpace(fc.API.Key) == "" {
+	// A saved legacy endpoint may still be only in api.*. Do not copy the
+	// process default URL into an empty config — that would invent a provider.
+	if len(fc.ModelProviders) == 0 && legacyProviderConfigured(&fc) && strings.TrimSpace(fc.API.Key) == "" {
 		fc.API.Key = s.agent.Cfg.Key
 	}
 	fc.ensureModelProviders()
@@ -1602,11 +1606,22 @@ func (s *appServer) applySettings(body agentSettings) error {
 		}
 		s.pendingProviders = out
 		s.pendingActiveProvider = active
-		applyActiveProviderToAgent(s.agent, fileConfig{
-			ModelProviders:        out,
-			ActiveModelProviderID: active,
-		})
-		cfg = &s.agent.Cfg
+		if len(out) == 0 {
+			cfg.Key = ""
+			cfg.BaseURL = ""
+			cfg.HasModelProvider = false
+			if s.agent.Client != nil {
+				s.agent.Client.APIKey = ""
+				s.agent.Client.BaseURL = ""
+			}
+		} else {
+			applyActiveProviderToAgent(s.agent, fileConfig{
+				ModelProviders:        out,
+				ActiveModelProviderID: active,
+			})
+			cfg = &s.agent.Cfg
+			cfg.HasModelProvider = true
+		}
 	}
 	if raw := strings.TrimSpace(body.BaseURL); raw != "" && !writeProviders {
 		resolved, err := normalizeBaseURL(raw)
@@ -1673,8 +1688,53 @@ func (s *appServer) applySettings(body agentSettings) error {
 			cfg.ContextLimit = *body.ContextLimit
 		}
 	}
-	if v := strings.TrimSpace(body.VoiceModel); v != "" {
+	if body.VoiceProviderID != nil {
+		id := strings.TrimSpace(*body.VoiceProviderID)
+		cfg.VoiceProviderID = id
+		if id == "" {
+			cfg.VoiceModel = ""
+		} else if m := strings.TrimSpace(body.VoiceModel); m != "" {
+			cfg.VoiceModel = m
+		} else if strings.TrimSpace(cfg.VoiceModel) == "" {
+			return fmt.Errorf("choose a voice model")
+		}
+		if id != "" && modelProviderByID(s.pendingProviders, id) == nil {
+			fc, err := readConfiguration(cfg.ConfigPath)
+			if err != nil {
+				return err
+			}
+			fc.ensureModelProviders()
+			if modelProviderByID(fc.ModelProviders, id) == nil {
+				return fmt.Errorf("voice provider is not configured")
+			}
+		}
+	} else if v := strings.TrimSpace(body.VoiceModel); v != "" {
 		cfg.VoiceModel = v
+	}
+	if body.SearchKind != nil {
+		kind := strings.TrimSpace(*body.SearchKind)
+		switch kind {
+		case "", "brave", "url", "openai":
+		default:
+			return fmt.Errorf("search kind must be brave, url, or openai")
+		}
+		cfg.Search.Kind = kind
+		if body.SearchURL != nil {
+			cfg.Search.URL = strings.TrimSpace(*body.SearchURL)
+		}
+		if body.SearchAPIKey != nil && strings.TrimSpace(*body.SearchAPIKey) != "" {
+			cfg.Search.APIKey = strings.TrimSpace(*body.SearchAPIKey)
+		}
+		if kind == "url" && strings.TrimSpace(cfg.Search.URL) == "" {
+			return fmt.Errorf("search URL required")
+		}
+		if (kind == "brave" || kind == "openai") && strings.TrimSpace(cfg.Search.APIKey) == "" {
+			return fmt.Errorf("search API key required")
+		}
+		if _, err := searchEndpoint(cfg.Search, "q"); kind != "" && kind != "openai" && err != nil {
+			return err
+		}
+		cfg.Web = cfg.Search.enabled() && !cfg.DisableExternal
 	}
 	writeProviderKey := body.APIKey != nil && !writeProviders
 	writeOpenAIKey := body.OpenAIAPIKey != nil
@@ -1711,7 +1771,7 @@ func (s *appServer) applySettings(body agentSettings) error {
 
 func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, string, error) {
 	if len(body.ModelProviders) == 0 {
-		return nil, "", fmt.Errorf("at least one model provider required")
+		return []modelProvider{}, "", nil
 	}
 	existing, _ := s.loadModelProvidersForSettings()
 	byID := map[string]modelProvider{}
@@ -1986,13 +2046,32 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 	providers := s.pendingProviders
 	active := s.pendingActiveProvider
 	return updateConfiguration(path, func(fc *fileConfig) {
-		if providers != nil {
-			fc.ModelProviders = providers
-			fc.ActiveModelProviderID = active
-			fc.ensureModelProviders()
+		if providers != nil && len(providers) == 0 {
+			fc.ModelProviders = []modelProvider{}
+			fc.ActiveModelProviderID = ""
+			fc.API.Key = ""
+			fc.API.KeyFile = ""
+			fc.API.BaseURL = ""
+			fc.API.Model = ""
+		} else {
+			if providers != nil {
+				fc.ModelProviders = providers
+				fc.ActiveModelProviderID = active
+				fc.ensureModelProviders()
+			}
+			fc.API.BaseURL = cfg.BaseURL
+			fc.API.Model = cfg.Model
+			if writeProviderKey {
+				fc.API.Key = cfg.Key
+				fc.API.KeyFile = ""
+				if p := modelProviderByID(fc.ModelProviders, fc.ActiveModelProviderID); p != nil && cfg.Key != "" {
+					p.APIKey = cfg.Key
+				}
+			}
+			if len(fc.ModelProviders) > 0 {
+				fc.ensureModelProviders()
+			}
 		}
-		fc.API.BaseURL = cfg.BaseURL
-		fc.API.Model = cfg.Model
 		fc.API.Mode = cfg.Mode
 		web := cfg.Web
 		fc.Features.WebSearch = &web
@@ -2003,15 +2082,11 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 		}
 		fc.Reasoning = cfg.Reasoning
 		fc.VoiceModel = cfg.VoiceModel
+		fc.VoiceProviderID = cfg.VoiceProviderID
+		fc.Search = cfg.Search
+		fc.ServicesChosen = true
 		fc.MaxSteps = cfg.MaxSteps
 		fc.ContextLimit = cfg.ContextLimit
-		if writeProviderKey {
-			fc.API.Key = cfg.Key
-			fc.API.KeyFile = ""
-			if p := modelProviderByID(fc.ModelProviders, fc.ActiveModelProviderID); p != nil && cfg.Key != "" {
-				p.APIKey = cfg.Key
-			}
-		}
 		if writeOpenAIKey {
 			k := ""
 			if cfg.ExternalClient != nil {
@@ -2019,9 +2094,10 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 			}
 			fc.OpenAI.Key = k
 			fc.OpenAI.KeyFile = ""
-		}
-		if len(fc.ModelProviders) > 0 {
-			fc.mirrorActiveModelProvider()
+			if fc.Search.Kind == "openai" && k != "" {
+				fc.Search.APIKey = k
+				cfg.Search.APIKey = k
+			}
 		}
 	})
 }
@@ -2137,6 +2213,10 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": false, "delivered": delivered, "text": bodyText, "thread_id": view})
 			return
 		}
+	}
+	if !s.agent.Cfg.HasModelProvider {
+		http.Error(w, "no model provider is configured", http.StatusConflict)
+		return
 	}
 	queued, err := s.acceptAgentText(text, "user", "message")
 	if err != nil {
@@ -2454,11 +2534,8 @@ func (s *appServer) voiceAvailable() bool {
 	if s.agent == nil {
 		return false
 	}
-	c := s.agent.Cfg.ExternalClient
-	if c == nil {
-		c = s.agent.Client
-	}
-	return c != nil && strings.TrimSpace(c.APIKey) != ""
+	_, _, err := s.agent.voiceClient()
+	return err == nil
 }
 
 func (s *appServer) handleTranscribe(w http.ResponseWriter, r *http.Request) {
@@ -2470,8 +2547,9 @@ func (s *appServer) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
-	if !s.voiceAvailable() {
-		http.Error(w, "transcription unavailable (no OpenAI credentials)", http.StatusServiceUnavailable)
+	client, model, err := s.agent.voiceClient()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	if err := r.ParseMultipartForm(28 << 20); err != nil {
@@ -2503,14 +2581,6 @@ func (s *appServer) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	if err := tmp.Close(); err != nil {
 		http.Error(w, "save audio", http.StatusInternalServerError)
 		return
-	}
-	client := s.agent.Cfg.ExternalClient
-	if client == nil {
-		client = s.agent.Client
-	}
-	model := s.agent.Cfg.VoiceModel
-	if model == "" {
-		model = "gpt-transcribe"
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()

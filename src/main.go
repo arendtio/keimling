@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/url"
@@ -29,10 +30,16 @@ type Config struct {
 	Autopilot                                                                                                   bool
 	AutopilotInstructions                                                                                       string // saved global prompt; empty means the factory text
 	ExternalClient                                                                                              *Client
+	VoiceProviderID                                                                                             string
+	HasModelProvider                                                                                            bool
+	DisableExternal                                                                                             bool
+	Search                                                                                                      searchConfig
 	Web                                                                                                         bool
 	CompactParallel                                                                                             bool // parallel leaf distill/summarize (API); off for local models
 	MaxSteps, ContextLimit                                                                                      int
 }
+
+var errAPIKeyMissing = errors.New("API key not found")
 
 func apiKey() (string, error) {
 	if s, err := envOrFile("OPENAI_API_KEY"); err != nil {
@@ -47,7 +54,10 @@ func apiKey() (string, error) {
 	p := filepath.Join(home, ".credentials_openai")
 	st, err := os.Stat(p)
 	if err != nil {
-		return "", fmt.Errorf("API key not found: OPENAI_API_KEY, OPENAI_API_KEY_FILE, or %s", p)
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: OPENAI_API_KEY, OPENAI_API_KEY_FILE, or %s", errAPIKeyMissing, p)
+		}
+		return "", err
 	}
 	if st.Mode().Perm()&0077 != 0 {
 		return "", fmt.Errorf("insecure file permissions for %s: chmod 600 %s", p, p)
@@ -83,6 +93,9 @@ type fileConfig struct {
 	} `json:"features"`
 	Reasoning             string                     `json:"reasoning,omitempty"`
 	VoiceModel            string                     `json:"voice_model,omitempty"`
+	VoiceProviderID       string                     `json:"voice_provider_id,omitempty"`
+	ServicesChosen        bool                       `json:"services_chosen,omitempty"`
+	Search                searchConfig               `json:"search,omitempty"`
 	MaxSteps              int                        `json:"max_steps,omitempty"`
 	ContextLimit          int                        `json:"context_limit,omitempty"`
 	Presentation          string                     `json:"presentation"`
@@ -284,6 +297,17 @@ func main() {
 		}
 		return
 	}
+	credKey, credErr := apiKey()
+	if errors.Is(credErr, errAPIKeyMissing) {
+		credKey = ""
+	} else if credErr != nil {
+		fmt.Fprintln(os.Stderr, credErr)
+		os.Exit(1)
+	}
+	if err := prepareStartupServices(*configPath, &fc, credKey); err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		os.Exit(1)
+	}
 	if !changed["base-url"] && fc.API.BaseURL != "" {
 		*baseURL = fc.API.BaseURL
 	}
@@ -363,34 +387,31 @@ func main() {
 		key = k
 	} else if !custom {
 		key, err = apiKey()
+		if errors.Is(err, errAPIKeyMissing) {
+			key = ""
+			err = nil
+		}
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-
-	// External OpenAI credentials are deliberately independent of the model provider.
-	// A custom provider never receives this key.
-	externalKey := ""
-	if !*disableExternal {
-		if *openaiKeyFile != "" {
-			externalKey, err = readKeyFile(*openaiKeyFile)
-		} else if k := strings.TrimSpace(fc.OpenAI.Key); k != "" {
-			externalKey = k
-		} else if !custom && key != "" {
-			externalKey = key
-		} else {
-			externalKey, err = apiKey()
+	if *openaiKeyFile != "" {
+		k, keyErr := readKeyFile(*openaiKeyFile)
+		if keyErr != nil {
+			fmt.Fprintln(os.Stderr, keyErr)
+			os.Exit(1)
 		}
-		if err != nil {
-			// Continue without optional services. Missing credentials are not fatal.
-			fmt.Fprintln(os.Stderr, "WARNING: OpenAI external services unavailable:", err)
-			externalKey = ""
-			err = nil
+		if fc.Search.Kind == "" || fc.Search.Kind == "openai" {
+			fc.Search.Kind = "openai"
+			fc.Search.APIKey = k
 		}
-		if externalKey == "" {
-			*web = false
-		}
+	}
+	if !fc.Search.enabled() {
+		*web = false
+	}
+	if *disableExternal {
+		*web = false
 	}
 	wsIDPref := strings.TrimSpace(*workspaceFlag)
 	if wsIDPref == "" {
@@ -425,7 +446,20 @@ func main() {
 		}
 	}
 
-	externalClient := NewClient(externalKey)
+	externalClient := NewClient("")
+	if !*disableExternal && fc.Search.Kind == "openai" {
+		externalClient.APIKey = fc.Search.APIKey
+		if u := strings.TrimSpace(fc.Search.URL); u != "" {
+			if nu, e := normalizeBaseURL(u); e == nil {
+				externalClient.BaseURL = nu
+			}
+		}
+	}
+	voiceProviderID := strings.TrimSpace(fc.VoiceProviderID)
+	if *disableExternal {
+		externalClient = nil
+		voiceProviderID = ""
+	}
 
 	var (
 		ws                WorkspaceMeta
@@ -505,7 +539,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
@@ -535,8 +569,13 @@ func main() {
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(c.SessionPath)
 	if *disableExternal {
 		a.Cfg.ExternalClient = nil
+		a.Cfg.VoiceProviderID = ""
+		a.Cfg.Web = false
 	}
-	if *checkModel {
+	if !a.Cfg.HasModelProvider {
+		fmt.Fprintln(os.Stderr, "WARNING: no model provider is configured. Chat cannot call a model until one is added.")
+	}
+	if *checkModel && a.Cfg.HasModelProvider {
 		if checkErr := performStartupCheck(a.Client, c.Model); checkErr != nil {
 			if strings.Contains(checkErr.Error(), "not found in provider catalog") {
 				fmt.Fprintln(os.Stderr, "Model validation failed:", checkErr)
@@ -558,7 +597,8 @@ func main() {
 	fmt.Printf("keimling | %s | mode=%s | web=%v\nWorkspace: %s (%s)\nThread: %s\nSession: %s\nF1/Space/Enter on empty prompt: record; F1/Space/Enter: stop; Enter: send draft; /newchat, /mode, /status, /help, /exit\n", c.Model, c.Mode, c.Web, c.WorkspaceID, c.WorkspaceRoot, c.ThreadID, c.SessionPath)
 	for {
 		discardPendingInput()
-		line, err := readInteractiveLine(input, a.Cfg.ExternalClient, c.VoiceModel)
+		voiceClient, voiceModelName, _ := a.voiceClient()
+		line, err := readInteractiveLine(input, voiceClient, voiceModelName)
 		if err != nil {
 			fmt.Println()
 			return
@@ -641,6 +681,10 @@ func main() {
 			fmt.Println("Unknown command")
 			continue
 		}
+		if !a.Cfg.HasModelProvider {
+			fmt.Fprintln(os.Stderr, "no model provider is configured")
+			continue
+		}
 		signalCtx, signalStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		ctx, cancel := context.WithCancel(signalCtx)
 		control := newTaskControl(cancel)
@@ -661,7 +705,8 @@ func main() {
 				continue
 			default:
 			}
-			text, readErr := readInteractiveLine(input, a.Cfg.ExternalClient, c.VoiceModel)
+			voiceClient, voiceModelName, _ := a.voiceClient()
+			text, readErr := readInteractiveLine(input, voiceClient, voiceModelName)
 			if readErr == errAgentIdle {
 				continue
 			}

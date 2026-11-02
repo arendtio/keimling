@@ -571,11 +571,11 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 						}
 						if e := decodeArgs(item.Arguments, &args); e != nil {
 							result = "web search error: " + e.Error()
-						} else if a.Cfg.ExternalClient == nil || !a.Cfg.Web {
-							result = "web search disabled or unavailable"
+						} else if !a.Cfg.Web || !a.Cfg.Search.enabled() {
+							result = "web search is off"
 						} else {
 							a.println("⌕ Searching web…")
-							answer, e := a.Cfg.ExternalClient.SearchWeb(ctx, args.Query)
+							answer, e := a.searchWeb(ctx, args.Query)
 							if e != nil {
 								result = "web search error: " + e.Error()
 							} else {

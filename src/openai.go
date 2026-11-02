@@ -95,7 +95,7 @@ func definitions(web bool, extra ...[]map[string]any) []map[string]any {
 		toolDef("finish_task", "Explicitly end an autonomous task only when verified complete (done) or blocked and user guidance is required (blocked).", map[string]any{"status": str("done or blocked"), "summary": str("Very short outcome or precise question")}, "status", "summary"),
 	)
 	if web {
-		tools = append(tools, toolDef("web_search", "Search the public web using the OpenAI service. Give a concise query, and cite sources in the result where relevant.", map[string]any{"query": str("Web search query")}, "query"))
+		tools = append(tools, toolDef("web_search", "Search the public web using the configured search service. Give a concise query, and cite sources in the result where relevant.", map[string]any{"query": str("Web search query")}, "query"))
 	}
 	for _, batch := range extra {
 		tools = append(tools, batch...)

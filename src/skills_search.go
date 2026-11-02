@@ -23,14 +23,14 @@ var (
 	githubSkillPathRe = regexp.MustCompile(`(?i)github\.com/[^/\s]+/[^/\s]+(?:/(?:tree|blob)/[^/\s]+)?(?:/[\w./-]*)?`)
 )
 
-// SearchSkillsOnline uses the OpenAI web_search client and extracts installable candidates.
-func SearchSkillsOnline(ctx context.Context, client *Client, query string) ([]SkillCandidate, string, error) {
+// SearchSkillsOnline uses the configured web-search service and extracts installable candidates.
+func SearchSkillsOnline(ctx context.Context, search searchConfig, query string) ([]SkillCandidate, string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, "", fmt.Errorf("empty query")
 	}
-	if client == nil {
-		return nil, "", fmt.Errorf("web search unavailable")
+	if !search.enabled() {
+		return nil, "", fmt.Errorf("web search is off")
 	}
 	prompt := fmt.Sprintf(
 		`Find public Agent Skills (agentskills.io / SKILL.md directories) for: %s
@@ -38,7 +38,7 @@ Prefer GitHub repositories or paths that contain a SKILL.md file with YAML front
 Return a short list with title, one-line description, and exact https URLs. Do not invent URLs.`,
 		query,
 	)
-	text, err := client.SearchWeb(ctx, prompt)
+	text, err := runSearch(ctx, search, prompt)
 	if err != nil {
 		return nil, "", err
 	}

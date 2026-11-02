@@ -101,15 +101,14 @@ func handleSkillsCommand(a *Agent, arg string) {
 	}
 	if strings.HasPrefix(arg, "search ") {
 		q := strings.TrimSpace(strings.TrimPrefix(arg, "search "))
-		client := a.Cfg.ExternalClient
-		if client == nil {
-			fmt.Println("skills search: web search unavailable (configure OpenAI external key)")
+		if !a.Cfg.Search.enabled() || !a.Cfg.Web {
+			fmt.Println("skills search: web search is off")
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		fmt.Println("⌕ Searching for skills…")
-		cands, _, err := SearchSkillsOnline(ctx, client, q)
+		cands, _, err := SearchSkillsOnline(ctx, a.Cfg.Search, q)
 		if err != nil {
 			fmt.Println("skills search:", err)
 			return

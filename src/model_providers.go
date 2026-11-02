@@ -22,11 +22,43 @@ func newModelProviderID() string {
 	return newStampedID("provider")
 }
 
+// legacyProviderConfigured reports a saved endpoint from before model_providers
+// existed. A default OpenAI URL and a default model name alone are not one:
+// those are process defaults, and an empty list must stay empty.
+func legacyProviderConfigured(fc *fileConfig) bool {
+	if fc == nil {
+		return false
+	}
+	if strings.TrimSpace(fc.API.Key) != "" || strings.TrimSpace(fc.API.KeyFile) != "" {
+		return true
+	}
+	base := strings.TrimRight(strings.TrimSpace(fc.API.BaseURL), "/")
+	return base != "" && base != defaultBaseURL
+}
+
+// seedOpenAIProvider adds an OpenAI provider from a key only when nothing is configured.
+func seedOpenAIProvider(fc *fileConfig, key string) bool {
+	key = strings.TrimSpace(key)
+	if fc == nil || key == "" || len(fc.ModelProviders) > 0 || legacyProviderConfigured(fc) {
+		return false
+	}
+	id := newModelProviderID()
+	fc.ModelProviders = []modelProvider{{
+		ID:      id,
+		Name:    "OpenAI",
+		BaseURL: defaultBaseURL,
+		APIKey:  key,
+		Kind:    "openai",
+	}}
+	fc.ActiveModelProviderID = id
+	return true
+}
+
 func (fc *fileConfig) ensureModelProviders() {
 	if fc.ModelProviders == nil {
 		fc.ModelProviders = []modelProvider{}
 	}
-	if len(fc.ModelProviders) == 0 {
+	if len(fc.ModelProviders) == 0 && legacyProviderConfigured(fc) {
 		base := strings.TrimSpace(fc.API.BaseURL)
 		if base == "" {
 			base = defaultBaseURL
@@ -48,6 +80,10 @@ func (fc *fileConfig) ensureModelProviders() {
 			Reasoning: "",
 		}}
 		fc.ActiveModelProviderID = id
+	}
+	if len(fc.ModelProviders) == 0 {
+		fc.ActiveModelProviderID = ""
+		return
 	}
 	seen := map[string]bool{}
 	for i := range fc.ModelProviders {

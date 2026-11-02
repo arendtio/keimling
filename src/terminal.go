@@ -141,8 +141,8 @@ func readInteractiveLine(reader *bufio.Reader, client *Client, model string) (st
 		defer os.Remove(p)
 		fmt.Print("\r\033[2K\033[36m◌\033[0m Transcribing ...")
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		txt, e := "", fmt.Errorf("OpenAI transcription unavailable: external services disabled or credentials missing")
-		if client != nil && client.APIKey != "" {
+		txt, e := "", fmt.Errorf("voice transcription is off")
+		if client != nil {
 			txt, e = client.Transcribe(ctx, p, model)
 		}
 		cancel()

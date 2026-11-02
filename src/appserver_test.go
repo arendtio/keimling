@@ -175,8 +175,8 @@ func TestAppServerVoiceFlag(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	var body map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["voice"] != true {
-		t.Fatalf("%#v", body)
+	if body["voice"] != false {
+		t.Fatalf("voice without a chosen provider: %#v", body)
 	}
 }
 
@@ -493,6 +493,7 @@ func TestBusyWorkspaceQueuesOnViewedThread(t *testing.T) {
 	a := &Agent{
 		Cfg: Config{
 			Model: "m", Mode: "ask", WorkspaceID: ws.ID, ThreadID: running.ID, SessionPath: session,
+			HasModelProvider: true,
 		},
 		Journal: j,
 	}

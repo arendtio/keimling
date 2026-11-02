@@ -43,3 +43,43 @@ remote catalogs.
 
 - Settings → Models: provider list; editor for provider + nested model list.
 - Chat chrome: compact line for session estimate and provider remaining when known.
+
+## REQ-PM-1 Startup does not require an OpenAI key
+
+- **Bin:** explicit requirement
+- **Statement:** Keimling shall start when no OpenAI API key is available. A file `~/.credentials_openai` shall be used to create an OpenAI provider only when no model provider is configured. When any model provider is already configured, that file shall not add or restore an OpenAI provider.
+- **Origin:** User, 2026-11-02 (quote: "I want it to not require such an API key" and "if .credentials_openai exists, it can use that key to create an openai provider automatically, but if the file does not exist it should start normally" and "if no other provider is present it might restore the openai provider again. If other providers are configured openai should not be restored, so basically just run that method if no provider is configured").
+- **Rationale:** The user chooses which services receive the data. A missing OpenAI key must not block a local or third-party provider.
+- **Fit criterion:** With no key file and no providers, the process starts. With the key file and no providers, an OpenAI provider exists after start. With another provider already configured, start does not add an OpenAI provider even when the key file exists.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-2 No provider still opens the app
+
+- **Bin:** explicit requirement
+- **Statement:** When no model provider is configured, the app shall open and explain that at least one model provider is required. The user shall be able to add one or more providers, or skip. After skip, the app shall stay usable in a limited way, and the warning shall remain visible.
+- **Origin:** User, 2026-11-02 (quote: "If not provider at all is configured, the app should open with a small dialog explaining that at least one model provider is required and offer the user the possibility to add one or more providers (it should also be possible to skip that step with a warning)" and "yes usable but very limited due to the skip").
+- **Rationale:** First-run setup should not be a dead end, and skipping must not look like a provider exists.
+- **Fit criterion:** A start with zero providers shows the explanation, an add action, and a skip action. Skip closes the dialog, leaves chat unable to call a model, and keeps the warning visible. Adding a provider clears that warning.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-3 Voice and web search choose their own service
+
+- **Bin:** explicit requirement
+- **Statement:** Voice transcription and web search shall each have their own chosen service in Settings. Compaction, the autopilot supervisor, the delegate profiles, and auto-mode approval review shall keep using the normal model provider and shall not have separate provider choices.
+- **Origin:** User, 2026-11-02 (quote: "for normal model tasks like compaction, the autopilot supervisor, the three delegate profiles, and the auto-mode approval review we do not need separat options" and "For voice and websearch we need such options, even though websearch is not necessarily a model provider, but might be a provider of its own" and "The goal is to enable a completely OpenAI free usage").
+- **Rationale:** Those two jobs can send data to a different service than chat. The other jobs are ordinary model calls and already follow the configured model provider.
+- **Fit criterion:** Settings can set voice to a provider and model that speak transcription, and web search to Brave or a URL, or leave either unset. Unset means that feature does not call a service. A chat, compaction, autopilot, delegate, and auto-review call goes to the normal model provider. With only a non-OpenAI model provider configured, those model calls do not contact OpenAI.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-4 Web search is Brave or a URL
+
+- **Bin:** explicit requirement
+- **Statement:** Web search shall be choosable as a hosted API such as Brave, or as a URL the user supplies. It is not required to be a model provider.
+- **Origin:** User, 2026-11-02 (quote: "maybe a hosted API like brave, but an URL should be possible too").
+- **Rationale:** Search sends the query to whoever the user picks, including a host they run themselves.
+- **Fit criterion:** Settings can select Brave with an API key, or a URL. A search then goes to that service. With search left off, a search sends nothing.
+- **Priority:** shall
+- **Status:** confirmed
