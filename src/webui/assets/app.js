@@ -1443,6 +1443,7 @@
       if (setVoiceProvider.value !== (j.voice_provider_id || "")) setVoiceProvider.value = j.voice_provider_id || "";
     }
     fillVoiceModels(j.voice_model || "");
+    syncVoiceModelEnabled();
     if (setSearchKind) setSearchKind.value = j.search_kind || "";
     if (setSearchURL) setSearchURL.value = j.search_url || "";
     if (setSearchKey) {
@@ -1458,37 +1459,14 @@
   }
 
   function fillVoiceModels(selected) {
+    if (!setVoiceModel) return;
+    setVoiceModel.value = selected || "";
+    syncVoiceModelEnabled();
+  }
+
+  function syncVoiceModelEnabled() {
     if (!setVoiceModel || !setVoiceProvider) return;
-    var pid = setVoiceProvider.value;
-    var p = null;
-    for (var i = 0; i < providersCache.length; i++) {
-      if (providersCache[i].id === pid) { p = providersCache[i]; break; }
-    }
-    setVoiceModel.innerHTML = "";
-    var models = (p && p.models) || [];
-    var seen = {};
-    models.forEach(function (m) {
-      if (!m || !m.id || seen[m.id]) return;
-      seen[m.id] = true;
-      var opt = document.createElement("option");
-      opt.value = m.id;
-      opt.textContent = m.name || m.id;
-      setVoiceModel.appendChild(opt);
-    });
-    if (selected && !seen[selected]) {
-      var extra = document.createElement("option");
-      extra.value = selected;
-      extra.textContent = selected;
-      setVoiceModel.appendChild(extra);
-    }
-    if (!setVoiceModel.options.length) {
-      var empty = document.createElement("option");
-      empty.value = "";
-      empty.textContent = pid ? "No model on this provider" : "Off";
-      setVoiceModel.appendChild(empty);
-    }
-    setVoiceModel.value = selected || (setVoiceModel.options[0] && setVoiceModel.options[0].value) || "";
-    setVoiceModel.disabled = !pid;
+    setVoiceModel.disabled = !setVoiceProvider.value;
   }
 
   function syncSearchFields() {
@@ -4664,7 +4642,7 @@
   if (providerNewBtn) providerNewBtn.addEventListener("click", function () {
     openProviderEditor(null);
   });
-  if (setVoiceProvider) setVoiceProvider.addEventListener("change", function () { fillVoiceModels(""); });
+  if (setVoiceProvider) setVoiceProvider.addEventListener("change", syncVoiceModelEnabled);
   if (setSearchKind) setSearchKind.addEventListener("change", syncSearchFields);
   var providerDialogAdd = document.getElementById("provider-dialog-add");
   var providerDialogSkip = document.getElementById("provider-dialog-skip");

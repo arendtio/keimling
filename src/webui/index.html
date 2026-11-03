@@ -193,8 +193,9 @@
           </select>
         </label>
         <label>Model
-          <select id="set-voice-model"></select>
+          <input id="set-voice-model" type="text" autocomplete="off" placeholder="gpt-transcribe">
         </label>
+        <p class="hint">Type the transcription model id. For OpenAI, gpt-transcribe is a sensible choice.</p>
         <input id="set-openai-api-key" type="hidden" value="">
         <p id="openai-key-hint" class="hint" hidden></p>
 

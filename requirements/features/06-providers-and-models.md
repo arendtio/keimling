@@ -94,3 +94,13 @@ remote catalogs.
 - **Fit criterion:** With an OpenRouter provider already saved, opening a new provider form, entering an OpenAI URL and an OpenAI key, and loading the catalog sends that URL and that key. The stored OpenRouter key is not sent. Reloading the catalog for a saved provider with the key field left blank sends that provider's saved key and the URL currently in the form.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-PM-6 Voice model is typed, not picked from chat models
+
+- **Bin:** explicit requirement
+- **Statement:** The voice model shall be a text the user types. Choosing a voice provider shall not replace that text with the provider's chat models. The field shall say that gpt-transcribe is a sensible model for OpenAI.
+- **Origin:** User, 2026-11-03 (quote: "wenn man beispielsweise OpenAI als Provider bei Voice auswählt, dann bietet er die ganz normalen Modelle an" and "das Transcribe-Modell, was wir vorher hatten, das kann man nicht mehr auswählen" and "warum wir es eigentlich als Dropdown implementieren und nicht als Freitextfeld mit 'n Hinweistext").
+- **Rationale:** A provider's saved models are for chat. Transcription uses a different model id, and Keimling does not know which chat models accept audio.
+- **Fit criterion:** With an OpenAI provider whose only saved model is a chat model, and voice model gpt-transcribe, Settings shows gpt-transcribe in a text field and names gpt-transcribe in the hint. Switching the voice provider leaves that text in place.
+- **Priority:** shall
+- **Status:** confirmed
