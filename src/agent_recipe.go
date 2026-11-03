@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -23,11 +24,20 @@ type AgentRecipe struct {
 }
 
 func configHome() string {
+	if runtime.GOOS == "windows" {
+		if d, err := os.UserConfigDir(); err == nil && strings.TrimSpace(d) != "" {
+			return d
+		}
+	}
 	if x := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); x != "" {
 		return x
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config")
+}
+
+func keimlingConfigDir() string {
+	return filepath.Join(configHome(), "keimling")
 }
 
 func agentRecipesDir() string {

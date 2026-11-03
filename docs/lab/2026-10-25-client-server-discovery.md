@@ -12,7 +12,7 @@ Current `./keimling` ≈ 7.3 MB (no webview, no embedded UI yet). Budget &lt; 20
 | --- | --- | --- | --- |
 | **`github.com/webview/webview_go`** | Strong | ~+1 MB class; CGO | Minimal API: `Navigate(url)`, `SetHtml`. Ideal if UI is 100% HTTP from agent. Upstream Linux pkg-config pinned to **webkit2gtk-4.0**; this Arch box has **4.1 only**. Need replace/fork/build-tag for 4.1 (known community issue). |
 | **Wails v2/v3** | Weak for us | Still small vs Electron, heavier framework | Owns app model, bindings, often Node frontend tooling. Overkill when browser and GUI must share server-served UI and remote Navigate matters. Go ≥ newer than our current module floor may be required for v3. |
-| **Lorca** | Weak | Uses installed Chrome | Bundles no Chromium but depends on Chrome/Chromium present — worse than system WebKit/WebView2 for “small Linux agent” hosts. |
+| **Lorca** | Weak | Uses installed Chrome | Bundles no Chromium but depends on Chrome/Chromium present — worse than system WebKit/WebView2 for a small host. |
 | **Goleo / experimental purego** | Watch | cgo-free claims | Too early to bet the product on; revisit if CGO/cross-compile becomes painful. |
 
 ### Tentative choice

@@ -7,20 +7,57 @@ Approved commands for build, test, and run. Prefer these over ad-hoc variants.
 | Command | Purpose |
 | --- | --- |
 | `make detect` | Print OS, CGO, and WebKit build tags |
-| `make build` | Release binary `./keimling` (GUI when WebKit available) |
+| `make build` | Release binary `./keimling` (system web view on the OS where it is built) |
 | `make build-nogui` | CLI/server-only binary (`-tags nogui`, `CGO_ENABLED=0`) |
 | `make clean` | Remove `./keimling` and Go test cache |
+
+`make build` stamps the short git commit (`git rev-parse --short HEAD`). `./keimling --version` prints it. A build without that stamp reports `dev`.
 
 Equivalent without make (nogui):
 
 ```sh
-cd src && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -tags nogui -o ../keimling .
+REV=$(git rev-parse --short HEAD)
+cd src && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.buildVersion=$REV" -tags nogui -o ../keimling .
 ```
 
 GUI on Linux (WebKitGTK 4.1):
 
 ```sh
-cd src && CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -tags webkitgtk_41 -o ../keimling .
+REV=$(git rev-parse --short HEAD)
+cd src && CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X main.buildVersion=$REV" -tags webkitgtk_41 -o ../keimling .
+```
+
+CLI/server binaries for other operating systems, written under `dist/` so `./keimling` stays the local build. The native window is built on that operating system with `make build` (CGO and the system web view).
+
+```sh
+REV=$(git rev-parse --short HEAD)
+mkdir -p dist
+cd src && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.buildVersion=$REV" -tags nogui -o ../dist/keimling-$REV-darwin-arm64 .
+cd src && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.buildVersion=$REV" -tags nogui -o ../dist/keimling-$REV-darwin-amd64 .
+cd src && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.buildVersion=$REV" -tags nogui -o ../dist/keimling-$REV-windows-amd64.exe .
+```
+
+## GUI builds on GitHub
+
+[`.github/workflows/gui.yml`](.github/workflows/gui.yml) runs on push to `main`, on pull requests, and via workflow dispatch. Artifacts:
+
+| Artifact | Where it is built |
+| --- | --- |
+| `keimling-<commit>-linux-amd64` | `ubuntu-24.04`, CGO, `-tags webkitgtk_41` |
+| `keimling-<commit>-darwin-arm64` | `macos-latest` |
+| `keimling-<commit>-darwin-amd64` | `macos-15-intel` |
+| `keimling-<commit>-windows-amd64.exe` | `ubuntu-24.04` cross-compile with Zig 0.17.1 (`x86_64-windows-gnu`), WebView2 headers from the webview module |
+
+The Windows binary stays a console program, so `--cli` and `--server` still print to the terminal. Opening the window needs the WebView2 runtime, which Windows 11 already has.
+
+Local check of that Windows GUI build, without replacing `./keimling`:
+
+```sh
+# Zig 0.17.1 extracted at /tmp/zig-x86_64-linux-0.17.1
+cd src && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
+  CC='/tmp/zig-x86_64-linux-0.17.1/zig cc -target x86_64-windows-gnu' \
+  CXX='/tmp/zig-x86_64-linux-0.17.1/zig c++ -target x86_64-windows-gnu' \
+  go build -trimpath -ldflags="-s -w -X main.buildVersion=$(git rev-parse --short HEAD)" -o /tmp/keimling-windows-gui.exe .
 ```
 
 ## Quality

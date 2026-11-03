@@ -2,8 +2,8 @@
 
 ## What Keimling is
 
-Keimling is a minimalist, general-purpose terminal agent for Linux. It is built
-to run on old x86-64 machines with little RAM: model inference happens remotely
+Keimling is a minimalist, general-purpose terminal agent for Linux, macOS, and
+Windows. It is built to run on small machines with little RAM: model inference happens remotely
 through APIs, while the local binary handles agent orchestration, terminal
 integration, file operations, context management, and security decisions.
 
@@ -28,11 +28,11 @@ session locations, and the binary are all `keimling`.
 
 | Aspect | Decision |
 | --- | --- |
-| Operating system | Linux, x86-64 |
+| Operating system | Linux, macOS, and Windows |
 | Runtime footprint | Low RAM and CPU; the original target was a netbook with roughly 1 GiB RAM |
 | Language | Go, standard library preferred, statically linked |
-| Companion processes | None required; voice capture may use system tools such as `arecord` |
-| Configuration | `~/.config/keimling/config.json` |
+| Companion processes | None required; voice capture may use a system recorder (`arecord`, `rec`, or `ffmpeg`) |
+| Configuration | `~/.config/keimling/config.json` on Linux and macOS; `%AppData%\keimling\config.json` on Windows |
 | Session data | `~/.local/state/keimling/` |
 
 ## Providers and APIs

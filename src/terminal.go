@@ -9,38 +9,33 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
-	"unsafe"
+
+	"golang.org/x/term"
 )
 
 type termState struct {
-	old    syscall.Termios
-	fd     uintptr
+	fd     int
+	old    *term.State
 	active bool
 }
 
+func isTerminal(fd uintptr) bool { return term.IsTerminal(int(fd)) }
+
 func rawTerminal() (*termState, error) {
-	fd := os.Stdin.Fd()
-	t := &termState{fd: fd}
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TCGETS), uintptr(unsafe.Pointer(&t.old))); e != 0 {
-		return nil, e
+	fd := int(os.Stdin.Fd())
+	old, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
 	}
-	n := t.old
-	n.Lflag &^= syscall.ICANON | syscall.ECHO
-	n.Cc[syscall.VMIN] = 1
-	n.Cc[syscall.VTIME] = 0
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TCSETS), uintptr(unsafe.Pointer(&n))); e != 0 {
-		return nil, e
-	}
-	t.active = true
-	return t, nil
+	return &termState{fd: fd, old: old, active: true}, nil
 }
+
 func (t *termState) restore() {
-	if t != nil && t.active {
-		syscall.Syscall(syscall.SYS_IOCTL, t.fd, uintptr(syscall.TCSETS), uintptr(unsafe.Pointer(&t.old)))
+	if t != nil && t.active && t.old != nil {
+		_ = term.Restore(t.fd, t.old)
 		t.active = false
 	}
 }
@@ -59,12 +54,15 @@ func startCapture() (*voiceCapture, error) {
 	}
 	path := f.Name()
 	_ = f.Close()
-	// Raw PCM avoids an incomplete WAV header when arecord is interrupted.
-	cmd := exec.Command("arecord", "-q", "-f", "S16_LE", "-r", "12000", "-c", "1", "-d", "900", "-t", "raw", path)
+	cmd, err := captureCommand(path, "900")
+	if err != nil {
+		os.Remove(path)
+		return nil, err
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		os.Remove(path)
-		return nil, fmt.Errorf("start arecord: %w (install alsa-utils and check the capture device)", err)
+		return nil, fmt.Errorf("start voice capture: %w", err)
 	}
 	return &voiceCapture{cmd: cmd, path: path, started: time.Now()}, nil
 }
@@ -448,46 +446,6 @@ func readInteractiveLine(reader *bufio.Reader, client *Client, model string) (st
 var errKeyTimeout = fmt.Errorf("keyboard timeout")
 var activeControl *taskControl
 
-func readTerminalByte(fd int, timeout time.Duration) (byte, error) {
-	if timeout > 0 {
-		var set syscall.FdSet
-		if fd < 0 || fd >= len(set.Bits)*64 {
-			return 0, fmt.Errorf("terminal fd out of range")
-		}
-		set.Bits[fd/64] |= 1 << uint(fd%64)
-		tv := syscall.NsecToTimeval(timeout.Nanoseconds())
-		n, err := syscall.Select(fd+1, &set, nil, nil, &tv)
-		if err == syscall.EINTR {
-			return 0, errKeyTimeout
-		}
-		if err != nil {
-			return 0, err
-		}
-		if n == 0 {
-			return 0, errKeyTimeout
-		}
-	}
-	var one [1]byte
-	for {
-		n, e := syscall.Read(fd, one[:])
-		if e == syscall.EINTR {
-			continue
-		}
-		if e != nil {
-			return 0, e
-		}
-		if n == 0 {
-			return 0, io.EOF
-		}
-		return one[0], nil
-	}
-}
-
-func discardPendingInput() {
-	// TCIFLUSH: discard keystrokes accumulated while the agent was busy.
-	syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), uintptr(0x540B), 0)
-}
-
 func insertRune(r []rune, pos int, ch rune) []rune {
 	r = append(r, 0)
 	copy(r[pos+1:], r[pos:])
@@ -567,15 +525,6 @@ func readApproval(ctx context.Context) bool {
 
 // fdForTerminal obtains the active terminal without caching terminal width.
 func fdForTerminal() int { return int(os.Stdin.Fd()) }
-
-func terminalColumns(fd int) int {
-	var ws struct{ Rows, Cols, Xpixel, Ypixel uint16 }
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
-	if errno != 0 || ws.Cols < 12 {
-		return 80
-	}
-	return int(ws.Cols)
-}
 
 // runeColumns is sufficient for common Unicode terminals, including CJK and emoji.
 func runeColumns(r rune) int {

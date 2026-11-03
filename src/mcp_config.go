@@ -95,11 +95,10 @@ func (c MCPServerConfig) validate() error {
 }
 
 func defaultUserMCPPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if _, err := os.UserHomeDir(); err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "keimling", "mcp.json")
+	return filepath.Join(keimlingConfigDir(), "mcp.json")
 }
 
 func mcpConfigPaths(configPath string) []string {

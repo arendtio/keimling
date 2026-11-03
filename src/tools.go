@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -42,7 +41,7 @@ func releaseCommandGroup(pgid int) {
 	if pgid <= 0 {
 		return
 	}
-	if syscall.Kill(-pgid, 0) == nil {
+	if processGroupAlive(pgid) {
 		return
 	}
 	commandGroups.Lock()
@@ -59,7 +58,7 @@ func killTrackedCommands() {
 	commandGroups.pgids = nil
 	commandGroups.Unlock()
 	for _, id := range ids {
-		_ = syscall.Kill(-id, syscall.SIGKILL)
+		killProcessGroup(id)
 	}
 }
 
@@ -141,7 +140,7 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			}
 		}
 		cmd.Stdin = nil
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		setProcessGroup(cmd)
 		// Combined output preserves the order of stdout/stderr chunks.
 		var output limitedBuffer
 		output.Limit = 36 << 10
@@ -158,7 +157,7 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		select {
 		case err = <-done:
 		case <-runCtx.Done():
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			killProcessGroup(cmd.Process.Pid)
 			err = <-done
 			return fmt.Sprintf("exit_status=cancelled (%v); error=%v\n%s", runCtx.Err(), err, output.String())
 		}
@@ -301,10 +300,13 @@ func RecordVoice(ctx context.Context, seconds int) (string, error) {
 	path := f.Name()
 	_ = f.Close()
 	defer os.Remove(path)
-	cmd := exec.CommandContext(ctx, "arecord", "-q", "-f", "S16_LE", "-r", "12000", "-c", "1", "-d", fmt.Sprint(seconds), "-t", "raw", path)
+	cmd, err := captureCommandContext(ctx, path, fmt.Sprint(seconds))
+	if err != nil {
+		return "", err
+	}
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("arecord: %w: %s", err, truncate(string(b), 500))
+		return "", fmt.Errorf("voice capture: %w: %s", err, truncate(string(b), 500))
 	}
 	return pcmFileToWAV(path, 12000)
 }

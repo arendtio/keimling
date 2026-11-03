@@ -50,7 +50,7 @@ func userSkillsDir() string {
 	if home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".config", "keimling", "skills")
+	return filepath.Join(keimlingConfigDir(), "skills")
 }
 
 func projectSkillsDir(cwd string) string {

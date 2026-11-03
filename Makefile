@@ -1,6 +1,10 @@
 BINARY := keimling
 PKG    := ./src
-LDFLAGS := -s -w
+GIT_VERSION := $(shell git rev-parse --short HEAD 2>/dev/null)
+ifeq ($(GIT_VERSION),)
+  GIT_VERSION := dev
+endif
+LDFLAGS := -s -w -X main.buildVersion=$(GIT_VERSION)
 ARGS   ?=
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)

@@ -10,7 +10,7 @@ Git root down to the process CWD, plus an optional global file beside
 convention. Deeper files override broader ones; safety/approvals and explicit
 user instructions still win.
 
-Keimling is a Linux-first interactive coding agent in **Go** (OpenAI **Responses** API). One binary can run as:
+Keimling is a cross-platform interactive coding agent in **Go** (OpenAI **Responses** API) for Linux, macOS, and Windows. One binary can run as:
 
 - **CLI** REPL (`--cli`)
 - **Native WebView** GUI (`--ui`)

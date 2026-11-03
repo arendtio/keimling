@@ -1,0 +1,91 @@
+name: GUI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - name: Install WebKitGTK
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - id: rev
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Build
+        working-directory: src
+        run: |
+          mkdir -p ../dist
+          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X main.buildVersion=${{ steps.rev.outputs.short }}" -tags webkitgtk_41 -o ../dist/keimling-${{ steps.rev.outputs.short }}-linux-amd64 .
+          ldd ../dist/keimling-${{ steps.rev.outputs.short }}-linux-amd64 | grep -i webkit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keimling-${{ steps.rev.outputs.short }}-linux-amd64
+          path: dist/keimling-${{ steps.rev.outputs.short }}-linux-amd64
+
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - id: rev
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Build
+        working-directory: src
+        run: |
+          curl -fsSL -o /tmp/zig.tar.xz https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz
+          echo "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  /tmp/zig.tar.xz" | sha256sum -c
+          tar -C /tmp -xf /tmp/zig.tar.xz
+          ZIG=/tmp/zig-x86_64-linux-0.17.1/zig
+          mkdir -p ../dist
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
+            CC="$ZIG cc -target x86_64-windows-gnu" \
+            CXX="$ZIG c++ -target x86_64-windows-gnu" \
+            go build -trimpath -ldflags="-s -w -X main.buildVersion=${{ steps.rev.outputs.short }}" -o ../dist/keimling-${{ steps.rev.outputs.short }}-windows-amd64.exe .
+          python3 -c 'import pathlib; b=pathlib.Path("../dist/keimling-${{ steps.rev.outputs.short }}-windows-amd64.exe").read_bytes(); assert b.find(b"WebView2") >= 0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keimling-${{ steps.rev.outputs.short }}-windows-amd64.exe
+          path: dist/keimling-${{ steps.rev.outputs.short }}-windows-amd64.exe
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            suffix: darwin-arm64
+          - runner: macos-15-intel
+            suffix: darwin-amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - id: rev
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Build
+        working-directory: src
+        run: |
+          mkdir -p ../dist
+          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X main.buildVersion=${{ steps.rev.outputs.short }}" -o ../dist/keimling-${{ steps.rev.outputs.short }}-${{ matrix.suffix }} .
+          otool -L ../dist/keimling-${{ steps.rev.outputs.short }}-${{ matrix.suffix }} | grep -i WebKit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keimling-${{ steps.rev.outputs.short }}-${{ matrix.suffix }}
+          path: dist/keimling-${{ steps.rev.outputs.short }}-${{ matrix.suffix }}

@@ -92,7 +92,7 @@ func parseMCPAddArgs(rest string) (string, MCPServerConfig, error) {
 func printMCPStatus(a *Agent) {
 	st := a.ensureMCP().Status()
 	if len(st) == 0 {
-		fmt.Println("No MCP servers configured. Add via ~/.config/keimling/mcp.json or /mcp add …")
+		fmt.Println("No MCP servers configured. Add via the user keimling/mcp.json or /mcp add …")
 		return
 	}
 	fmt.Println("\033[1mMCP servers\033[0m (backend clients)")

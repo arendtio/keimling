@@ -174,7 +174,7 @@ func normalizeBaseURL(raw string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 func main() {
-	configPath := flag.String("config", "", "JSON configuration path (default ~/.config/keimling/config.json)")
+	configPath := flag.String("config", "", "JSON configuration path (default ~/.config/keimling/config.json, or %AppData%\\keimling\\config.json on Windows)")
 	baseURL := flag.String("base-url", "", "Responses API base URL, e.g. http://localhost:8080/v1")
 	keyFile := flag.String("api-key-file", "", "Model provider API key file (optional for custom providers)")
 	openaiKeyFile := flag.String("openai-api-key-file", "", "OpenAI key file for external web search and transcription")
@@ -205,18 +205,22 @@ func main() {
 	uiMode := flag.Bool("ui", false, "Force native WebView UI (fail if unavailable)")
 	cliMode := flag.Bool("cli", false, "Force shell client")
 	serverMode := flag.Bool("server", false, "Run HTTP agent server only")
+	showVersion := flag.Bool("version", false, "Print the build commit and exit")
 	listenAddr := flag.String("listen", "", "HTTP listen address (required with --server), e.g. 0.0.0.0:7420")
 	connectURL := flag.String("connect", "", "Connect to remote Keimling (URL, or name/id from connections.json)")
 	accessSecret := flag.String("access-secret", "", "Shared secret for agent HTTP API/UI")
 	publicURL := flag.String("public-url", "", "Public base URL for share_file links (e.g. https://keimling.example.com)")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(versionLine())
+		return
+	}
 	if *apiMode != "responses" {
 		fmt.Fprintln(os.Stderr, "only --api-mode responses is supported")
 		os.Exit(2)
 	}
-	home, _ := os.UserHomeDir()
 	if *configPath == "" {
-		*configPath = filepath.Join(home, ".config", "keimling", "config.json")
+		*configPath = filepath.Join(keimlingConfigDir(), "config.json")
 	}
 	fc, e := readConfiguration(*configPath)
 	if e != nil {
@@ -792,7 +796,7 @@ func printHelp() {
 	fmt.Println("  /skills add PATH  Install skill from local directory or SKILL.md")
 	fmt.Println("  /mcp              List MCP servers (backend clients; no browser CORS)")
 	fmt.Println("  /mcp reload       Reconnect MCP servers from mcp.json")
-	fmt.Println("  /mcp add NAME -- CMD… | --url URL   Persist to ~/.config/keimling/mcp.json")
+	fmt.Println("  /mcp add NAME -- CMD… | --url URL   Persist to the user keimling/mcp.json")
 	fmt.Println("  /mcp remove NAME  Remove from user mcp.json")
 	fmt.Println("  /mode             Show current approval mode")
 	fmt.Println("  /mode auto        Review commands; ask before sensitive changes")

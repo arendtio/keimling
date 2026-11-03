@@ -1,13 +1,13 @@
 # Keimling
 
-Keimling is an experimental interactive Linux agent written in Go. It uses the OpenAI Responses API and provides local tools, interactive approval modes, persistent sessions, optional web search, audio input, and context compaction.
+Keimling is an experimental interactive agent for Linux, macOS, and Windows, written in Go. It uses the OpenAI Responses API and provides local tools, interactive approval modes, persistent sessions, optional web search, audio input, and context compaction.
 
 ## Requirements
 
 - Linux, macOS, or Windows, and Go 1.26 or newer to build
 - An OpenAI API key, supplied through `OPENAI_API_KEY`, `OPENAI_API_KEY_FILE`, or `~/.credentials_openai` (mode `600`)
-- `arecord` (for example, from `alsa-utils`) for voice recording
-- For the native GUI: system WebView (WebKitGTK 4.1+ on Linux, WKWebView on macOS, WebView2 on Windows). `make build` enables GUI when the Linux WebKit packages are present; `make build-nogui` forces a CLI/server-only binary.
+- A voice recorder when using the microphone: `arecord` on Linux, `rec` (SoX) or `ffmpeg` on macOS, `ffmpeg` on Windows
+- For the native GUI: system WebView (WebKitGTK 4.1+ on Linux, WKWebView on macOS, WebView2 on Windows). `make build` on that operating system links the system web view. `make build-nogui` forces a CLI/server-only binary.
 
 ## Build and test
 
@@ -23,6 +23,8 @@ make clean      # remove the binary
 
 Without make, use `cd src && go build -trimpath -o ../keimling .`.
 
+GitHub Actions (`.github/workflows/gui.yml`) builds the windowed binaries for Linux, macOS, and Windows. Each binary is stamped with the short git commit; `keimling --version` prints it. Download them from the workflow run.
+
 ## Run
 
 ```sh
@@ -32,7 +34,7 @@ make run ARGS="--mode ask --model gpt-6-luna"
 
 `make run` builds first, then starts `./keimling` with the given arguments.
 
-The default mode is `auto`; use `--mode ask` for confirmation before tool actions. `--mode yolo` skips confirmations and should only be used in a suitably isolated environment. Configuration is read from `~/.config/keimling/config.json` by default; sessions are stored under `~/.local/state/keimling/`. Both locations can be overridden with command-line options.
+The default mode is `auto`; use `--mode ask` for confirmation before tool actions. `--mode yolo` skips confirmations and should only be used in a suitably isolated environment. Configuration is read from `~/.config/keimling/config.json` by default (`%AppData%\keimling\config.json` on Windows); sessions are stored under `~/.local/state/keimling/`. Both locations can be overridden with command-line options.
 
 ## Command-line options
 
@@ -40,6 +42,7 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 
 | Option | Default | Purpose |
 | --- | --- | --- |
+| `--version` | | Print the short git commit this binary was built from, then exit |
 | `--ui` | off | Force native WebView UI (fail if unavailable) |
 | `--cli` | off | Force shell client |
 | `--server` | off | HTTP agent server only (UI + API; no interactive client) |
@@ -50,7 +53,7 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 | `--mode` | `auto` | Approval mode: `ask`, `auto`, or `yolo` |
 | `--model` | `gpt-6-luna` | Model for the main conversation |
 | `--reasoning` | `high` | Reasoning effort: `low`, `medium`, `high`, `xhigh`, `max` |
-| `--config` | `~/.config/keimling/config.json` | JSON configuration file |
+| `--config` | `~/.config/keimling/config.json` (Windows: `%AppData%\keimling\config.json`) | JSON configuration file |
 | `--api-key-file` | from `OPENAI_API_KEY` / `~/.credentials_openai` | Key file for the model provider |
 | `--base-url` | OpenAI | Responses-compatible endpoint, e.g. `http://localhost:8080/v1` |
 | `--api-mode` | `responses` | Only `responses` is supported |

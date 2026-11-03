@@ -35,8 +35,7 @@ type vaultPayload struct {
 func credentialsVaultPath(configPath string) string {
 	dir := filepath.Dir(strings.TrimSpace(configPath))
 	if dir == "" || dir == "." {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config", "keimling")
+		dir = keimlingConfigDir()
 	}
 	return filepath.Join(dir, vaultFileName)
 }

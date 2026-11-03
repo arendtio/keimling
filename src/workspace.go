@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -48,6 +49,11 @@ type ThreadMeta struct {
 func dataHome() string {
 	if x := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); x != "" {
 		return x
+	}
+	if runtime.GOOS == "windows" {
+		if d, err := os.UserCacheDir(); err == nil && strings.TrimSpace(d) != "" {
+			return d
+		}
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "share")
