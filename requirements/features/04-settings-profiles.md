@@ -47,3 +47,13 @@ Stored in process `config.json`:
 | Skills / MCP | Unchanged |
 
 Save on Models applies providers + behaviour to the attached agent process.
+
+## REQ-SET-1 Settings can be closed from the corner, and saving leaves the dialog
+
+- **Bin:** explicit requirement
+- **Statement:** When Settings is open, a close control in the top-right of the dialog shall dismiss it without saving. A successful save of the model settings shall close the dialog. A failed save shall leave it open and show the error.
+- **Origin:** User, 2026-11-04 (quote: "wenn ich die Settings öffne, ich da eigentlich nur über den Cancel-Button rauskomme" and "irgendwo in der Region oben rechts noch 'n Button zum Schließen" and "wenn man auf Speichern klickt, er den Dialog nicht schließt").
+- **Rationale:** The dialog is a temporary layer over the chat. Leaving it should be visible at the corner, and a finished save should return to the chat.
+- **Fit criterion:** Opening Settings shows Close at the top right. Close returns to the chat and does not write model settings. Save model settings returns to the chat after the server accepts them. A rejected save stays on Settings and shows the error.
+- **Priority:** shall
+- **Status:** confirmed

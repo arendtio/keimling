@@ -124,6 +124,7 @@
   var vaultUnlocked = false;
   var saveSettingsBtn = document.getElementById("save-settings");
   var gateCancelBtn = document.getElementById("gate-cancel");
+  var gateCloseBtn = document.getElementById("gate-close");
   var gateManage = false;
   var workspaceToggle = document.getElementById("workspace-toggle");
   var workspaceMenu = document.getElementById("workspace-menu");
@@ -1640,9 +1641,7 @@
           loadThreadModel();
           modeEl.textContent = j.mode || "—";
           refreshBudget(true);
-          gateErr.hidden = false;
-          gateErr.style.color = "var(--accent)";
-          gateErr.textContent = "Model settings saved to the server config.";
+          closeGate();
         });
       })
       .catch(function (e) {
@@ -1665,6 +1664,7 @@
     gateErr.textContent = error || "";
     settingsTabs.hidden = true;
     gateCancelBtn.hidden = true;
+    if (gateCloseBtn) gateCloseBtn.hidden = true;
     gate.hidden = false;
     app.hidden = true;
     if (loginContinue) loginContinue.disabled = false;
@@ -1689,6 +1689,7 @@
     settingsTabs.hidden = !opts.manage;
     gateManage = !!opts.manage && (!!opts.keepApp || connected);
     gateCancelBtn.hidden = !gateManage;
+    if (gateCloseBtn) gateCloseBtn.hidden = !gateManage;
     connectTarget = { source: "current" };
     loadConnectionsFromPrefs().then(function () {
       if (opts.prefillSecret) secretEl.value = opts.prefillSecret;
@@ -1714,6 +1715,7 @@
     gate.hidden = true;
     gateManage = false;
     gateCancelBtn.hidden = true;
+    if (gateCloseBtn) gateCloseBtn.hidden = true;
     app.hidden = false;
   }
 
@@ -5897,6 +5899,7 @@
   }
 
   gateCancelBtn.addEventListener("click", closeGate);
+  if (gateCloseBtn) gateCloseBtn.addEventListener("click", closeGate);
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Escape") return;
     if (gate.hidden || !gateManage) return;
