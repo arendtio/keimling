@@ -167,6 +167,9 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
+	s.mux.Handle("/api/mcp/sign-in", s.requireSecret(http.HandlerFunc(s.handleMCPSignIn)))
+	s.mux.Handle(mcpOAuthCallbackPath, http.HandlerFunc(s.handleOAuthCallback))
+	s.mux.Handle(mcpOAuthMetaPath, http.HandlerFunc(s.handleOAuthClientMetadata))
 	s.mux.Handle("/api/artifacts", s.requireSecret(http.HandlerFunc(s.handleArtifacts)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
 	s.mux.Handle("/api/stop", s.requireSecret(http.HandlerFunc(s.handleStop)))
@@ -1069,6 +1072,7 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Headers map[string]string `json:"headers"`
 		Bearer  string            `json:"bearer"`
 		Type    string            `json:"type"`
+		Auth    string            `json:"auth"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1083,6 +1087,10 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Type:    body.Type,
 	}
 	cfg.setBearer(body.Bearer)
+	switch body.Auth {
+	case "none", "bearer", "headers":
+		cfg.OAuth = nil
+	}
 	if err := UpsertUserMCPServer(body.Name, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1115,6 +1123,108 @@ func (s *appServer) handleMCPRemove(w http.ResponseWriter, r *http.Request) {
 	s.agent.reloadMCP(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
+}
+
+func (s *appServer) handleMCPSignIn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name   string `json:"name"`
+		URL    string `json:"url"`
+		Origin string `json:"origin"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	rawURL := strings.TrimSpace(body.URL)
+	if name == "" || rawURL == "" {
+		http.Error(w, "name and url required", http.StatusBadRequest)
+		return
+	}
+	cfg := LoadMCPServerConfigs(s.agent.Cfg.ConfigPath)[name]
+	cfg.URL = rawURL
+	if err := UpsertUserMCPServer(name, cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	authURL, err := startMCPSignIn(r.Context(), http.DefaultClient, name, rawURL, body.Origin, s.agent.Cfg.PublicURL, cfg.OAuth)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	redirect, _ := mcpOAuthRedirect(body.Origin, s.agent.Cfg.PublicURL)
+	if strings.HasPrefix(redirect, "http://127.0.0.1:") {
+		if err := ensureMCPLoopback(http.HandlerFunc(s.handleOAuthCallback)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	opened := false
+	if isLoopbackOrigin(body.Origin) || strings.TrimSpace(body.Origin) == "" {
+		opened = openExternalURL(authURL) == nil
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"authorize_url": authURL, "opened": opened})
+}
+
+func (s *appServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if msg := r.URL.Query().Get("error"); msg != "" {
+		fmt.Fprintf(w, "<p>Sign-in failed: %s</p>", htmlEscape(msg))
+		return
+	}
+	configPath := ""
+	if s.agent != nil {
+		configPath = s.agent.Cfg.ConfigPath
+	}
+	name, err := finishMCPSignIn(r.Context(), http.DefaultClient, r.URL.Query().Get("state"), r.URL.Query().Get("code"), configPath)
+	if err != nil {
+		fmt.Fprintf(w, "<p>Sign-in failed: %s</p>", htmlEscape(err.Error()))
+		return
+	}
+	if s.agent != nil {
+		s.agent.reloadMCP(r.Context())
+	}
+	fmt.Fprintf(w, "<p>Signed in to %s. You can close this tab.</p>", htmlEscape(name))
+}
+
+func (s *appServer) handleOAuthClientMetadata(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	base := ""
+	if s.agent != nil {
+		base = s.agent.Cfg.PublicURL
+	}
+	if !strings.HasPrefix(base, "https://") {
+		http.Error(w, "no https public url", http.StatusNotFound)
+		return
+	}
+	b, err := mcpClientMetadata(base)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(b)
+}
+
+func htmlEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&#34;")
+	return r.Replace(s)
 }
 
 func (s *appServer) handleMCPReload(w http.ResponseWriter, r *http.Request) {

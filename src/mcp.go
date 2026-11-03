@@ -30,6 +30,8 @@ type MCPServerStatus struct {
 	URL       string   `json:"url,omitempty"`
 	Disabled  bool     `json:"disabled,omitempty"`
 	Grant     string   `json:"grant,omitempty"`
+	Auth      string   `json:"auth,omitempty"`
+	OAuth     string   `json:"oauth,omitempty"`
 }
 
 type mcpSession struct {
@@ -109,6 +111,16 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 		m.mu.Unlock()
 		return
 	}
+	cfg, err := prepareMCPConnection(ctx, name, cfg)
+	if err != nil {
+		sess.err = err.Error()
+		sess.cfg = cfg
+		m.mu.Lock()
+		m.sessions[name] = sess
+		m.mu.Unlock()
+		return
+	}
+	sess.cfg = cfg
 	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	cli, kind, err := dialMCP(cctx, cfg)
@@ -321,6 +333,8 @@ func (m *MCPManager) Status() []MCPServerStatus {
 			URL:       s.cfg.URL,
 			Disabled:  s.cfg.Disabled,
 			Grant:     mcpServerGrantID(name),
+			Auth:      s.cfg.authKind(),
+			OAuth:     s.cfg.oauthState(time.Now()),
 		}
 		for _, t := range s.tools {
 			st.Tools = append(st.Tools, mcpExposedName(name, t.Name))

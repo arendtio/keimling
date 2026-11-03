@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // MCPServerConfig mirrors Cursor's mcpServers entry (stdio or remote URL).
@@ -17,6 +18,20 @@ type MCPServerConfig struct {
 	Headers  map[string]string `json:"headers,omitempty"`
 	Type     string            `json:"type,omitempty"` // stdio | sse | streamableHttp | http
 	Disabled bool              `json:"disabled,omitempty"`
+	OAuth    *MCPOAuth         `json:"oauth,omitempty"`
+}
+
+// MCPOAuth is the browser sign-in result for one remote MCP server.
+// Tokens stay in mcp.json. They are not returned to the UI.
+type MCPOAuth struct {
+	ClientID     string    `json:"client_id,omitempty"`
+	AuthURL      string    `json:"auth_url,omitempty"`
+	TokenURL     string    `json:"token_url,omitempty"`
+	Resource     string    `json:"resource,omitempty"`
+	Scope        string    `json:"scope,omitempty"`
+	AccessToken  string    `json:"access_token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
 }
 
 type mcpFile struct {

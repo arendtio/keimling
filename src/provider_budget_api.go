@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 )
 
 func (s *appServer) handleModelCatalog(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -17,57 +18,46 @@ func (s *appServer) handleModelCatalog(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
-	providerID := strings.TrimSpace(r.URL.Query().Get("provider_id"))
-	draftURL := strings.TrimSpace(r.URL.Query().Get("base_url"))
-	providers, activeID := s.loadModelProvidersForSettings()
-	var p *modelProvider
-	if providerID != "" {
-		p = modelProviderByID(providers, providerID)
+	var body struct {
+		BaseURL    string `json:"base_url"`
+		APIKey     string `json:"api_key"`
+		ProviderID string `json:"provider_id"`
 	}
-	baseURL := ""
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	baseURL := strings.TrimSpace(body.BaseURL)
+	if baseURL == "" {
+		http.Error(w, "base URL required", http.StatusBadRequest)
+		return
+	}
+	resolved, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	key := strings.TrimSpace(body.APIKey)
+	providerID := strings.TrimSpace(body.ProviderID)
 	kind := "auto"
-	key := ""
-	id := providerID
-	if p != nil {
-		baseURL = p.BaseURL
-		kind = p.Kind
-		key = strings.TrimSpace(p.APIKey)
-		id = p.ID
-	} else if draftURL != "" {
-		resolved, err := normalizeBaseURL(draftURL)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+	if key == "" && providerID != "" {
+		providers, _ := s.loadModelProvidersForSettings()
+		if p := modelProviderByID(providers, providerID); p != nil {
+			key = strings.TrimSpace(p.APIKey)
+			kind = p.Kind
 		}
-		baseURL = resolved
-	} else {
-		p = modelProviderByID(providers, activeID)
-		if p == nil && len(providers) > 0 {
-			p = &providers[0]
-		}
-		if p == nil {
-			http.Error(w, "provider not found", http.StatusNotFound)
-			return
-		}
-		baseURL = p.BaseURL
-		kind = p.Kind
-		key = strings.TrimSpace(p.APIKey)
-		id = p.ID
-	}
-	if key == "" {
-		key = strings.TrimSpace(s.agent.Cfg.Key)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	models, err := fetchProviderModelCatalog(ctx, baseURL, key)
+	models, err := fetchProviderModelCatalog(ctx, resolved, key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"provider_id": id,
-		"kind":        detectProviderKind(baseURL, kind),
+		"provider_id": providerID,
+		"kind":        detectProviderKind(resolved, kind),
 		"models":      models,
 		"count":       len(models),
 	})

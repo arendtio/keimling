@@ -28,9 +28,30 @@ Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandant
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-CB-4 MCP sign-in uses loopback or the server's own address
+
+- **Bin:** explicit requirement
+- **Statement:** MCP sign-in shall accept the authorization callback on `127.0.0.1` and, when this Keimling is opened through its own domain, on that domain. It shall not use a private URI scheme.
+- **Origin:** User, 2026-11-03 (quote: "klingt für mich als sollten wieder verschieden callback-url anbieten oder nicht? also sowohl 127 als auch custom domain wenn der server über eine eigene domain ausgeliefert wird. Eigenes Schema ist vermutlich nicht nur mit MCP server kompliziert." Also: "Systembrowser ist ok. Token können erstmal im mcp.json landen.").
+- **Rationale:** A browser follows `127.0.0.1` to the computer it is running on. When the Keimling process is on another computer, only a callback on that Keimling's own address reaches it. A private scheme is rejected by authorization servers that only allow loopback or HTTPS.
+- **Fit criterion:** A sign-in started from a local window or from a page on `127.0.0.1` registers and uses an `http://127.0.0.1` callback. A sign-in started from a page on the configured public domain registers and uses `https://` on that domain. No callback uses a `keimling://` scheme. The resulting tokens are stored in `mcp.json`.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-CB-5 MCP setup offers the usual server credentials
+
+- **Bin:** explicit requirement
+- **Statement:** The MCP setup shall accept environment variables for a local command, a bearer token or named headers for a remote URL, and browser sign-in for a remote server that uses OAuth. Stored secrets shall not be shown again. Removing a server shall ask for its name.
+- **Origin:** User, 2026-11-03 (quote: "dann gerne alles umsetzen was wir zum Thema MCP authorisierung besprochen haben." The agreed shape was local environment variables, remote bearer or headers, and browser sign-in; client certificates, URL tokens, client-credentials, and a private URI scheme were left out. "Systembrowser ist ok. Token können erstmal im mcp.json landen.").
+- **Rationale:** MCP servers do not share one credential shape. A single bearer field blocks local servers and servers that sign the user in.
+- **Fit criterion:** A local server saves name/value environment variables and a remote server saves either a bearer token or named headers, without showing those values in the server list. Browser sign-in stores access and refresh tokens in `mcp.json` and shows signed-in or sign-in-again on that row. A saved token is refreshed when it is due. Remove asks for the server name before deleting it.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
-- OAuth-Flows, Token-Refresh, externe Vaults
+- External vaults for MCP connection tokens. Those tokens stay in `mcp.json` (REQ-CB-4, REQ-CB-5).
+- Client certificates, tokens in the URL, OAuth client credentials, and a private URI scheme.
 - Pro-Agent-ACL auf einzelne Credentials
 - Verschieben der Model-Provider-Keys in den Broker
 - Ausbau langlebiger MCP-/XMPP-Sessions als Broker-Feature (siehe Hinweis unten)

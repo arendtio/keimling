@@ -589,11 +589,27 @@
             <div class="skills-row" id="mcp-stdio-row">
               <input id="mcp-command" type="text" placeholder="command and args (e.g. npx -y @modelcontextprotocol/server-everything)" autocomplete="off">
             </div>
+            <div id="mcp-env-row">
+              <div id="mcp-env-list"></div>
+              <button type="button" id="mcp-env-add" class="ghost">Add variable</button>
+            </div>
             <div class="skills-row" id="mcp-url-row" hidden>
               <input id="mcp-url" type="text" placeholder="https://…" autocomplete="off">
             </div>
+            <div class="skills-row" id="mcp-auth-row" hidden>
+              <select id="mcp-auth" aria-label="How the server checks you">
+                <option value="none">No auth</option>
+                <option value="bearer">Bearer token</option>
+                <option value="headers">Headers</option>
+                <option value="oauth">Sign in</option>
+              </select>
+            </div>
             <div class="skills-row" id="mcp-token-row" hidden>
-              <input id="mcp-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token, if the server asks for one" aria-label="Bearer token">
+              <input id="mcp-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token" aria-label="Bearer token">
+            </div>
+            <div id="mcp-headers-row" hidden>
+              <div id="mcp-header-list"></div>
+              <button type="button" id="mcp-header-add" class="ghost">Add header</button>
             </div>
             <div class="skills-row">
               <button type="button" id="mcp-add-btn">Add</button>

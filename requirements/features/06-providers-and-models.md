@@ -19,9 +19,10 @@ remote catalogs.
 
 - Manually curated favorites: `id` (API model string), `name`, `context_limit`,
   `reasoning`, optional `prompt_price` / `completion_price` (USD per token).
-- Prefill: Settings can `GET` upstream `/models` (OpenRouter returns
+- Prefill: Settings can request upstream `/models` (OpenRouter returns
   `context_length` + pricing; OpenAI-compatible often only ids) and fill the
-  edit form — catalogs are not persisted wholesale.
+  edit form — catalogs are not persisted wholesale. The request uses the URL
+  and key in the open provider form. See REQ-PM-5.
 - Compaction/context uses the **active model’s** `context_limit` when set;
   otherwise the global settings fallback.
 
@@ -81,5 +82,15 @@ remote catalogs.
 - **Origin:** User, 2026-11-02 (quote: "maybe a hosted API like brave, but an URL should be possible too").
 - **Rationale:** Search sends the query to whoever the user picks, including a host they run themselves.
 - **Fit criterion:** Settings can select Brave with an API key, or a URL. A search then goes to that service. With search left off, a search sends nothing.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-5 Catalog prefill uses the open form
+
+- **Bin:** explicit requirement
+- **Statement:** Loading the model list for a provider form shall use the URL shown in that form and the key typed in that form. A blank key field shall keep the key already saved for that same provider. It shall not use a key saved for a different provider.
+- **Origin:** User, 2026-11-03 (quote: "using the key from an existing provider is wrong. It should always use the key from the current form together with the url from the current form").
+- **Rationale:** The form is adding or editing one provider. A key from another provider makes the catalog call fail against the URL just entered, and shows that other key in the error.
+- **Fit criterion:** With an OpenRouter provider already saved, opening a new provider form, entering an OpenAI URL and an OpenAI key, and loading the catalog sends that URL and that key. The stored OpenRouter key is not sent. Reloading the catalog for a saved provider with the key field left blank sends that provider's saved key and the URL currently in the form.
 - **Priority:** shall
 - **Status:** confirmed

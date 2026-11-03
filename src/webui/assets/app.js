@@ -51,6 +51,14 @@
   var mcpStdioRow = document.getElementById("mcp-stdio-row");
   var mcpUrlRow = document.getElementById("mcp-url-row");
   var mcpTokenRow = document.getElementById("mcp-token-row");
+  var mcpEnvRow = document.getElementById("mcp-env-row");
+  var mcpEnvList = document.getElementById("mcp-env-list");
+  var mcpEnvAdd = document.getElementById("mcp-env-add");
+  var mcpAuthRow = document.getElementById("mcp-auth-row");
+  var mcpAuth = document.getElementById("mcp-auth");
+  var mcpHeaderRow = document.getElementById("mcp-headers-row");
+  var mcpHeaderList = document.getElementById("mcp-header-list");
+  var mcpHeaderAdd = document.getElementById("mcp-header-add");
   var mcpAddBtn = document.getElementById("mcp-add-btn");
   var mcpReloadBtn = document.getElementById("mcp-reload-btn");
   var mcpErr = document.getElementById("mcp-err");
@@ -1253,13 +1261,20 @@
       provCatalogStatus.hidden = false;
       provCatalogStatus.textContent = "Fetching catalog…";
     }
-    var q = "";
-    if (editingProviderID) {
-      q = "?provider_id=" + encodeURIComponent(editingProviderID);
-    } else if (provEditBaseURL && provEditBaseURL.value.trim()) {
-      q = "?base_url=" + encodeURIComponent(provEditBaseURL.value.trim());
+    var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
+    if (!base) {
+      if (provCatalogStatus) provCatalogStatus.textContent = "Base URL required";
+      return;
     }
-    fetch(apiURL("/api/settings/model-catalog" + q), { headers: headers() })
+    var body = { base_url: base };
+    var key = provEditAPIKey ? provEditAPIKey.value.trim() : "";
+    if (key) body.api_key = key;
+    if (editingProviderID) body.provider_id = editingProviderID;
+    fetch(apiURL("/api/settings/model-catalog"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
       .then(function (r) {
         return r.text().then(function (t) {
           var j = {};
@@ -5420,11 +5435,83 @@
     mcpErr.hidden = false;
     mcpErr.textContent = msg;
   }
+  function mcpAddPair(list, namePh, valuePh) {
+    if (!list) return;
+    var row = document.createElement("div");
+    row.className = "mcp-pair";
+    var name = document.createElement("input");
+    name.type = "text";
+    name.placeholder = namePh;
+    name.autocomplete = "off";
+    name.spellcheck = false;
+    var value = document.createElement("input");
+    value.type = "password";
+    value.placeholder = valuePh;
+    value.autocomplete = "off";
+    value.spellcheck = false;
+    row.appendChild(name);
+    row.appendChild(value);
+    list.appendChild(row);
+  }
+  function mcpReadPairs(list) {
+    var out = {};
+    if (!list) return out;
+    list.querySelectorAll(".mcp-pair").forEach(function (row) {
+      var inputs = row.querySelectorAll("input");
+      var k = (inputs[0] && inputs[0].value || "").trim();
+      var v = inputs[1] ? inputs[1].value : "";
+      if (k && v) out[k] = v;
+    });
+    return out;
+  }
+  function syncMcpAuthUI() {
+    var auth = (mcpAuth && mcpAuth.value) || "none";
+    if (mcpTokenRow) mcpTokenRow.hidden = auth !== "bearer";
+    if (mcpHeaderRow) mcpHeaderRow.hidden = auth !== "headers";
+    if (mcpAddBtn) mcpAddBtn.textContent = auth === "oauth" ? "Sign in" : "Add";
+  }
   function syncMcpKindUI() {
     var remote = mcpKind && mcpKind.value === "url";
     if (mcpStdioRow) mcpStdioRow.hidden = remote;
+    if (mcpEnvRow) mcpEnvRow.hidden = remote;
     if (mcpUrlRow) mcpUrlRow.hidden = !remote;
-    if (mcpTokenRow) mcpTokenRow.hidden = !remote;
+    if (mcpAuthRow) mcpAuthRow.hidden = !remote;
+    if (!remote && mcpAuth) mcpAuth.value = "none";
+    syncMcpAuthUI();
+  }
+  function mcpSignIn(name, url) {
+    return fetch(apiURL("/api/mcp/sign-in"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: name, url: url, origin: location.origin }),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) throw new Error(t || r.status);
+        var j = {};
+        try { j = JSON.parse(t); } catch (e) {}
+        return j;
+      });
+    }).then(function (j) {
+      if (j.authorize_url && !j.opened) window.open(j.authorize_url, "_blank", "noopener");
+      showMcpErr("Waiting for the browser sign-in…");
+      var left = 60;
+      return new Promise(function (resolve, reject) {
+        var timer = setInterval(function () {
+          left--;
+          loadMcpList().then(function () {
+            var mine = (mcpServersCache || []).filter(function (s) { return s.name === name; })[0];
+            if (mine && mine.oauth === "signed_in") {
+              clearInterval(timer);
+              showMcpErr("");
+              resolve(mine);
+            } else if (left <= 0) {
+              clearInterval(timer);
+              reject(new Error("Sign-in did not finish."));
+            }
+          }).catch(function () {});
+        }, 1000);
+      });
+    });
   }
   function renderMcpServers(servers) {
     if (!mcpList) return;
@@ -5444,8 +5531,12 @@
       var meta = document.createElement("div");
       meta.className = "skill-meta";
       var errText = s.error || "";
-      if (/authorization required/i.test(errText)) errText = "The server requires a bearer token.";
-      meta.textContent = (s.transport || "") + " · " + (s.status || "") +
+      if (/authorization required/i.test(errText)) errText = "The server requires a bearer token or sign-in.";
+      var authNote = "";
+      if (s.oauth === "signed_in") authNote = " · signed in";
+      else if (s.oauth === "expired") authNote = " · sign-in expired";
+      else if (s.auth === "bearer" || s.auth === "headers" || s.auth === "env") authNote = " · secret set";
+      meta.textContent = (s.transport || "") + " · " + (s.status || "") + authNote +
         (errText ? " — " + errText : "") +
         (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : "");
       var tools = document.createElement("div");
@@ -5455,6 +5546,7 @@
       rm.type = "button";
       rm.textContent = "Remove";
       rm.addEventListener("click", function () {
+        if (!window.confirm("Remove MCP server " + (s.name || "") + "?")) return;
         showMcpErr("");
         rm.disabled = true;
         fetch(apiURL("/api/mcp/remove"), {
@@ -5474,6 +5566,19 @@
       li.appendChild(title);
       li.appendChild(meta);
       if (s.tools && s.tools.length) li.appendChild(tools);
+      if (s.url) {
+        var sign = document.createElement("button");
+        sign.type = "button";
+        sign.className = "ghost";
+        sign.textContent = s.oauth === "signed_in" ? "Sign in again" : "Sign in";
+        sign.addEventListener("click", function () {
+          showMcpErr("");
+          sign.disabled = true;
+          mcpSignIn(s.name, s.url).catch(function (e) { showMcpErr(e.message || e); })
+            .finally(function () { sign.disabled = false; });
+        });
+        li.appendChild(sign);
+      }
       li.appendChild(rm);
       mcpList.appendChild(li);
     });
@@ -5487,7 +5592,8 @@
         });
       })
       .then(function (j) {
-        renderMcpServers(j.servers || []);
+        mcpServersCache = j.servers || [];
+        renderMcpServers(mcpServersCache);
       });
   }
   function openMcpDialog() {
@@ -5715,6 +5821,11 @@
   if (mcpKind) {
     mcpKind.addEventListener("change", syncMcpKindUI);
   }
+  if (mcpAuth) mcpAuth.addEventListener("change", syncMcpAuthUI);
+  if (mcpEnvAdd) mcpEnvAdd.addEventListener("click", function () { mcpAddPair(mcpEnvList, "NAME", "value"); });
+  if (mcpHeaderAdd) mcpHeaderAdd.addEventListener("click", function () { mcpAddPair(mcpHeaderList, "Header", "value"); });
+  mcpAddPair(mcpEnvList, "NAME", "value");
+  mcpAddPair(mcpHeaderList, "Header", "value");
   if (mcpReloadBtn) {
     mcpReloadBtn.addEventListener("click", function () {
       showMcpErr("");
@@ -5750,6 +5861,7 @@
         var parts = line.split(/\s+/);
         body.command = parts[0];
         body.args = parts.slice(1);
+        body.env = mcpReadPairs(mcpEnvList);
       } else {
         var url = (mcpUrl && mcpUrl.value || "").trim();
         if (!url) {
@@ -5757,8 +5869,23 @@
           return;
         }
         body.url = url;
-        var token = (mcpToken && mcpToken.value || "").trim();
-        if (token) body.bearer = token;
+        var auth = (mcpAuth && mcpAuth.value) || "none";
+        body.auth = auth;
+        if (auth === "oauth") {
+          mcpAddBtn.disabled = true;
+          mcpSignIn(name, url).then(function () {
+            if (mcpName) mcpName.value = "";
+            if (mcpUrl) mcpUrl.value = "";
+            if (mcpToken) mcpToken.value = "";
+          }).catch(function (e) { showMcpErr(e.message || e); })
+            .finally(function () { mcpAddBtn.disabled = false; });
+          return;
+        }
+        if (auth === "bearer") {
+          var token = (mcpToken && mcpToken.value || "").trim();
+          if (token) body.bearer = token;
+        }
+        if (auth === "headers") body.headers = mcpReadPairs(mcpHeaderList);
       }
       mcpAddBtn.disabled = true;
       fetch(apiURL("/api/mcp/add"), {
@@ -5778,7 +5905,7 @@
           var mine = (j.servers || []).filter(function (s) { return s.name === name; })[0];
           renderMcpServers(j.servers || []);
           if (mine && mine.status === "error") {
-            showMcpErr(/authorization required/i.test(mine.error || "") ? "The server requires a bearer token." : (mine.error || "Could not connect."));
+            showMcpErr(/authorization required/i.test(mine.error || "") ? "The server requires a bearer token or sign-in." : (mine.error || "Could not connect."));
             return;
           }
           if (mcpName) mcpName.value = "";

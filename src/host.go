@@ -557,6 +557,8 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/", auth(h.proxy().ServeHTTP))
 	mux.Handle("/events", auth(h.proxy().ServeHTTP))
 	mux.Handle("/files/", h.proxy()) // capability URLs; worker validates token
+	mux.Handle(mcpOAuthCallbackPath, h.proxy())
+	mux.Handle(mcpOAuthMetaPath, h.proxy())
 
 	return mux
 }

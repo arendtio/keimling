@@ -1766,6 +1766,12 @@ button.wide { width: 100%; max-width: 100%; }
   flex: 1 1 12rem;
   min-width: 0;
 }
+.mcp-pair {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.3rem 0;
+}
+.mcp-pair input { flex: 1; min-width: 0; }
 .skills-row select {
   flex: 0 0 auto;
 }
