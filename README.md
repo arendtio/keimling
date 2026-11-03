@@ -23,7 +23,7 @@ make clean      # remove the binary
 
 Without make, use `cd src && go build -trimpath -o ../keimling .`.
 
-GitHub Actions (`.github/workflows/gui.yml`) builds the windowed binaries for Linux, macOS, and Windows. Each binary is stamped with the short git commit; `keimling --version` prints it. Download them from the workflow run.
+GitHub Actions (`.github/workflows/gui.yml`) builds the windowed binaries for Linux, macOS, and Windows. Each binary is stamped with the short git commit; `keimling --version` prints it. A push to `main` publishes them as a GitHub Release under that commit.
 
 ## Run
 

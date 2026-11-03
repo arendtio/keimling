@@ -39,7 +39,7 @@ cd src && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-
 
 ## GUI builds on GitHub
 
-[`.github/workflows/gui.yml`](.github/workflows/gui.yml) runs on push to `main`, on pull requests, and via workflow dispatch. Artifacts:
+[`.github/workflows/gui.yml`](.github/workflows/gui.yml) runs on push to `main`, on pull requests, and via workflow dispatch. A push to `main` also publishes a GitHub Release named with the short commit. Pull requests only upload artifacts. Artifacts:
 
 | Artifact | Where it is built |
 | --- | --- |

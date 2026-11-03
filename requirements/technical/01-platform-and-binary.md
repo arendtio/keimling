@@ -38,6 +38,16 @@
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-PLAT-4 A release after every push to main
+
+- **Bin:** explicit requirement
+- **Statement:** Every push to `main` shall publish a GitHub Release named with the short commit and containing the windowed binaries for Linux, macOS, and Windows.
+- **Origin:** User, 2026-11-03 (quote: "ok, können wir automatisiert nach jedem push auf main ein release bauen?").
+- **Rationale:** An end user should find the binaries on the repository's Releases page, not only inside a workflow run.
+- **Fit criterion:** After a push to `main`, `https://github.com/arendtio/keimling/releases/tag/<short>` offers the four windowed binaries. A pull request does not publish a release.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Native webview by OS (no extra shipped browser)
 
 | OS | Engine | Extra app library? |

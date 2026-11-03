@@ -89,3 +89,38 @@ jobs:
         with:
           name: keimling-${{ steps.rev.outputs.short }}-${{ matrix.suffix }}
           path: dist/keimling-${{ steps.rev.outputs.short }}-${{ matrix.suffix }}
+
+  release:
+    needs: [linux, windows, macos]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: rev
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: keimling-${{ steps.rev.outputs.short }}-*
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT: ${{ steps.rev.outputs.short }}
+        run: |
+          set -eu
+          files=(dist/keimling-"$SHORT"-*)
+          if [ "${#files[@]}" -ne 4 ]; then
+            printf 'expected 4 binaries, got %s\n' "${#files[@]}"
+            exit 1
+          fi
+          if gh release view "$SHORT" >/dev/null 2>&1; then
+            gh release upload "$SHORT" "${files[@]}" --clobber
+          else
+            gh release create "$SHORT" "${files[@]}" \
+              --target "${{ github.sha }}" \
+              --title "$SHORT" \
+              --notes "Experimental build ${SHORT}."
+          fi
