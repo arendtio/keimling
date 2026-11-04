@@ -401,7 +401,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 			return fmt.Errorf("empty response")
 		}
 		calls := 0
-		for _, raw := range resp.Output {
+		for i := 0; i < len(resp.Output); i++ {
+			raw := resp.Output[i]
 			if err := a.handleControls(ctx); err != nil {
 				return err
 			}
@@ -430,329 +431,32 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 			case "web_search_call":
 				a.println("\033[36m⌕\033[0m Web search completed")
 			case "function_call":
-				if a.PendingSteering {
-					// A newly received instruction may invalidate an action planned before it arrived.
-					// Every tool call still receives a corresponding tool result.
-					if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": "SKIPPED: New user steering arrived. Re-evaluate the plan and this action before retrying."}); err != nil {
+				n := 1
+				for i+n < len(resp.Output) {
+					var peek Item
+					if json.Unmarshal(resp.Output[i+n], &peek) != nil || peek.Type != "function_call" {
+						break
+					}
+					n++
+				}
+				items := []Item{item}
+				for k := 1; k < n; k++ {
+					rawK := a.annotateReasoning(resp.Output[i+k])
+					if err := a.add(json.RawMessage(rawK)); err != nil {
 						return err
 					}
-					a.println("↻ Action deferred: new steering received")
-					calls++
-					continue
-				}
-				calls++
-				if item.CallID == "" {
-					return fmt.Errorf("function call without call_id")
-				}
-				if !a.instanceToolGranted(item.Name) {
-					msg := "not granted to this agent"
-					if item.Name != "finish_task" && item.Name != "update_plan" {
-						a.presentToolStart(item.Name, item.Arguments)
-					}
-					if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": msg, "ok": false}); err != nil {
+					var it Item
+					if err := json.Unmarshal(rawK, &it); err != nil {
 						return err
 					}
-					a.presentToolResult(item.Name, toolCommandLabel(item.Name, item.Arguments), msg, "", false, false)
-					continue
+					items = append(items, it)
 				}
-				if item.Name != "finish_task" && item.Name != "update_plan" {
-					a.presentToolStart(item.Name, item.Arguments)
-				}
-				a.applyDefinitionApproval()
-				agentRun := strings.TrimSpace(a.Cfg.AgentInstanceID) != ""
-				g := gateToolCall(agentRun, a.Cfg.Mode, item.Name, item.Arguments, mcpToolAlwaysAllowed(a.Cfg.ConfigPath, item.Name))
-				reason := g.Reason
-				if g.Review {
-					cwd, _ := os.Getwd()
-					var sus *SoftSuspicion
-					if hit, ok := softSuspicion(item.Name, item.Arguments); ok {
-						sus = &hit
-						a.println("◌ Soft rule", hit.ID, "— reviewer checking for false positive…")
-					}
-					verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, sus, a.Cfg.ApprovalPolicyReplace)
-					why := verdict.Reason
-					if e == nil {
-						if sus != nil && why == "" {
-							why = sus.Reason
-						}
-						if why == "" && verdict.Decision != "approve" {
-							why = "review asked for approval"
-						}
-					}
-					g = settleReview(agentRun, verdict.Decision, why, e)
-					reason = g.Reason
-				}
-				if g.Ask && reason != "" {
-					a.println("Approval required:", truncate(reason, 240))
-				}
-				if g.Deny {
-					if reason == "" {
-						reason = "auto mode refused this call"
-					}
-					a.println("Approval refused:", truncate(reason, 240))
-				}
-				allowed := g.Allow
-				if g.Ask {
-					preview := renderApprovalPreview(item.Name, item.Arguments)
-					if preview != "" {
-						a.print(preview)
-					}
-					if a.ApprovalCh != nil {
-						a.emitJSON("approval", map[string]any{
-							"name":    item.Name,
-							"command": toolCommandLabel(item.Name, item.Arguments),
-							"reason":  reason,
-							"preview": preview,
-						})
-						a.emit("status", "awaiting_approval")
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						case allowed = <-a.ApprovalCh:
-						}
-						a.emitJSON("approval", map[string]any{"clear": true})
-						a.emit("status", "running")
-					} else if a.Control != nil && isTerminal(0) {
-						var e error
-						allowed, e = a.Control.requestApproval(ctx)
-						if e != nil {
-							return e
-						}
-					} else {
-						a.print("Approve? [Y/n] ")
-						answer, e := reader.ReadString('\n')
-						if e != nil {
-							return e
-						}
-						answer = strings.ToLower(strings.TrimSpace(answer))
-						allowed = answer == "" || answer == "y" || answer == "yes" || answer == "j" || answer == "ja"
-					}
-				}
-				result := "DENIED by user"
-				if g.Deny {
-					result = "DENIED: " + reason
-				}
-				rawExecResult := ""
-				if allowed {
-					if item.Name == "update_plan" {
-						var p struct {
-							Steps []PlanStep `json:"steps"`
-						}
-						if e := decodeArgs(item.Arguments, &p); e != nil {
-							result = e.Error()
-						} else if len(p.Steps) > 20 {
-							result = "plan too long"
-						} else {
-							a.Plan = p.Steps
-							a.TaskActive = true
-							a.ensureCharter().SyncPlan(p.Steps)
-							_ = a.persistCharter()
-							result = "plan updated"
-							a.print(renderPlan(a.Plan))
-						}
-					} else if item.Name == "finish_task" {
-						var f struct {
-							Status  string `json:"status"`
-							Summary string `json:"summary"`
-						}
-						if e := decodeArgs(item.Arguments, &f); e != nil {
-							result = e.Error()
-						} else if f.Status != "done" && f.Status != "blocked" {
-							result = "invalid status"
-						} else {
-							a.TaskDone = f.Status == "done"
-							a.TaskBlocked = f.Status == "blocked"
-							a.TaskActive = false
-							a.PilotReport = f.Status + ": " + f.Summary
-							result = "task status recorded: " + f.Status
-							a.presentFinish(f.Status, f.Summary)
-						}
-					} else if item.Name == "web_search" {
-						var args struct {
-							Query string `json:"query"`
-						}
-						if e := decodeArgs(item.Arguments, &args); e != nil {
-							result = "web search error: " + e.Error()
-						} else if !a.Cfg.Web || !a.Cfg.Search.enabled() {
-							result = "web search is off"
-						} else {
-							a.println("⌕ Searching web…")
-							answer, e := a.searchWeb(ctx, args.Query)
-							if e != nil {
-								result = "web search error: " + e.Error()
-							} else {
-								result = answer
-							}
-						}
-					} else if item.Name == "share_file" {
-						result = a.shareFile(item.Arguments)
-						a.println("\033[35m📎 Share\033[0m " + truncate(result, 240))
-					} else if item.Name == "change_workspace" {
-						result = a.changeWorkspace(item.Arguments)
-					} else if item.Name == "set_alarm" {
-						result = a.setAlarm(item.Arguments)
-					} else if item.Name == "list_alarms" {
-						result = a.listAlarmsTool(item.Arguments)
-					} else if item.Name == "cancel_alarm" {
-						result = a.cancelAlarm(item.Arguments)
-					} else if item.Name == "list_agents" {
-						result = a.listAgentsTool(item.Arguments)
-					} else if item.Name == "allow_peer" {
-						result = a.allowPeer(item.Arguments)
-					} else if item.Name == "message_agent" {
-						result = a.messageAgent(item.Arguments)
-					} else if item.Name == "list_credentials" {
-						result = a.listCredentialsTool(item.Arguments)
-					} else if defineAgentTool(item.Name) {
-						result = a.runDefineAgentTool(item.Name, item.Arguments)
-					} else if item.Name == "show_artifact" {
-						result = a.showArtifact(item.Arguments)
-					} else if item.Name == "search_history" {
-						result = a.searchHistory(item.Arguments)
-					} else if item.Name == "read_history" {
-						result = a.readHistory(item.Arguments)
-					} else if item.Name == "activate_skill" {
-						var args struct {
-							Name string `json:"name"`
-						}
-						if e := decodeArgs(item.Arguments, &args); e != nil {
-							result = e.Error()
-						} else if !a.skillEnabled(args.Name) {
-							result = "activate_skill: skill " + args.Name + " is turned off"
-						} else {
-							text, e := a.ensureSkills().Activate(args.Name)
-							if e != nil {
-								result = "activate_skill: " + e.Error()
-							} else {
-								result = text
-								a.println("\033[35m◇ Skill\033[0m " + args.Name)
-							}
-						}
-					} else if item.Name == "read_skill_file" {
-						var args struct {
-							Name string `json:"name"`
-							Path string `json:"path"`
-						}
-						if e := decodeArgs(item.Arguments, &args); e != nil {
-							result = e.Error()
-						} else if !a.skillEnabled(args.Name) {
-							result = "read_skill_file: skill " + args.Name + " is turned off"
-						} else {
-							text, e := a.ensureSkills().ReadFile(args.Name, args.Path)
-							if e != nil {
-								result = "read_skill_file: " + e.Error()
-							} else {
-								result = text
-							}
-						}
-					} else if item.Name == "delegate" {
-						var args DelegateArgs
-						if e := decodeArgs(item.Arguments, &args); e != nil {
-							result = "delegate error: " + e.Error()
-						} else {
-							model, effort, e := delegateProfile(a.Cfg, args.Profile)
-							if e != nil {
-								result = "delegate error: " + e.Error()
-							} else {
-								a.printf("\033[35m◇ Delegate\033[0m · %s · %s\n", args.Profile, truncate(args.Task, 160))
-								answer, e := a.Client.Delegate(ctx, model, effort, args)
-								if e != nil {
-									result = "delegate error: " + e.Error()
-								} else {
-									result = answer
-								}
-							}
-						}
-					} else if isMCPTool(item.Name) {
-						argsJSON := item.Arguments
-						secret := ""
-						credErr := error(nil)
-						if a.Credentials != nil {
-							var prepared string
-							prepared, secret, credErr = a.Credentials.prepareToolArgs(item.Name, item.Arguments)
-							if credErr == nil {
-								argsJSON = prepared
-							}
-						}
-						if credErr != nil {
-							result = "credential error: " + credErr.Error()
-						} else {
-							result = a.ensureMCP().Call(ctx, item.Name, argsJSON)
-							result = redactSecret(result, secret)
-						}
-						a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
-					} else {
-						run := func() string {
-							if item.Name == "exec" {
-								return a.runExecWithCredentials(ctx, item.Arguments)
-							}
-							return executeTool(ctx, item.Name, item.Arguments)
-						}
-						if a.Control != nil && toolNeedsTerminal(item.Name, item.Arguments) {
-							a.Control.takeTerminal()
-							result = run()
-							a.Control.releaseTerminal()
-						} else {
-							result = run()
-						}
-						if item.Name == "exec" {
-							rawExecResult = result
-							result = a.filterExecResult(ctx, message, item.Arguments, result)
-							result = redactAllSecrets(result, parseExecSecretsForRedact(a, item.Arguments))
-						}
-					}
-				}
-				toolCmd := toolCommandLabel(item.Name, item.Arguments)
-				toolOK := markToolOK(item.Name, result, rawExecResult)
-				if item.Name == "exec" {
-					code := "?"
-					displayedResult := result
-					if rawExecResult != "" {
-						displayedResult = rawExecResult
-					}
-					if i := strings.Index(displayedResult, "exit_code="); i >= 0 {
-						fields := strings.Fields(displayedResult[i+len("exit_code="):])
-						if len(fields) > 0 {
-							code = fields[0]
-						}
-					}
-					output := strings.TrimPrefix(displayedResult, "exit_code="+code+"\n")
-					if !toolOK {
-						a.cliWrite(fmt.Sprintf("\033[31mFAIL: Return Value %s\033[0m\n", code))
-					}
-					if strings.TrimSpace(output) != "" {
-						a.cliWrite(output)
-						if !strings.HasSuffix(output, "\n") {
-							a.cliWrite("\n")
-						}
-					}
-					filtered := rawExecResult != "" && rawExecResult != result
-					if filtered {
-						modelVisible := truncate(result, 32<<10)
-						a.cliWrite(fmt.Sprintf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExecResult), len(modelVisible), modelVisible))
-						a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(result), strings.TrimSpace(rawExecResult), toolOK, true)
-					} else {
-						a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(output), "", toolOK, false)
-					}
-				} else {
-					if !toolOK {
-						a.cliWrite(fmt.Sprintf("\033[31m✗\033[0m %s\n", truncate(result, 1800)))
-					} else {
-						a.cliWrite(fmt.Sprintf("\033[32m✓\033[0m %s\n", truncate(result, 1800)))
-					}
-					a.presentToolResult(item.Name, toolCmd, truncate(result, 1800), "", toolOK, false)
-				}
-				outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10), "ok": toolOK}
-				// raw_output is UI-only; normalizeResponseInput strips it before the model sees history.
-				if rawExecResult != "" && rawExecResult != result {
-					outItem["raw_output"] = truncate(rawExecResult, 32<<10)
-				}
-				if err := a.add(outItem); err != nil {
+				if err := a.runFunctionCalls(ctx, message, reader, items); err != nil {
 					return err
 				}
-				if allowed {
-					a.retainToolFinding(ctx, item.Name, item.Arguments, result)
-				}
+				calls += n
+				i += n - 1
+				continue
 			}
 		}
 		a.PendingSteering = false

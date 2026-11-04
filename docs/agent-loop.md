@@ -8,7 +8,9 @@
 - Tab completion for slash commands completes unique prefixes, extends the
   shared prefix of several matches, and lists suggestions.
 - Model output streams over SSE. Tool calls run only after a complete, valid
-  model response has arrived.
+  model response has arrived. Independent reads and non-interactive commands
+  from that response run together. A call that changes files, takes the
+  terminal, or needs a decision still runs on its own.
 - A `Working…` status line shows elapsed time and estimated tokens per second
   where measurable; the final line reports actual usage and average rate. Hidden
   reasoning tokens are never presented as measured live throughput.
