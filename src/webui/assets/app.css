@@ -1917,18 +1917,70 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .artifact-pane.mode-dock .artifact-paper {
   margin-top: var(--paper-top);
-  min-height: calc(100vh - var(--paper-top) - 7.5rem);
+  min-height: calc(100vh - var(--paper-top) - 4.25rem);
 }
 .artifact-pane.mode-overlay .artifact-paper {
   min-height: calc(92vh - 7rem);
+}
+.artifact-switch {
+  flex: 0 0 auto;
+  max-height: 9.5rem;
+  margin: 0;
+  padding: 0.35rem;
+  overflow: auto;
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.artifact-switch[hidden] { display: none; }
+.artifact-switch li { margin: 0; }
+.artifact-switch button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  padding: 0.35rem 0.45rem;
+  cursor: pointer;
+}
+.artifact-switch button small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.artifact-switch button[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+}
+.artifact-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--muted);
+  background:
+    radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 58%),
+    var(--bg);
+}
+.artifact-empty[hidden] { display: none; }
+.artifact-empty p {
+  margin: 0;
+  max-width: 16rem;
+  line-height: 1.45;
+}
+.artifact-paper.is-empty {
+  background: var(--bg);
 }
 .artifact-frame {
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
   border: 0;
-  background: var(--panel);
+  background: var(--bg);
 }
+.artifact-frame[hidden] { display: none; }
 .artifact-paper:fullscreen,
 .artifact-paper:-webkit-full-screen {
   width: 100%;
@@ -1944,18 +1996,6 @@ button.wide { width: 100%; max-width: 100%; }
   width: 100%;
   height: 100%;
   background: #fff;
-}
-.artifact-history-wrap {
-  flex: 0 0 auto;
-  max-height: 22vh;
-  overflow: auto;
-  padding: 0 0.35rem 0 0.55rem;
-}
-.artifact-history-wrap summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 .shell.artifact-resizing {
   cursor: col-resize;

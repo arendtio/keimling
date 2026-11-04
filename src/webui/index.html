@@ -804,12 +804,12 @@
           </div>
         </header>
         <div class="artifact-paper" id="artifact-paper">
-          <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
+          <ul id="artifact-history" class="artifact-switch" aria-label="Artifacts in this workspace" hidden></ul>
+          <div id="artifact-empty" class="artifact-empty">
+            <p>Nothing open yet. Previews from this workspace show up here.</p>
+          </div>
+          <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" hidden sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
         </div>
-        <details class="artifact-history-wrap">
-          <summary>Session artifacts</summary>
-          <ul id="artifact-history" class="skills-list"></ul>
-        </details>
       </aside>
     </div>
   </div>

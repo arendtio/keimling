@@ -71,6 +71,7 @@
   var artifactOpenExt = document.getElementById("artifact-open-ext");
   var artifactFullscreen = document.getElementById("artifact-fullscreen");
   var artifactPaper = document.getElementById("artifact-paper");
+  var artifactEmpty = document.getElementById("artifact-empty");
   var artifactClose = document.getElementById("artifact-close");
   var artifactResize = document.getElementById("artifact-resize");
   var artifactModeDock = document.getElementById("artifact-mode-dock");
@@ -4461,7 +4462,10 @@
               if (ev === "tool") handleStructuredTool(payload);
               if (ev === "approval" && eventsForThisView()) showApproval(payload);
               if (ev === "progress") updateProgress(payload);
-              if (ev === "artifact") showArtifact(payload);
+              if (ev === "artifact") {
+                showArtifact(payload);
+                loadArtifactsList();
+              }
               if (ev === "compaction") updateCompactionProgress(payload);
               if (ev === "thread") updateThreadTitle(payload);
               if (ev === "status" && payload.state) {
@@ -5819,23 +5823,41 @@
     artifactPane.hidden = false;
     syncArtifactModeUI();
   }
+  function sortArtifacts(items) {
+    return (items || []).slice().sort(function (a, b) {
+      return String(b.created || "").localeCompare(String(a.created || ""));
+    });
+  }
+  function artifactKey(art) {
+    if (!art) return "";
+    return String(art.token || art.id || art.url || art.path || "");
+  }
+  function setArtifactEmpty(on) {
+    if (artifactEmpty) artifactEmpty.hidden = !on;
+    if (artifactFrame) artifactFrame.hidden = !!on;
+    if (artifactPaper) artifactPaper.classList.toggle("is-empty", !!on);
+    if (on && artifactFrame) artifactFrame.removeAttribute("src");
+  }
   function renderArtifactHistory(items) {
     if (!artifactHistory) return;
+    var list = sortArtifacts(items);
     artifactHistory.innerHTML = "";
-    (items || []).forEach(function (art) {
+    artifactHistory.hidden = !list.length;
+    var currentKey = artifactKey(currentArtifact);
+    list.forEach(function (art) {
       var li = document.createElement("li");
-      var title = document.createElement("div");
-      title.className = "skill-name";
-      title.textContent = art.title || art.path || "Artifact";
-      var meta = document.createElement("div");
-      meta.className = "skill-meta";
-      meta.textContent = art.path || "";
       var btn = document.createElement("button");
       btn.type = "button";
-      btn.textContent = "Show";
+      btn.setAttribute("data-artifact", artifactKey(art));
+      var name = art.title || art.path || "Artifact";
+      btn.appendChild(document.createTextNode(name));
+      if (art.path && art.path !== name) {
+        var meta = document.createElement("small");
+        meta.textContent = art.path;
+        btn.appendChild(meta);
+      }
+      if (artifactKey(art) && artifactKey(art) === currentKey) btn.setAttribute("aria-current", "true");
       btn.addEventListener("click", function () { showArtifact(art); });
-      li.appendChild(title);
-      li.appendChild(meta);
       li.appendChild(btn);
       artifactHistory.appendChild(li);
     });
@@ -5846,10 +5868,19 @@
     if (artifactTitle) artifactTitle.textContent = art.title || art.path || "Artifact";
     var src = artifactSrc(art);
     if (src) artifactFrame.src = src;
+    setArtifactEmpty(!src);
+    var key = artifactKey(art);
+    if (artifactHistory) {
+      artifactHistory.querySelectorAll("button").forEach(function (btn) {
+        if (key && btn.getAttribute("data-artifact") === key) btn.setAttribute("aria-current", "true");
+        else btn.removeAttribute("aria-current");
+      });
+    }
     openArtifactPane();
   }
   function closeArtifactPane() {
-    if (artifactFrame) artifactFrame.src = "about:blank";
+    currentArtifact = null;
+    setArtifactEmpty(true);
     if (artifactPane) artifactPane.hidden = true;
     if (artifactBackdrop) artifactBackdrop.hidden = true;
     if (shellEl) {
@@ -5954,10 +5985,11 @@
       if (!connected) return;
       loadArtifactsList()
         .then(function (items) {
-          if (items.length) showArtifact(items[0]);
+          if (items.length) showArtifact(sortArtifacts(items)[0]);
           else {
+            currentArtifact = null;
             if (artifactTitle) artifactTitle.textContent = "Artifacts";
-            if (artifactFrame) artifactFrame.src = "about:blank";
+            setArtifactEmpty(true);
             openArtifactPane();
           }
         })
