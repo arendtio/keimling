@@ -167,6 +167,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
+	s.mux.Handle("/api/mcp/allow", s.requireSecret(http.HandlerFunc(s.handleMCPAllow)))
 	s.mux.Handle("/api/mcp/sign-in", s.requireSecret(http.HandlerFunc(s.handleMCPSignIn)))
 	s.mux.Handle(mcpOAuthCallbackPath, http.HandlerFunc(s.handleOAuthCallback))
 	s.mux.Handle(mcpOAuthMetaPath, http.HandlerFunc(s.handleOAuthClientMetadata))
@@ -242,6 +243,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.agent.observeAgentModelChange()
+	s.agent.applyDefinitionApproval()
 	runningID := s.agent.Cfg.ThreadID
 	viewID := s.viewedThread()
 	background := viewID != "" && viewID != runningID && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
@@ -1100,6 +1102,34 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
 }
 
+func (s *appServer) handleMCPAllow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name  string `json:"name"`
+		Tool  string `json:"tool"`
+		Allow *bool  `json:"allow"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || body.Allow == nil {
+		http.Error(w, "name, tool, and allow required", http.StatusBadRequest)
+		return
+	}
+	tools, err := setMCPToolAllow(body.Name, body.Tool, *body.Allow)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.agent.ensureMCP().noteAllow(body.Name, tools)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
+}
+
 func (s *appServer) handleMCPRemove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1626,7 +1656,7 @@ func (s *appServer) settingsSnapshot() map[string]any {
 	return map[string]any{
 		"base_url":                      base,
 		"model":                         s.agent.Cfg.Model,
-		"mode":                          s.agent.Cfg.Mode,
+		"mode":                          s.agent.Cfg.storedMode(),
 		"reasoning":                     s.agent.Cfg.Reasoning,
 		"web":                           web,
 		"autopilot":                     auto,
@@ -1747,7 +1777,10 @@ func (s *appServer) applySettings(body agentSettings) error {
 		if m != "ask" && m != "auto" && m != "yolo" {
 			return fmt.Errorf("mode must be ask, auto, or yolo")
 		}
-		cfg.Mode = m
+		cfg.ConversationMode = m
+		if strings.TrimSpace(cfg.AgentInstanceID) == "" {
+			cfg.Mode = m
+		}
 	}
 	if model := strings.TrimSpace(body.Model); model != "" && !writeProviders {
 		cfg.Model = model
@@ -2182,7 +2215,7 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 				fc.ensureModelProviders()
 			}
 		}
-		fc.API.Mode = cfg.Mode
+		fc.API.Mode = cfg.storedMode()
 		web := cfg.Web
 		fc.Features.WebSearch = &web
 		auto := cfg.Autopilot

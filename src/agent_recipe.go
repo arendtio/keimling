@@ -16,6 +16,10 @@ type AgentRecipe struct {
 	Name         string `json:"name"`
 	Instructions string `json:"instructions"`
 	Model        string `json:"model,omitempty"`
+	// Mode is ask, auto, or yolo. Empty means auto.
+	Mode string `json:"mode,omitempty"`
+	// ReviewPrompt replaces the factory review prompt when set.
+	ReviewPrompt string `json:"review_prompt,omitempty"`
 	// Tools is nil until the definition saves a tool choice. Nil grants every tool.
 	Tools      *[]string `json:"tools,omitempty"`
 	Skills     []string  `json:"skills,omitempty"`
@@ -129,6 +133,7 @@ func createAgentRecipe(name, instructions string) (AgentRecipe, error) {
 		ID:           newRecipeID(),
 		Name:         name,
 		Instructions: instr,
+		Mode:         "auto",
 	}
 	if err := writeAgentRecipe(r); err != nil {
 		return AgentRecipe{}, err
@@ -151,6 +156,92 @@ func updateAgentRecipe(id, name, instructions string, updateInstructions bool) (
 		return AgentRecipe{}, err
 	}
 	return r, nil
+}
+
+func normalizeAgentMode(mode string) (string, error) {
+	switch strings.TrimSpace(mode) {
+	case "", "auto":
+		return "auto", nil
+	case "ask", "yolo":
+		return strings.TrimSpace(mode), nil
+	default:
+		return "", fmt.Errorf("mode must be ask, auto, or yolo")
+	}
+}
+
+// normalizeReviewPrompt stores a replacement prompt. The factory text stores
+// as empty so the definition stays bound to it. Empty input is refused.
+func normalizeReviewPrompt(text string) (string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", fmt.Errorf("review prompt cannot be empty; reset to use the built-in prompt")
+	}
+	if text == strings.TrimSpace(defaultPolicy) {
+		return "", nil
+	}
+	return text, nil
+}
+
+func setRecipeApproval(id, mode string, prompt *string, reset bool) (AgentRecipe, error) {
+	r, err := readAgentRecipe(id)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	m, err := normalizeAgentMode(mode)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	r.Mode = m
+	if reset {
+		r.ReviewPrompt = ""
+	} else if prompt != nil {
+		stored, err := normalizeReviewPrompt(*prompt)
+		if err != nil {
+			return AgentRecipe{}, err
+		}
+		r.ReviewPrompt = stored
+	}
+	if err := writeAgentRecipe(r); err != nil {
+		return AgentRecipe{}, err
+	}
+	return r, nil
+}
+
+func (c Config) storedMode() string {
+	switch c.ConversationMode {
+	case "ask", "auto", "yolo":
+		return c.ConversationMode
+	default:
+		return c.Mode
+	}
+}
+
+// applyDefinitionApproval loads the instance's definition mode and review prompt.
+// An empty mode is auto. An empty prompt uses the factory review text.
+func (a *Agent) applyDefinitionApproval() {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		return
+	}
+	inst, err := readAgentInstanceMeta(a.Cfg.AgentInstanceID)
+	if err != nil {
+		return
+	}
+	rec, err := readAgentRecipe(inst.RecipeID)
+	if err != nil {
+		return
+	}
+	mode, err := normalizeAgentMode(rec.Mode)
+	if err != nil {
+		mode = "auto"
+	}
+	a.Cfg.Mode = mode
+	if strings.TrimSpace(rec.ReviewPrompt) != "" {
+		a.Cfg.ApprovalPolicy = rec.ReviewPrompt
+		a.Cfg.ApprovalPolicyReplace = true
+		return
+	}
+	a.Cfg.ApprovalPolicy = ""
+	a.Cfg.ApprovalPolicyReplace = false
 }
 
 func setRecipeModel(id, model string) (AgentRecipe, error) {

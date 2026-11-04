@@ -18,25 +18,30 @@ import (
 
 type Config struct {
 	Model, CompactionModel, Mode, Key, SessionPath, VoiceModel, ReviewModel, ApprovalPolicy, Reasoning, BaseURL string
-	DelegateFast, DelegateBalanced, DelegateDeep, PilotModel, PilotReasoning                                    string
-	ConfigPath                                                                                                  string // --config path; used to persist settings
-	PublicURL                                                                                                   string // public agent base URL for share_file links (optional)
-	WorkspaceID                                                                                                 string
-	WorkspaceRoot                                                                                               string
-	ThreadID                                                                                                    string
-	AgentInstanceID                                                                                             string
-	AgentInstructions                                                                                           string
-	AllowedWorkspaces                                                                                           []string
-	Autopilot                                                                                                   bool
-	AutopilotInstructions                                                                                       string // saved global prompt; empty means the factory text
-	ExternalClient                                                                                              *Client
-	VoiceProviderID                                                                                             string
-	HasModelProvider                                                                                            bool
-	DisableExternal                                                                                             bool
-	Search                                                                                                      searchConfig
-	Web                                                                                                         bool
-	CompactParallel                                                                                             bool // parallel leaf distill/summarize (API); off for local models
-	MaxSteps, ContextLimit                                                                                      int
+	// ConversationMode is the mode stored for workspace threads. Agent workers
+	// keep their definition mode in Mode and leave this as the shared setting.
+	ConversationMode string
+	// ApprovalPolicyReplace means ApprovalPolicy is the entire review prompt.
+	ApprovalPolicyReplace                                                    bool
+	DelegateFast, DelegateBalanced, DelegateDeep, PilotModel, PilotReasoning string
+	ConfigPath                                                               string // --config path; used to persist settings
+	PublicURL                                                                string // public agent base URL for share_file links (optional)
+	WorkspaceID                                                              string
+	WorkspaceRoot                                                            string
+	ThreadID                                                                 string
+	AgentInstanceID                                                          string
+	AgentInstructions                                                        string
+	AllowedWorkspaces                                                        []string
+	Autopilot                                                                bool
+	AutopilotInstructions                                                    string // saved global prompt; empty means the factory text
+	ExternalClient                                                           *Client
+	VoiceProviderID                                                          string
+	HasModelProvider                                                         bool
+	DisableExternal                                                          bool
+	Search                                                                   searchConfig
+	Web                                                                      bool
+	CompactParallel                                                          bool // parallel leaf distill/summarize (API); off for local models
+	MaxSteps, ContextLimit                                                   int
 }
 
 var errAPIKeyMissing = errors.New("API key not found")
@@ -545,6 +550,8 @@ func main() {
 	defer journal.Close()
 	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
+	a.Cfg.ConversationMode = a.Cfg.Mode
+	a.applyDefinitionApproval()
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
 	} else {

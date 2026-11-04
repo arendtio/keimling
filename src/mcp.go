@@ -26,6 +26,7 @@ type MCPServerStatus struct {
 	Status    string   `json:"status"` // connected | error | disabled
 	Error     string   `json:"error,omitempty"`
 	Tools     []string `json:"tools,omitempty"`
+	Allow     []string `json:"allow,omitempty"`
 	Command   string   `json:"command,omitempty"`
 	URL       string   `json:"url,omitempty"`
 	Disabled  bool     `json:"disabled,omitempty"`
@@ -310,6 +311,17 @@ func (m *MCPManager) ToolDefs() []map[string]any {
 	return out
 }
 
+func (m *MCPManager) noteAllow(name string, tools []string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[name]; ok && s != nil {
+		s.cfg.AllowTools = append([]string(nil), tools...)
+	}
+}
+
 func (m *MCPManager) Status() []MCPServerStatus {
 	if m == nil {
 		return nil
@@ -339,6 +351,7 @@ func (m *MCPManager) Status() []MCPServerStatus {
 		for _, t := range s.tools {
 			st.Tools = append(st.Tools, mcpExposedName(name, t.Name))
 		}
+		st.Allow = append([]string(nil), s.cfg.AllowTools...)
 		out = append(out, st)
 	}
 	return out

@@ -168,6 +168,7 @@
   var agentDefList = document.getElementById("agent-def-list");
   var agentTeamList = document.getElementById("agent-team-list");
   var agentDefErr = document.getElementById("agent-def-err");
+  var reviewPromptFactory = "";
   var agentDefName = document.getElementById("agent-def-name");
   var agentDefInstructions = document.getElementById("agent-def-instructions");
   var agentDefEditName = document.getElementById("agent-def-edit-name");
@@ -3192,6 +3193,7 @@
         return r.json().then(function (j) {
           if (!r.ok) throw new Error((j && j.error) || r.status);
           definitionsCache = j.recipes || [];
+          if (j.review_prompt_factory) reviewPromptFactory = j.review_prompt_factory;
           agentToolCatalog = j.tools || agentToolCatalog;
           if (j.groups) agentToolGroups = j.groups;
           renderDefinitionList();
@@ -3258,12 +3260,31 @@
       .catch(function () {});
   }
 
+  function syncAgentApprovalUI(modeEl, hintEl, wrapEl) {
+    var mode = modeEl ? modeEl.value : "auto";
+    if (hintEl) hintEl.hidden = mode !== "ask";
+    if (wrapEl) wrapEl.hidden = mode !== "auto";
+  }
+  function reviewPromptPayload(text) {
+    var value = String(text || "");
+    if (!value.trim()) {
+      if (!reviewPromptFactory) return { reset: true };
+      return { error: "Review prompt cannot be empty. Use Reset to follow the built-in prompt again." };
+    }
+    if (value.trim() === reviewPromptFactory.trim()) return { reset: true };
+    return { prompt: value };
+  }
   function openEditDefinition(def) {
     editingDefinitionID = def.id;
     if (agentDefEditName) agentDefEditName.value = def.name || "";
     if (agentDefEditInstructions) agentDefEditInstructions.value = def.instructions || "";
     var editModel = document.getElementById("agent-def-edit-model");
     if (editModel) editModel.value = def.model || "";
+    var editMode = document.getElementById("agent-def-edit-mode");
+    if (editMode) editMode.value = def.mode || "auto";
+    var editReview = document.getElementById("agent-def-edit-review");
+    if (editReview) editReview.value = def.review_prompt || reviewPromptFactory;
+    syncAgentApprovalUI(editMode, document.getElementById("agent-def-edit-ask-hint"), document.getElementById("agent-def-edit-review-wrap"));
     setAgentDefPane("edit");
     loadModelSuggestions();
     loadMcpServers().then(function () {
@@ -3286,10 +3307,22 @@
     var tools = checkedToolNames(document.getElementById("agent-def-create-tools"));
     var createModel = document.getElementById("agent-def-model");
     var model = createModel ? String(createModel.value || "").trim() : "";
+    var createMode = document.getElementById("agent-def-mode");
+    var mode = createMode ? createMode.value : "auto";
+    var body = { name: name, instructions: instructions, model: model, tools: tools, mode: mode };
+    if (mode === "auto") {
+      var prompt = reviewPromptPayload(document.getElementById("agent-def-review") && document.getElementById("agent-def-review").value);
+      if (prompt.error) {
+        showAgentDefErr(prompt.error);
+        return;
+      }
+      if (prompt.reset) body.review_prompt_reset = true;
+      else body.review_prompt = prompt.prompt;
+    }
     fetch(apiURL("/api/agents/recipes"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ name: name, instructions: instructions, model: model, tools: tools }),
+      body: JSON.stringify(body),
     })
       .then(readAPIResult)
       .then(function () {
@@ -3316,10 +3349,22 @@
     var editModel = document.getElementById("agent-def-edit-model");
     var model = editModel ? String(editModel.value || "").trim() : "";
     var tools = checkedToolNames(document.getElementById("agent-def-edit-tools"));
+    var editMode = document.getElementById("agent-def-edit-mode");
+    var mode = editMode ? editMode.value : "auto";
+    var body = { id: editingDefinitionID, name: name, instructions: instructions, model: model, tools: tools, mode: mode };
+    if (mode === "auto") {
+      var prompt = reviewPromptPayload(document.getElementById("agent-def-edit-review") && document.getElementById("agent-def-edit-review").value);
+      if (prompt.error) {
+        showAgentDefErr(prompt.error);
+        return;
+      }
+      if (prompt.reset) body.review_prompt_reset = true;
+      else body.review_prompt = prompt.prompt;
+    }
     fetch(apiURL("/api/agents/recipes/update"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ id: editingDefinitionID, name: name, instructions: instructions, model: model, tools: tools }),
+      body: JSON.stringify(body),
     })
       .then(readAPIResult)
       .then(function () {
@@ -5520,8 +5565,38 @@
         (errText ? " — " + errText : "") +
         (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : "");
       var tools = document.createElement("div");
-      tools.className = "skill-desc";
-      tools.textContent = (s.tools || []).join(", ");
+      tools.className = "mcp-tools";
+      var allowed = {};
+      (s.allow || []).forEach(function (name) { allowed[name] = true; });
+      (s.tools || []).forEach(function (toolName) {
+        var row = document.createElement("label");
+        row.className = "check";
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = !!allowed[toolName];
+        box.addEventListener("change", function () {
+          box.disabled = true;
+          fetch(apiURL("/api/mcp/allow"), {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ name: s.name, tool: toolName, allow: box.checked }),
+          })
+            .then(function (r) {
+              return r.text().then(function (t) {
+                if (!r.ok) throw new Error(t || r.status);
+              });
+            })
+            .then(function () { return loadMcpList(); })
+            .catch(function (e) {
+              box.checked = !box.checked;
+              showMcpErr(e.message || e);
+            })
+            .finally(function () { box.disabled = false; });
+        });
+        row.appendChild(box);
+        row.appendChild(document.createTextNode(" Always allow " + toolName));
+        tools.appendChild(row);
+      });
       var rm = document.createElement("button");
       rm.type = "button";
       rm.textContent = "Remove";
@@ -5545,7 +5620,13 @@
       });
       li.appendChild(title);
       li.appendChild(meta);
-      if (s.tools && s.tools.length) li.appendChild(tools);
+      if (s.tools && s.tools.length) {
+        var allowHint = document.createElement("p");
+        allowHint.className = "hint";
+        allowHint.textContent = "Always allow runs that tool in ask and auto without a question. Uncheck to ask again.";
+        li.appendChild(allowHint);
+        li.appendChild(tools);
+      }
       if (s.url) {
         var sign = document.createElement("button");
         sign.type = "button";
@@ -6052,6 +6133,11 @@
       loadModelSuggestions();
       loadMcpServers().then(function () {
         renderToolMatrix(document.getElementById("agent-def-create-tools"), { granted: null });
+        var createMode = document.getElementById("agent-def-mode");
+        if (createMode) createMode.value = "auto";
+        var createReview = document.getElementById("agent-def-review");
+        if (createReview) createReview.value = reviewPromptFactory;
+        syncAgentApprovalUI(createMode, document.getElementById("agent-def-ask-hint"), document.getElementById("agent-def-review-wrap"));
       });
       if (agentDefName) agentDefName.focus();
     });
@@ -6077,6 +6163,42 @@
   if (agentDefEditSave) {
     agentDefEditSave.addEventListener("click", function () {
       saveEditDefinition();
+    });
+  }
+  ["agent-def-mode", "agent-def-edit-mode"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", function () {
+      var edit = id.indexOf("edit") !== -1;
+      syncAgentApprovalUI(el, document.getElementById(edit ? "agent-def-edit-ask-hint" : "agent-def-ask-hint"), document.getElementById(edit ? "agent-def-edit-review-wrap" : "agent-def-review-wrap"));
+    });
+  });
+  var agentDefReviewReset = document.getElementById("agent-def-edit-review-reset");
+  if (agentDefReviewReset) {
+    agentDefReviewReset.addEventListener("click", function () {
+      if (!editingDefinitionID) return;
+      var box = document.getElementById("agent-def-edit-review");
+      var dirty = box && reviewPromptFactory && box.value.trim() !== reviewPromptFactory.trim();
+      var msg = "Drop this definition's review prompt and use the built-in one again?";
+      if (dirty) msg += " Unsaved edits in this box are discarded.";
+      if (!window.confirm(msg)) return;
+      var modeEl = document.getElementById("agent-def-edit-mode");
+      agentDefReviewReset.disabled = true;
+      fetch(apiURL("/api/agents/recipes/update"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ id: editingDefinitionID, mode: modeEl ? modeEl.value : "auto", review_prompt_reset: true }),
+      })
+        .then(readAPIResult)
+        .then(function (rec) {
+          if (box) box.value = reviewPromptFactory;
+          var found = (definitionsCache || []).filter(function (d) { return d.id === editingDefinitionID; })[0];
+          if (found) found.review_prompt = "";
+          if (rec && rec.mode && modeEl) modeEl.value = rec.mode;
+          showAgentDefErr("");
+        })
+        .catch(function (err) { showAgentDefErr(String(err)); })
+        .finally(function () { agentDefReviewReset.disabled = false; });
     });
   }
   if (agentDefEditDelete) {

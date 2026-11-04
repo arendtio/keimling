@@ -48,6 +48,16 @@ Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandant
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-CB-6 An MCP tool can be marked always allowed
+
+- **Bin:** explicit requirement
+- **Statement:** The user shall mark an MCP tool as always allowed, once, on that tool. In ask and in auto, a marked tool shall run without a question, for workspace threads and for agents. A tool that is not marked shall keep today's question. Clearing the mark shall bring the question back. Injecting a credential outside the model shall not add a question and shall not block a marked tool.
+- **Origin:** User, 2026-11-04 (quote: "gerade bei MCP-Servern würde ich mir in Verbindung mit dem Ask-Modus oder auch dem Auto-Modus so eine Art Whitelist von Tools wünschen" and "man sagt, hier, das ist ein gewhitelistetes Tool, das darf immer ausgeführt werden" and "die ist einmal zentral am Tool"). Same day, on credentials (quote: "Ein Aufruf mit Zugang zu Geheimnissen, so ist unser Geheimniskonzept ja gar nicht aufgebaut. Also es ist ja so, dass der Bot niemals Zugriff auf die Geheimnisse kriegt oder das Model, sondern die Geheimnisse außerhalb stattfinden und dementsprechend ist das aus meiner Sicht gar keine Ausnahme").
+- **Rationale:** Read-only MCP calls stop an autonomous run on a question even though the user already trusts that tool. The mark is a property of the tool, not of one agent. The model never receives the secret, so the injection is not a second approval.
+- **Fit criterion:** In the MCP setup, one tool of a server is marked and another is not. In ask and in auto, the marked tool runs with no approval question, in a workspace thread and in an agent. The unmarked tool still asks in a workspace thread, still asks in an agent whose mode is ask, and is still refused without waiting in an agent whose mode is auto (REQ-AG-29). Clearing the mark makes the next call of that tool ask again. A marked call that injects a vault credential still does not show the secret to the model and is not held back for a question because of that injection. A tool the server adds later is unmarked. yolo is unchanged.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
 - External vaults for MCP connection tokens. Those tokens stay in `mcp.json` (REQ-CB-4, REQ-CB-5).

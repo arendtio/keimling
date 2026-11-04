@@ -355,6 +355,36 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-27 An agent definition chooses ask, auto, or yolo
+
+- **Bin:** explicit requirement
+- **Statement:** The user shall choose the approval mode for an agent definition. The modes are ask, auto, and yolo. An instance shall use its definition's mode and shall not have a mode of its own. Workspace threads shall keep the mode they already use.
+- **Origin:** User, 2026-11-04 (quote: "man will natürlich auch den Modus auswählen, ne? Also man kann das auch auf Ask oder was anderes stellen oder auf YOLO" and "bei der Instanz braucht man es ehrlicherweise nicht, sondern nur in der Definition").
+- **Rationale:** An agent is meant to keep working when nobody is sitting in its channel. The mode of an ordinary conversation is the wrong switch for that.
+- **Fit criterion:** A definition saved as auto makes every instance of it use auto, including an instance that already existed. There is no mode field on the instance. A second definition saved as ask does not change the first. A workspace thread stays on the mode set for conversations. Changing the definition to yolo makes the next tool call of its instances use yolo.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-28 The auto review prompt is set on the definition and can be reset
+
+- **Bin:** explicit requirement
+- **Statement:** When a definition's mode is auto, the user shall be able to replace the whole factory review prompt with a text on that definition. Reset shall drop that text so the definition is bound to the factory prompt again. An instance shall not have a review prompt of its own. An empty text shall not be saveable.
+- **Origin:** User, 2026-11-04 (quote: "wir brauchen für jeden Agenten die Möglichkeit, den Autoprompt standardmäßig anzupassen. das sehe ich sogar in der Definition des Agenten, nicht nur bei den Instanzen" and "bei der Instanz braucht man es ehrlicherweise nicht" and "wenn ich auf Auto stelle, will ich auch den Prompt anpassen können. Mit einer ähnlichen Mechanik, wie wir es an anderen Stellen haben, also dass ich den Prompt von Auto wieder zurücksetzen kann und er dann wieder an den Systemprompt gebunden ist").
+- **Rationale:** The factory review stance is right for ordinary work and wrong for an agent whose job is a standing exception. The instance would only repeat the definition.
+- **Fit criterion:** With no saved text, a review for that definition sends exactly the factory prompt. After a distinctive sentence is saved, the next review sends exactly that sentence and does not contain the factory prompt. Reset removes the saved sentence, and the next review sends exactly the factory prompt again. Saving an empty or whitespace-only text is refused and leaves the previous text in effect. Two instances of the definition use the same text. The review model stays the one from Settings.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-29 Auto refuses instead of asking, and ask warns that it can block
+
+- **Bin:** explicit requirement
+- **Statement:** For an agent in auto, a tool call that still needs a decision shall be judged by that definition's review prompt. If the judgment is to ask the user, or no judgment can be obtained, the call shall be refused and the run shall continue. The agent shall not wait. For an agent in ask, that question shall be asked in the agent's main channel. Where the user sets an agent definition's mode to ask, the product shall say that ask can block the agent.
+- **Origin:** User, 2026-11-04 (quote: "wenn bei einem Agent im Automodus die Frage aufkommt, ob er etwas tun sollte, dann sollte es standardmäßig abgelehnt werden. Im Automodus. Im Ask-Modus darf er gerne in seinem Hauptkanal die Frage stellen" and "in den Einstellungen und der Definition von Agenten drauf hinweisen, dass, wenn ich im Agenten Ask auswähle, dass das den blockieren kann").
+- **Rationale:** An agent in auto has nobody sitting on a prompt. Waiting there stalls the run. Ask is still available, and it should be obvious that the run then stops until the main channel answers.
+- **Fit criterion:** An agent in auto proposes a tool call that is not already cleared. The review prompt approves it and the tool runs, with no question shown. The same kind of call is judged as ask and does not run; the channel shows the refusal; the run continues to the next step. A review that cannot be completed refuses the call the same way. An agent in ask shows the question in its main channel and waits there. The definition's mode control, when set to ask, shows that this can block the agent. A workspace thread in auto still asks the user and still keeps the floor the review prompt cannot override.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 Until the user saves tools on a definition, that definition grants every tool. Saving stores the checked tools. An instance with no narrower set uses that definition. Saving the same set again clears the instance override. REQ-AG-2’s unanswered default is this design, not a stakeholder shall.
@@ -363,7 +393,7 @@ Tool choices are shown as a topic table with a read column and a write column. T
 
 MCP servers are a second table: one checkbox per server, and that server’s tool names beside it. The stored choice is the server, so tools it exposes later stay included. A saved `mcp` choice from before this table still means every server until the user saves again.
 
-Contacts are set by the user on the instance. Saving the set writes the same link on both instances. A message is allowed when either instance lists the other, so an older one-way link still lets the other side reply. The model is not offered a tool that adds contacts. A definition may store a model id. Empty means Settings. An instance may store its own model id. Empty means the definition. The agent chat shows that model and does not open a picker. The choice is read again for each new message. A run already started keeps the model it started with. Compaction, autopilot, and review stay on Settings. An unknown id is rejected when saving. If one is already stored and no longer configured, the chat uses Settings and says so. When the same id exists on more than one provider, the Settings provider wins if it has that id.
+Contacts are set by the user on the instance. Saving the set writes the same link on both instances. A message is allowed when either instance lists the other, so an older one-way link still lets the other side reply. The model is not offered a tool that adds contacts. A definition may store a model id. Empty means Settings. An instance may store its own model id. Empty means the definition. The agent chat shows that model and does not open a picker. The choice is read again for each new message. A run already started keeps the model it started with. Compaction, autopilot, and the review model stay on Settings. The review prompt for an agent definition is REQ-AG-28. A call that is already cleared (routine work inside the workspace, a whitelisted MCP tool, or a tool that never asks) does not go through that prompt. For an agent in auto, every other call does, including file edits and MCP calls that a workspace thread would still force onto the user. Approve runs the tool. Ask, or a missing review, refuses it. The factory prompt still says to ask for privileged, destructive, and secret-sensitive commands, so those are refused unless the saved prompt says otherwise. A saved prompt replaces the factory text in full, as an autopilot prompt does. yolo asks nothing and does not use the prompt. The ask warning sits on the definition's mode control. Reset of the review prompt discards typed text; a confirm belongs on that control as a design default. The refusal is visible on the tool line in the main channel. An unknown id is rejected when saving. If one is already stored and no longer configured, the chat uses Settings and says so. When the same id exists on more than one provider, the Settings provider wins if it has that id.
 
 A message from A to B is a line in A’s channel ("To B") and, when B’s worker runs, a line in B’s channel ("From A"). The host starts B’s worker when a message is waiting. The checkbox screen is the take-back: uncheck and save again. Delete of an instance asks by name and is not beside Save. There is no restore after that confirm.
 

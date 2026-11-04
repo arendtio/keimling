@@ -427,6 +427,22 @@
               <input id="agent-def-model" type="text" list="agent-model-suggestions" placeholder="Empty uses Settings">
             </label>
             <p class="hint">Optional. Agents of this definition use this model. Empty follows Settings.</p>
+            <label class="agent-def-field">
+              <span>Approval mode</span>
+              <select id="agent-def-mode">
+                <option value="auto">auto</option>
+                <option value="ask">ask</option>
+                <option value="yolo">yolo</option>
+              </select>
+            </label>
+            <p id="agent-def-ask-hint" class="hint" hidden>Ask can block this agent until someone answers in its main channel.</p>
+            <div id="agent-def-review-wrap">
+              <label class="agent-def-field">
+                <span>Auto review prompt</span>
+                <textarea id="agent-def-review" rows="8" spellcheck="false"></textarea>
+              </label>
+              <p class="hint">Replaces the built-in review prompt for every instance of this definition. In auto, a call the review would ask about is refused and the run continues. Leave the built-in text to stay bound to it.</p>
+            </div>
             <section>
               <h3 class="settings-section-title">Tools</h3>
               <p class="hint">Read and write are separate. The names beside a check are the tools it turns on. An instance can only narrow this.</p>
@@ -451,6 +467,25 @@
               <input id="agent-def-edit-model" type="text" list="agent-model-suggestions" placeholder="Empty uses Settings">
             </label>
             <p class="hint">Optional. Agents of this definition use this model. Empty follows Settings. One instance can use a different model. A run already going keeps the model it started with.</p>
+            <label class="agent-def-field">
+              <span>Approval mode</span>
+              <select id="agent-def-edit-mode">
+                <option value="auto">auto</option>
+                <option value="ask">ask</option>
+                <option value="yolo">yolo</option>
+              </select>
+            </label>
+            <p id="agent-def-edit-ask-hint" class="hint" hidden>Ask can block this agent until someone answers in its main channel.</p>
+            <div id="agent-def-edit-review-wrap">
+              <label class="agent-def-field">
+                <span>Auto review prompt</span>
+                <textarea id="agent-def-edit-review" rows="8" spellcheck="false"></textarea>
+              </label>
+              <p class="hint">Replaces the built-in review prompt for every instance of this definition. Reset binds it back to the built-in prompt. In auto, a call the review would ask about is refused and the run continues.</p>
+              <div class="skills-row">
+                <button type="button" id="agent-def-edit-review-reset" class="ghost">Reset to built-in</button>
+              </div>
+            </div>
             <section>
               <h3 class="settings-section-title">Tools</h3>
               <p class="hint">Read and write are separate. The names beside a check are the tools it turns on. An instance can only narrow this.</p>

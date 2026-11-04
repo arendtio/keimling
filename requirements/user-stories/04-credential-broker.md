@@ -30,6 +30,12 @@
 - Ungültige/fremde IDs werden abgelehnt.
 - Secret erscheint nicht in Ergebnis, Logs oder Folge-Prompts.
 
+## US-34 — An MCP tool can be always allowed
+
+**As** a user, **I want** to mark one MCP tool as always allowed, **so that** ask and auto do not stop on it.
+
+**Acceptance:** traces REQ-CB-6. The mark is on the tool, once. Clearing it brings the question back. A credential injected outside the model does not add a question.
+
 ## US-33 — Exec mit Env- und SSH-Credentials
 
 **As** Agent, **I want** in `exec`-Befehlen `{{keimling:<id>}}` zu nutzen, **so that** Tokens per Vault-`inject_env` und SSH-Keys per ephemerem ssh-agent ankommen.

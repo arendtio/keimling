@@ -458,42 +458,41 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 				if item.Name != "finish_task" && item.Name != "update_plan" {
 					a.presentToolStart(item.Name, item.Arguments)
 				}
-				allowed := item.Name == "web_search" || a.Cfg.Mode == "yolo" || item.Name == "update_plan" || item.Name == "finish_task" || item.Name == "delegate" || item.Name == "change_workspace" || item.Name == "set_alarm" || item.Name == "list_alarms" || item.Name == "cancel_alarm" || item.Name == "list_agents" || item.Name == "allow_peer" || item.Name == "message_agent" || item.Name == "list_credentials"
-				reason := ""
-				if a.Cfg.Mode == "auto" && !allowed {
-					if forced, why := forceApproval(item.Name, item.Arguments); forced {
-						// Hard safety floor: never model-overridable.
-						reason = why
-					} else if autoApproved(item.Name, item.Arguments) {
-						// Routine development / read-only diagnostics: no reviewer.
-						allowed = true
-					} else {
-						cwd, _ := os.Getwd()
-						var sus *SoftSuspicion
-						if hit, ok := softSuspicion(item.Name, item.Arguments); ok {
-							sus = &hit
-							a.println("◌ Soft rule", hit.ID, "— reviewer checking for false positive…")
+				a.applyDefinitionApproval()
+				agentRun := strings.TrimSpace(a.Cfg.AgentInstanceID) != ""
+				g := gateToolCall(agentRun, a.Cfg.Mode, item.Name, item.Arguments, mcpToolAlwaysAllowed(a.Cfg.ConfigPath, item.Name))
+				reason := g.Reason
+				if g.Review {
+					cwd, _ := os.Getwd()
+					var sus *SoftSuspicion
+					if hit, ok := softSuspicion(item.Name, item.Arguments); ok {
+						sus = &hit
+						a.println("◌ Soft rule", hit.ID, "— reviewer checking for false positive…")
+					}
+					verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, sus, a.Cfg.ApprovalPolicyReplace)
+					why := verdict.Reason
+					if e == nil {
+						if sus != nil && why == "" {
+							why = sus.Reason
 						}
-						verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, sus)
-						if e != nil {
-							reason = "review unavailable: " + e.Error()
-						} else if verdict.Decision == "approve" {
-							allowed = true
-						} else {
-							reason = verdict.Reason
-							if sus != nil && reason == "" {
-								reason = sus.Reason
-							}
+						if why == "" && verdict.Decision != "approve" {
+							why = "review asked for approval"
 						}
 					}
+					g = settleReview(agentRun, verdict.Decision, why, e)
+					reason = g.Reason
 				}
-				if a.Cfg.Mode == "ask" && (item.Name == "read_file" || item.Name == "activate_skill" || item.Name == "read_skill_file" || item.Name == "show_artifact" || item.Name == "list_credentials") {
-					allowed = true
-				}
-				if reason != "" {
+				if g.Ask && reason != "" {
 					a.println("Approval required:", truncate(reason, 240))
 				}
-				if !allowed {
+				if g.Deny {
+					if reason == "" {
+						reason = "auto mode refused this call"
+					}
+					a.println("Approval refused:", truncate(reason, 240))
+				}
+				allowed := g.Allow
+				if g.Ask {
 					preview := renderApprovalPreview(item.Name, item.Arguments)
 					if preview != "" {
 						a.print(preview)
@@ -530,6 +529,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 					}
 				}
 				result := "DENIED by user"
+				if g.Deny {
+					result = "DENIED: " + reason
+				}
 				rawExecResult := ""
 				if allowed {
 					if item.Name == "update_plan" {

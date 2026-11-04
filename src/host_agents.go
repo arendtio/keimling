@@ -20,13 +20,16 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"recipes": list, "tools": agentToolCatalog(), "groups": agentToolGroups()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"recipes": list, "tools": agentToolCatalog(), "groups": agentToolGroups(), "review_prompt_factory": defaultPolicy})
 	case http.MethodPost:
 		var body struct {
-			Name         string    `json:"name"`
-			Instructions string    `json:"instructions"`
-			Model        *string   `json:"model"`
-			Tools        *[]string `json:"tools"`
+			Name              string    `json:"name"`
+			Instructions      string    `json:"instructions"`
+			Model             *string   `json:"model"`
+			Tools             *[]string `json:"tools"`
+			Mode              string    `json:"mode"`
+			ReviewPrompt      *string   `json:"review_prompt"`
+			ReviewPromptReset *bool     `json:"review_prompt_reset"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil && err != io.EOF {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -47,6 +50,15 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Tools != nil {
 			rec, err = setRecipeTools(rec.ID, *body.Tools)
+			if err != nil {
+				_ = deleteAgentRecipe(rec.ID)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		reset := body.ReviewPromptReset != nil && *body.ReviewPromptReset
+		if body.Mode != "" || body.ReviewPrompt != nil || reset {
+			rec, err = setRecipeApproval(rec.ID, body.Mode, body.ReviewPrompt, reset)
 			if err != nil {
 				_ = deleteAgentRecipe(rec.ID)
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -317,14 +329,28 @@ func (h *Host) handleAgentRecipeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ID           string    `json:"id"`
-		Name         string    `json:"name"`
-		Instructions string    `json:"instructions"`
-		Model        *string   `json:"model"`
-		Tools        *[]string `json:"tools"`
+		ID                string    `json:"id"`
+		Name              string    `json:"name"`
+		Instructions      string    `json:"instructions"`
+		Model             *string   `json:"model"`
+		Tools             *[]string `json:"tools"`
+		Mode              string    `json:"mode"`
+		ReviewPrompt      *string   `json:"review_prompt"`
+		ReviewPromptReset *bool     `json:"review_prompt_reset"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
 		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	reset := body.ReviewPromptReset != nil && *body.ReviewPromptReset
+	if reset && strings.TrimSpace(body.Name) == "" && body.Instructions == "" && body.Tools == nil && body.Model == nil {
+		rec, err := setRecipeApproval(body.ID, body.Mode, nil, true)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(rec)
 		return
 	}
 	rec, err := updateAgentRecipe(body.ID, body.Name, body.Instructions, true)
@@ -341,6 +367,13 @@ func (h *Host) handleAgentRecipeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Tools != nil {
 		rec, err = setRecipeTools(rec.ID, *body.Tools)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if body.Mode != "" || body.ReviewPrompt != nil || reset {
+		rec, err = setRecipeApproval(rec.ID, body.Mode, body.ReviewPrompt, reset)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

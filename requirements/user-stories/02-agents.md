@@ -142,6 +142,12 @@
 
 **Acceptance:** traces REQ-AG-24 and REQ-AG-25. The agent chat shows the model and does not change it. The instance editor can set a model for that instance only. Empty there uses the definition. Empty on the definition uses Settings. Another instance of the same definition is unchanged.
 
+## US-39 — An agent definition owns its approval mode
+
+**As** a user, **I want** the approval mode and the auto review prompt on the agent definition, **so that** its instances keep working without a prompt I am not watching.
+
+**Acceptance:** traces REQ-AG-27, REQ-AG-28, and REQ-AG-29. The instance has neither a mode nor a review prompt. Auto judges uncleared calls with the definition prompt, refuses when that judgment would ask, and continues. Ask asks in the main channel and warns that this can block. Reset binds the prompt back to the factory text. A workspace thread is unchanged.
+
 ## US-37 — An agent prompt that is about that agent
 
 **As** a user, **I want** an agent instance to be instructed as that agent, **so that** it is not also told it is the workspace assistant.

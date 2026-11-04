@@ -19,6 +19,8 @@ type MCPServerConfig struct {
 	Type     string            `json:"type,omitempty"` // stdio | sse | streamableHttp | http
 	Disabled bool              `json:"disabled,omitempty"`
 	OAuth    *MCPOAuth         `json:"oauth,omitempty"`
+	// AllowTools are exposed MCP tool names that run without an approval question.
+	AllowTools []string `json:"allow_tools,omitempty"`
 }
 
 // MCPOAuth is the browser sign-in result for one remote MCP server.
@@ -212,8 +214,68 @@ func UpsertUserMCPServer(name string, cfg MCPServerConfig) error {
 	if servers == nil {
 		servers = map[string]MCPServerConfig{}
 	}
+	if prev, ok := servers[name]; ok && cfg.AllowTools == nil {
+		cfg.AllowTools = prev.AllowTools
+	}
 	servers[name] = cfg
 	return writeMCPFile(path, servers)
+}
+
+// setMCPToolAllow marks or clears one exposed tool name on a saved MCP server.
+func setMCPToolAllow(server, tool string, allow bool) ([]string, error) {
+	server = strings.TrimSpace(server)
+	tool = strings.TrimSpace(tool)
+	if server == "" || tool == "" {
+		return nil, fmt.Errorf("server and tool required")
+	}
+	path := defaultUserMCPPath()
+	servers, err := readMCPFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if servers == nil {
+		servers = map[string]MCPServerConfig{}
+	}
+	cfg, ok := servers[server]
+	if !ok {
+		return nil, fmt.Errorf("unknown MCP server")
+	}
+	next := make([]string, 0, len(cfg.AllowTools)+1)
+	seen := false
+	for _, name := range cfg.AllowTools {
+		if name == tool {
+			seen = true
+			if allow {
+				next = append(next, name)
+			}
+			continue
+		}
+		next = append(next, name)
+	}
+	if allow && !seen {
+		next = append(next, tool)
+	}
+	cfg.AllowTools = next
+	servers[server] = cfg
+	if err := writeMCPFile(path, servers); err != nil {
+		return nil, err
+	}
+	return next, nil
+}
+
+// mcpToolAlwaysAllowed reports whether this exposed tool is marked on any loaded server.
+func mcpToolAlwaysAllowed(configPath, exposed string) bool {
+	if !isMCPTool(exposed) {
+		return false
+	}
+	for _, cfg := range LoadMCPServerConfigs(configPath) {
+		for _, name := range cfg.AllowTools {
+			if name == exposed {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func RemoveUserMCPServer(name string) error {
