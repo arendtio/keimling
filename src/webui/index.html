@@ -44,6 +44,7 @@
         <button type="button" class="settings-tab" data-tab="secrets" role="tab" aria-selected="false">Secrets</button>
         <button type="button" class="settings-tab" data-tab="skills" role="tab" aria-selected="false">Skills</button>
         <button type="button" class="settings-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
+        <button type="button" class="settings-tab" data-tab="plugins" role="tab" aria-selected="false">Plugins</button>
       </div>
 
       <div id="pane-connection" class="settings-pane" role="tabpanel">
@@ -315,6 +316,16 @@
       <div id="pane-mcp" class="settings-pane" hidden role="tabpanel">
         <p class="settings-lead">MCP servers are configured globally for this Keimling install. Tools appear as <code>mcp__server__tool</code>.</p>
         <button type="button" id="open-mcp">Manage MCP servers…</button>
+      </div>
+
+      <div id="pane-plugins" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">An Agent Plugin is a Git repository or a checked-out directory with <code>plugin.json</code>. An enabled plugin adds its skills and MCP servers.</p>
+        <ul id="plugin-list" class="profile-list" aria-label="Plugins"></ul>
+        <label>Git URL or directory
+          <input id="plugin-location" type="text" autocomplete="off" placeholder="https://github.com/org/plugin or /path/to/plugin">
+        </label>
+        <button type="button" id="plugin-add" class="ghost wide">Add plugin</button>
+        <p id="plugin-err" class="gate-err" hidden></p>
       </div>
 
       <div class="gate-actions" id="gate-actions">

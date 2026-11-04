@@ -19,6 +19,7 @@ const (
 	skillSourceUser    = "user"
 	skillSourceCursorP = "cursor-project"
 	skillSourceCursorU = "cursor-user"
+	skillSourcePlugin  = "plugin"
 )
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -194,6 +195,9 @@ func LoadSkillRegistry(cwd string) *SkillRegistry {
 		{userSkillsDir(), skillSourceUser, true},
 		{cursorProjectSkillsDir(cwd), skillSourceCursorP, false},
 		{cursorUserSkillsDir(), skillSourceCursorU, false},
+	}
+	for _, path := range pluginSkillRoots() {
+		roots = append(roots, root{path, skillSourcePlugin, false})
 	}
 	reg := &SkillRegistry{byName: map[string]*SkillMeta{}}
 	for _, r := range roots {

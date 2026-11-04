@@ -21,6 +21,8 @@ type MCPServerConfig struct {
 	OAuth    *MCPOAuth         `json:"oauth,omitempty"`
 	// AllowTools are exposed MCP tool names that run without an approval question.
 	AllowTools []string `json:"allow_tools,omitempty"`
+	// Cwd is the stdio working directory. Empty keeps the process working directory.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // MCPOAuth is the browser sign-in result for one remote MCP server.
@@ -194,6 +196,12 @@ func LoadMCPServerConfigs(configPath string) map[string]MCPServerConfig {
 			continue
 		}
 		merge(m)
+	}
+	for name, cfg := range pluginMCPOverlay() {
+		if _, exists := out[name]; exists {
+			continue
+		}
+		out[name] = cfg
 	}
 	return out
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -207,7 +209,16 @@ func openMCPClient(cfg MCPServerConfig) (*mcpclient.Client, error) {
 			env = append(env, k+"="+v)
 		}
 		sort.Strings(env)
-		return mcpclient.NewStdioMCPClient(cfg.Command, env, cfg.Args...)
+		cwd := strings.TrimSpace(cfg.Cwd)
+		if cwd == "" {
+			return mcpclient.NewStdioMCPClient(cfg.Command, env, cfg.Args...)
+		}
+		return mcpclient.NewStdioMCPClientWithOptions(cfg.Command, env, cfg.Args, transport.WithCommandFunc(func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
+			cmd := exec.CommandContext(ctx, command, args...)
+			cmd.Env = append(os.Environ(), env...)
+			cmd.Dir = cwd
+			return cmd, nil
+		}))
 	case "sse":
 		opts := []transport.ClientOption{}
 		if len(cfg.Headers) > 0 {

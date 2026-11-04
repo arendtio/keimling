@@ -98,6 +98,7 @@
   var paneSecrets = document.getElementById("pane-secrets");
   var paneSkills = document.getElementById("pane-skills");
   var paneMcp = document.getElementById("pane-mcp");
+  var panePlugins = document.getElementById("pane-plugins");
   var vaultStatusEl = document.getElementById("vault-status");
   var vaultUnlockEl = document.getElementById("vault-unlock");
   var vaultBodyEl = document.getElementById("vault-body");
@@ -848,6 +849,90 @@
     return persistClientConnections();
   }
 
+  function showPluginErr(text) {
+    var el = document.getElementById("plugin-err");
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || "";
+  }
+
+  function loadPlugins() {
+    fetch(apiURL("/api/plugins"), { headers: headers() })
+      .then(readAPIResult)
+      .then(function (j) { renderPlugins((j && j.plugins) || []); })
+      .catch(function (err) { showPluginErr(String(err.message || err)); });
+  }
+
+  function renderPlugins(list) {
+    var ul = document.getElementById("plugin-list");
+    if (!ul) return;
+    ul.innerHTML = "";
+    if (!list.length) {
+      var empty = document.createElement("li");
+      empty.textContent = "No plugins yet.";
+      ul.appendChild(empty);
+      return;
+    }
+    list.forEach(function (p) {
+      var li = document.createElement("li");
+      var title = document.createElement("div");
+      title.textContent = p.name || p.location;
+      li.appendChild(title);
+      var meta = document.createElement("p");
+      meta.className = "profile-meta";
+      var bits = [p.kind === "git" ? "Git" : "Directory", p.location];
+      if (p.skills && p.skills.length) bits.push("Skills: " + p.skills.join(", "));
+      if (p.servers && p.servers.length) bits.push("MCP: " + p.servers.join(", "));
+      if (p.notes && p.notes.length) bits.push(p.notes.join("; "));
+      if (p.error) bits.push(p.error);
+      meta.textContent = bits.join(" · ");
+      li.appendChild(meta);
+      var actions = document.createElement("div");
+      actions.className = "profile-row-actions";
+      var on = document.createElement("label");
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!p.enabled;
+      box.addEventListener("change", function () {
+        fetch(apiURL("/api/plugins/enabled"), { method: "POST", headers: headers(), body: JSON.stringify({ id: p.id, enabled: box.checked }) })
+          .then(readAPIResult)
+          .then(loadPlugins)
+          .catch(function (err) { showPluginErr(String(err.message || err)); });
+      });
+      on.appendChild(box);
+      on.appendChild(document.createTextNode(" Enabled"));
+      actions.appendChild(on);
+      if (p.kind === "git") {
+        var refresh = document.createElement("button");
+        refresh.type = "button";
+        refresh.className = "ghost";
+        refresh.textContent = "Refresh";
+        refresh.addEventListener("click", function () {
+          fetch(apiURL("/api/plugins/refresh"), { method: "POST", headers: headers(), body: JSON.stringify({ id: p.id }) })
+            .then(readAPIResult)
+            .then(loadPlugins)
+            .catch(function (err) { showPluginErr(String(err.message || err)); });
+        });
+        actions.appendChild(refresh);
+      }
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", function () {
+        var label = p.name || p.location;
+        if (!window.confirm("Remove plugin " + label + "?")) return;
+        fetch(apiURL("/api/plugins/remove"), { method: "POST", headers: headers(), body: JSON.stringify({ id: p.id }) })
+          .then(readAPIResult)
+          .then(loadPlugins)
+          .catch(function (err) { showPluginErr(String(err.message || err)); });
+      });
+      actions.appendChild(remove);
+      li.appendChild(actions);
+      ul.appendChild(li);
+    });
+  }
+
   function setSettingsTab(tab) {
     tab = tab || "connection";
     if (tab === "agent") tab = "models";
@@ -861,9 +946,11 @@
     if (paneSecrets) paneSecrets.hidden = tab !== "secrets";
     if (paneSkills) paneSkills.hidden = tab !== "skills";
     if (paneMcp) paneMcp.hidden = tab !== "mcp";
+    if (panePlugins) panePlugins.hidden = tab !== "plugins";
     saveSettingsBtn.hidden = tab !== "models";
     connectBtn.hidden = tab !== "connection";
     if (tab === "secrets" && connected) loadCredentialsUI();
+    if (tab === "plugins" && connected) loadPlugins();
   }
 
   function applyVaultPayload(j) {
@@ -6097,11 +6184,32 @@
     }
   });
 
+  var pluginAdd = document.getElementById("plugin-add");
+  if (pluginAdd) {
+    pluginAdd.addEventListener("click", function () {
+      var input = document.getElementById("plugin-location");
+      var location = input ? String(input.value || "").trim() : "";
+      if (!location) {
+        showPluginErr("Git URL or directory required");
+        return;
+      }
+      showPluginErr("");
+      fetch(apiURL("/api/plugins/add"), { method: "POST", headers: headers(), body: JSON.stringify({ location: location }) })
+        .then(readAPIResult)
+        .then(function () {
+          if (input) input.value = "";
+          loadPlugins();
+        })
+        .catch(function (err) { showPluginErr(String(err.message || err)); });
+    });
+  }
+
   settingsTabs.querySelectorAll(".settings-tab").forEach(function (btn) {
     btn.addEventListener("click", function () {
       setSettingsTab(btn.getAttribute("data-tab"));
       if ((btn.getAttribute("data-tab") === "models" || btn.getAttribute("data-tab") === "agent") && connected) loadAgentSettings();
       if (btn.getAttribute("data-tab") === "secrets" && connected) loadCredentialsUI();
+      if (btn.getAttribute("data-tab") === "plugins" && connected) loadPlugins();
     });
   });
   saveSettingsBtn.addEventListener("click", saveAgentSettings);
