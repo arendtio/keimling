@@ -148,6 +148,12 @@
 
 **Acceptance:** traces REQ-AG-27, REQ-AG-28, and REQ-AG-29. The instance has neither a mode nor a review prompt. Auto judges uncleared calls with the definition prompt, refuses when that judgment would ask, and continues. Ask asks in the main channel and warns that this can block. Reset binds the prompt back to the factory text. A workspace thread is unchanged.
 
+## US-40 — Develop an agent from the conversation
+
+**As** a user, **I want** a conversation to read the starting prompt, save an agent or a team, and start it here, **so that** the prompt is developed in the chat and an agent can start another one when its tools allow that.
+
+**Acceptance:** traces REQ-AG-30, REQ-AG-31, REQ-AG-32, REQ-AG-33, and REQ-AG-34. The read returns the instructions a blank definition stores. Save from a thread or an agent creates or updates that definition. Start binds the instance to the workspace the call is running in, and an agent cannot start one in a workspace it cannot use. A team save and start does the same, one instance per definition. A definition that grants every tool is offered these tools. A fixed tool list is offered them only when they are on that list.
+
 ## US-37 — An agent prompt that is about that agent
 
 **As** a user, **I want** an agent instance to be instructed as that agent, **so that** it is not also told it is the workspace assistant.

@@ -45,6 +45,11 @@ func agentToolCatalog() []agentTool {
 		{Name: "cancel_alarm", Label: "Cancel an alarm"},
 		{Name: "list_agents", Label: "List agents"},
 		{Name: "message_agent", Label: "Message an agent"},
+		{Name: "agent_instructions", Label: "Read the starting prompt"},
+		{Name: "save_agent", Label: "Save an agent"},
+		{Name: "spawn_agent", Label: "Start an agent"},
+		{Name: "save_team", Label: "Save a team"},
+		{Name: "spawn_team", Label: "Start a team"},
 	}
 }
 
@@ -63,6 +68,7 @@ func agentToolGroups() []agentToolGroup {
 		{ID: "workspace", Label: "Workspace", Read: []string{}, Write: []string{"change_workspace"}},
 		{ID: "alarms", Label: "Alarms", Read: []string{"list_alarms"}, Write: []string{"set_alarm", "cancel_alarm"}},
 		{ID: "agents", Label: "Agents", Read: []string{"list_agents"}, Write: []string{"message_agent"}},
+		{ID: "define", Label: "Define agents", Read: []string{"agent_instructions"}, Write: []string{"save_agent", "spawn_agent", "save_team", "spawn_team"}},
 		{ID: "models", Label: "Models", Read: []string{}, Write: []string{"delegate"}},
 	}
 }

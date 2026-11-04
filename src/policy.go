@@ -94,7 +94,7 @@ func softSuspicion(name, args string) (SoftSuspicion, bool) {
 // forceApproval is the non-bypassable floor. Soft regex hits are NOT returned here;
 // they go through the review model instead.
 func forceApproval(name, args string) (bool, string) {
-	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "set_alarm" || name == "list_alarms" || name == "cancel_alarm" || name == "list_agents" || name == "allow_peer" || name == "message_agent" || name == "list_credentials" {
+	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "set_alarm" || name == "list_alarms" || name == "cancel_alarm" || name == "list_agents" || name == "allow_peer" || name == "message_agent" || name == "list_credentials" || defineAgentTool(name) {
 		return false, ""
 	}
 	if isMCPTool(name) {
@@ -415,7 +415,7 @@ type toolGate struct {
 
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "set_alarm", "list_alarms", "cancel_alarm", "list_agents", "allow_peer", "message_agent", "list_credentials":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "set_alarm", "list_alarms", "cancel_alarm", "list_agents", "allow_peer", "message_agent", "list_credentials", "agent_instructions":
 		return true
 	default:
 		return false

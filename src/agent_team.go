@@ -113,6 +113,32 @@ func createAgentTeam(name string, definitionIDs []string) (AgentTeam, error) {
 	return t, nil
 }
 
+func updateAgentTeam(id, name string, definitionIDs []string, replaceIDs bool) (AgentTeam, error) {
+	t, err := readAgentTeam(id)
+	if err != nil {
+		return AgentTeam{}, err
+	}
+	if n := strings.TrimSpace(name); n != "" {
+		t.Name = n
+	}
+	if replaceIDs {
+		ids := uniqueNonEmpty(definitionIDs)
+		if len(ids) == 0 {
+			return AgentTeam{}, fmt.Errorf("at least one definition_id required")
+		}
+		for _, defID := range ids {
+			if _, err := readAgentRecipe(defID); err != nil {
+				return AgentTeam{}, fmt.Errorf("definition %s: %w", defID, err)
+			}
+		}
+		t.DefinitionIDs = ids
+	}
+	if err := writeAgentTeam(t); err != nil {
+		return AgentTeam{}, err
+	}
+	return t, nil
+}
+
 func deleteAgentTeam(id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {

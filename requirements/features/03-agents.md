@@ -385,6 +385,56 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-30 A conversation can read the instructions a new agent starts from
+
+- **Bin:** explicit requirement
+- **Statement:** A conversation shall be able to read the instructions a new agent definition starts from, so a later save can change that text instead of beginning from an empty prompt.
+- **Origin:** User, 2026-11-04 (quote: "der Standard, äh, Prompt von 'nem Agenten auch irgendwie dem System bekannt sein. Ähm, damit man darauf aufbauen kann und den vielleicht modifizieren, weiterentwickeln, damit man nicht immer bei null anfängt").
+- **Rationale:** Developing an agent prompt inside a conversation needs a known starting text. An empty field makes every new agent begin from nothing.
+- **Fit criterion:** The read returns the same instructions that a new definition stores when no instructions are given. A definition saved with empty instructions contains that text.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-31 A conversation can save an agent definition
+
+- **Bin:** explicit requirement
+- **Statement:** A workspace thread and an agent instance shall be able to create an agent definition and to replace its instructions later. A new definition's mode is auto. Replacing the instructions leaves the mode as it is. An empty instruction text on a later save leaves the saved instructions.
+- **Origin:** User, 2026-11-04 (quote: "ein Tool, mit dem man Agenten und Teams sowohl anlegen" and "aus einem Chat heraus direkt … den Prompt vom Agenten zu entwickeln" and "das Werkzeug zum Anlegen und Instanzieren von Agenten kann von überall aus ausgeführt werden, so wie das andere Werkzeug auch").
+- **Rationale:** The prompt is developed in the conversation that is already open. The same action has to be available on a workspace thread and on an agent.
+- **Fit criterion:** A workspace thread creates a definition whose instructions are the text it supplied, or the starting text when it supplied none, and whose mode is auto. The same call from an agent instance does this. A later call with new instructions changes the instructions and leaves the mode. A later call with empty instructions leaves the instructions.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-32 A conversation can start an agent in the current workspace
+
+- **Bin:** explicit requirement
+- **Statement:** A workspace thread and an agent instance shall be able to start an agent instance from a definition in the workspace the call is running in. An agent shall not start one in a workspace it cannot use.
+- **Origin:** User, 2026-11-04 (quote: "Agenten und Teams sowohl anlegen, instanzieren" and "eventuell gibt es auch Use Cases, wo es interessant ist, dass ein Agent einen anderen instanziert, so ähnlich wie man ja auch Delegate oder Submodelle nutzen kann").
+- **Rationale:** Starting an agent is a step in the same conversation, including when one agent needs another the way a thread uses a delegate.
+- **Fit criterion:** A call from a workspace thread creates an instance of the named definition bound to that thread's workspace. A call from an agent instance creates an instance bound to that agent's current workspace when the agent may use it. A call for a workspace the agent may not use creates no instance.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-33 A conversation can save and start a team
+
+- **Bin:** explicit requirement
+- **Statement:** A workspace thread and an agent instance shall be able to save a team of definitions and to start that team in the workspace the call is running in, one instance per definition.
+- **Origin:** User, 2026-11-04 (quote: "genauso würde ich auch Teams von Agenten, ähm, ähnlich persistieren wollen" and "ein Tool, mit dem man Agenten und Teams sowohl anlegen, instanzieren").
+- **Rationale:** A team is the set of agents that should start together. The conversation that defines them is the place that starts them.
+- **Fit criterion:** A call saves a team that names existing definitions. A later call in a workspace starts one instance of each definition in that workspace. The same calls work from an agent instance that may use the workspace.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-34 The existing tool grant decides who may do this
+
+- **Bin:** explicit constraint
+- **Statement:** Creating and starting agents and teams shall be native tools, available wherever the other native tools are available. A definition that grants every tool shall include them. A definition with a fixed tool list shall include them only when that list grants them.
+- **Origin:** User, 2026-11-04 (quote: "kann von überall aus ausgeführt werden, so wie das andere Werkzeug auch" and "Agenten haben ja bereits eine Mechanik, mit der man Tools abschalten kann, wenn man das möchte oder anschalten und die können wir ganz normal nutzen").
+- **Rationale:** Agents already have a per-definition tool switch. A second switch for this action would split the same decision.
+- **Fit criterion:** A workspace thread is offered the tools. An agent whose definition grants every tool is offered them. An agent whose definition lists tools and omits these is not offered them. Adding them to that list offers them.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 Until the user saves tools on a definition, that definition grants every tool. Saving stores the checked tools. An instance with no narrower set uses that definition. Saving the same set again clears the instance override. REQ-AG-2’s unanswered default is this design, not a stakeholder shall.
@@ -396,6 +446,8 @@ MCP servers are a second table: one checkbox per server, and that server’s too
 Contacts are set by the user on the instance. Saving the set writes the same link on both instances. A message is allowed when either instance lists the other, so an older one-way link still lets the other side reply. The model is not offered a tool that adds contacts. A definition may store a model id. Empty means Settings. An instance may store its own model id. Empty means the definition. The agent chat shows that model and does not open a picker. The choice is read again for each new message. A run already started keeps the model it started with. Compaction, autopilot, and the review model stay on Settings. The review prompt for an agent definition is REQ-AG-28. A call that is already cleared (routine work inside the workspace, a whitelisted MCP tool, or a tool that never asks) does not go through that prompt. For an agent in auto, every other call does, including file edits and MCP calls that a workspace thread would still force onto the user. Approve runs the tool. Ask, or a missing review, refuses it. The factory prompt still says to ask for privileged, destructive, and secret-sensitive commands, so those are refused unless the saved prompt says otherwise. A saved prompt replaces the factory text in full, as an autopilot prompt does. yolo asks nothing and does not use the prompt. The ask warning sits on the definition's mode control. Reset of the review prompt discards typed text; a confirm belongs on that control as a design default. The refusal is visible on the tool line in the main channel. An unknown id is rejected when saving. If one is already stored and no longer configured, the chat uses Settings and says so. When the same id exists on more than one provider, the Settings provider wins if it has that id.
 
 A message from A to B is a line in A’s channel ("To B") and, when B’s worker runs, a line in B’s channel ("From A"). The host starts B’s worker when a message is waiting. The checkbox screen is the take-back: uncheck and save again. Delete of an instance asks by name and is not beside Save. There is no restore after that confirm.
+
+A conversation reads the starting instructions, saves a definition, and starts an instance with native tools (`agent_instructions`, `save_agent`, `spawn_agent`, `save_team`, `spawn_team`). The stored definition stays the JSON recipe. The saved text is the job; identity and tool rules are still wrapped around it at run time. Empty instructions on create store the starting text. Empty instructions on update keep the saved text. The mode of a new definition is auto, and an update does not change it. Start uses the workspace the call is running in and does not take a workspace argument. An agent whose current workspace is outside its ACL gets an error and no instance. When a host is reachable the host creates the instance and starts its worker. With no host the instance is saved and does not run. A team start creates one instance per definition and lets those instances message each other. The grant table has a Define agents row: read is the starting prompt, write is save and start for agents and teams. Reading the starting prompt does not ask. Save and start follow ask, auto, and yolo like other tools that are not cleared in advance: ask asks, workspace auto reviews, agent auto reviews and refuses when that review would ask, yolo runs. The way back is the existing definition and instance delete in Manage. A definition that still has an instance is still not deleted.
 
 Typing `@` in a workspace thread opens a list of instances that may use that workspace. The list is positioned over the page so the chat's overflow does not clip it. Each row shows the name and the instance id. Choosing one inserts the name into the draft and remembers that id. Nothing is sent until the user sends the draft. Escape or editing the draft drops the choice. A name that matches one instance is enough; a name that matches several is not sent until one id is chosen. The workspace model does not run for that send. The thread shows who received it. The addressed instance is woken with the message text after the name is removed. The wake line is `[From thread_id=<id> via message_agent]`, so the id can be copied exactly and the agent can see the line arrived through message_agent. That id is the workspace thread the message was recorded on. An agent instance keeps its own thread id on the instance. It does not create a workspace thread with that id, and the workspace thread list does not show it. The chat shows the sender without that marker. A call that prefixes `agent-` onto that thread id still reaches the thread. `message_agent` accepts another agent's instance id or a thread id in a workspace this agent may use. A reply into a thread is a line in that thread, not a new run of the workspace model. The agent's own instructions include its name, instance id, and that its chat with the user is not a broadcast. They also include a worked example of answering a thread, answering another agent, and receiving that agent's reply, with sample ids marked as samples. When the user names another agent only roughly, the example calls list_agents before message_agent. set_alarm wakes only that agent. A schedule the user gave it is its own alarm, not a request that the other agent create one. A reply to another agent goes back to that agent. An `[Alarm]` line is a reminder that agent wrote for itself.
 

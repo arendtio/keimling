@@ -120,6 +120,10 @@ func listAgentRecipes() ([]AgentRecipe, error) {
 	return out, nil
 }
 
+// defaultAgentInstructions is the job text a new definition starts from.
+// The harness still wraps identity and tool rules around it at run time.
+const defaultAgentInstructions = "You are a focused Keimling agent. Work carefully in the workspaces you can access. Use change_workspace before touching files outside the current directory."
+
 func createAgentRecipe(name, instructions string) (AgentRecipe, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -127,7 +131,7 @@ func createAgentRecipe(name, instructions string) (AgentRecipe, error) {
 	}
 	instr := strings.TrimSpace(instructions)
 	if instr == "" {
-		instr = "You are a focused Keimling agent. Work carefully in the workspaces you can access. Use change_workspace before touching files outside the current directory."
+		instr = defaultAgentInstructions
 	}
 	r := AgentRecipe{
 		ID:           newRecipeID(),

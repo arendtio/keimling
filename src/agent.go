@@ -603,6 +603,8 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 						result = a.messageAgent(item.Arguments)
 					} else if item.Name == "list_credentials" {
 						result = a.listCredentialsTool(item.Arguments)
+					} else if defineAgentTool(item.Name) {
+						result = a.runDefineAgentTool(item.Name, item.Arguments)
 					} else if item.Name == "show_artifact" {
 						result = a.showArtifact(item.Arguments)
 					} else if item.Name == "search_history" {
