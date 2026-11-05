@@ -17,7 +17,7 @@ was previously called *tinyagent*.
 
 ## Related documents
 
-- [`../README.md`](../README.md) — installation, command-line options, interactive commands
+- [`../README.md`](../README.md) — what it is, how it runs, flags, configuration, and build
 - [`../src`](../src) — implementation
 
 ## Status conventions

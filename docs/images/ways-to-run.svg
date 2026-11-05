@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" role="img" aria-labelledby="title desc">
+  <title id="title">Ways Keimling runs</title>
+  <desc id="desc">A window or a terminal is the agent and ends when you close it. A server stays running while a browser or another terminal connects and leaves.</desc>
+  <style>
+    text { font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  </style>
+  <rect width="960" height="400" rx="28" fill="#f4f6f7"/>
+
+  <text x="36" y="52" fill="#232629" font-size="16" font-weight="600">Stops when you close it</text>
+  <text x="36" y="76" fill="#7b828a" font-size="13">The window or the terminal is the process.</text>
+
+  <text x="508" y="52" fill="#232629" font-size="16" font-weight="600">Keeps running</text>
+  <text x="508" y="76" fill="#7b828a" font-size="13">Clients open and close. The server stays.</text>
+
+  <rect x="36" y="104" width="214" height="260" rx="20" fill="#ffffff"/>
+  <circle cx="60" cy="136" r="6" fill="#2f8f6b"/>
+  <text x="76" y="141" fill="#232629" font-size="14" font-weight="600">Window</text>
+  <rect x="52" y="164" width="48" height="176" rx="12" fill="#f3f4f5"/>
+  <rect x="112" y="172" width="114" height="10" rx="5" fill="#e6e8ea"/>
+  <rect x="112" y="194" width="88" height="10" rx="5" fill="#eef0f1"/>
+  <rect x="112" y="216" width="102" height="10" rx="5" fill="#eef0f1"/>
+  <rect x="112" y="292" width="114" height="32" rx="12" fill="#e7f4ee"/>
+
+  <rect x="266" y="104" width="214" height="260" rx="20" fill="#202326"/>
+  <text x="290" y="141" fill="#f2f4f6" font-size="14" font-weight="600">Terminal</text>
+  <path d="M290 188 l10 8 l-10 8" fill="none" stroke="#3daee9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="310" y="190" width="132" height="10" rx="5" fill="#3a4148"/>
+  <rect x="290" y="222" width="156" height="8" rx="4" fill="#343b42"/>
+  <rect x="290" y="240" width="112" height="8" rx="4" fill="#2c3338"/>
+
+  <rect x="508" y="104" width="200" height="156" rx="20" fill="#ffffff"/>
+  <rect x="524" y="122" width="168" height="28" rx="14" fill="#f3f4f5"/>
+  <circle cx="542" cy="136" r="4" fill="#2f8f6b"/>
+  <rect x="554" y="132" width="84" height="8" rx="4" fill="#dfe2e4"/>
+  <text x="524" y="180" fill="#232629" font-size="14" font-weight="600">Browser</text>
+  <text x="524" y="202" fill="#7b828a" font-size="12">open it, close it</text>
+  <rect x="524" y="220" width="78" height="8" rx="4" fill="#e7e9eb"/>
+
+  <rect x="724" y="104" width="200" height="156" rx="20" fill="#ffffff"/>
+  <rect x="740" y="122" width="168" height="40" rx="12" fill="#202326"/>
+  <path d="M756 136 l8 6 l-8 6" fill="none" stroke="#3daee9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="772" y="136" width="96" height="8" rx="4" fill="#3a4148"/>
+  <text x="740" y="190" fill="#232629" font-size="14" font-weight="600">Terminal</text>
+  <text x="740" y="212" fill="#7b828a" font-size="12">attach, then leave</text>
+
+  <rect x="508" y="292" width="416" height="72" rx="20" fill="#17352c"/>
+  <circle cx="540" cy="328" r="6" fill="#6fbf9a"/>
+  <text x="558" y="334" fill="#f4fffa" font-size="16" font-weight="600">Server</text>
+  <text x="648" y="334" fill="#9dcebb" font-size="13">still here</text>
+</svg>

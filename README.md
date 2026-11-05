@@ -1,44 +1,55 @@
 # Keimling
 
-Keimling is an experimental interactive agent for Linux, macOS, and Windows, written in Go. It uses the OpenAI Responses API and provides local tools, interactive approval modes, persistent sessions, optional web search, audio input, and context compaction.
+Keimling is a coding agent you run yourself. One small binary is the window, the terminal, and the server. It runs on Linux, macOS, and Windows.
 
-## Requirements
+![Keimling window: a chat about field notes, with the workspace in the sidebar](docs/images/window.png)
 
-- Linux, macOS, or Windows, and Go 1.26 or newer to build
-- An OpenAI API key, supplied through `OPENAI_API_KEY`, `OPENAI_API_KEY_FILE`, or `~/.credentials_openai` (mode `600`)
-- A voice recorder when using the microphone: `arecord` on Linux, `rec` (SoX) or `ffmpeg` on macOS, `ffmpeg` on Windows
-- For the native GUI: system WebView (WebKitGTK 4.1+ on Linux, WKWebView on macOS, WebView2 on Windows). `make build` on that operating system links the system web view. `make build-nogui` forces a CLI/server-only binary.
+The same agent in the terminal:
 
-## Build and test
+![Keimling in the terminal, reading NOTES.md and answering](docs/images/cli.png)
 
-The Go module lives in [`src/`](src). `make` builds the binary into the repository root:
+## Ways to run it
 
-```sh
-make            # build ./keimling
-make test       # run the test suite
-make check      # gofmt, go vet, and the tests
-make clean      # remove the binary
-./keimling --help
-```
+![A window or a terminal ends when you close it. A server stays up while a browser or another terminal visits.](docs/images/ways-to-run.svg)
 
-Without make, use `cd src && go build -trimpath -o ../keimling .`.
-
-GitHub Actions (`.github/workflows/gui.yml`) builds the windowed binaries for Linux, macOS, and Windows. Each binary is stamped with the short git commit; `keimling --version` prints it. A push to `main` publishes them as a GitHub Release under that commit.
-
-## Run
+The window and the terminal are the agent. Close them and it stops.
 
 ```sh
-export OPENAI_API_KEY=...
-make run ARGS="--mode ask --model gpt-6-luna"
+./keimling
+./keimling --cli
 ```
 
-`make run` builds first, then starts `./keimling` with the given arguments.
+A server is the same agent, and it keeps running. A browser, or a terminal with `--connect`, attaches when you want to look or type. Closing that client leaves the server up.
 
-The default mode is `auto`; use `--mode ask` for confirmation before tool actions. `--mode yolo` skips confirmations and should only be used in a suitably isolated environment. Configuration is read from `~/.config/keimling/config.json` by default (`%AppData%\keimling\config.json` on Windows); sessions are stored under `~/.local/state/keimling/`. Both locations can be overridden with command-line options.
+```sh
+./keimling --server --listen 127.0.0.1:7420 --access-secret …
+./keimling --connect http://127.0.0.1:7420 --access-secret …
+```
+
+## The model is yours
+
+The chat speaks the OpenAI Responses API. Point it at OpenAI, OpenRouter, or a local server such as llama.cpp. You can start with no provider and add one in Settings. Voice and web search are separate choices: they stay off until you pick a service, and that key is not sent to the chat provider.
+
+## What it can use
+
+The agent reads and edits files in the workspace and can run the shell. Skills, MCP servers, and plugins extend it. You can define agents and teams and talk to them from the chat. Previews open beside the conversation.
+
+## Try it
+
+Download a [release](https://github.com/arendtio/keimling/releases) for your OS, or build it. Building needs Go 1.26 or newer. The window uses the system web view: WebKitGTK 4.1 on Linux, WKWebView on macOS, WebView2 on Windows.
+
+```sh
+make
+./keimling
+```
+
+## Limits
+
+Keimling is experimental. It runs unsandboxed, with the permissions of the user who started it.
 
 ## Command-line options
 
-Run `./keimling --help` for the generated list; command-line flags override values from the configuration file.
+Run `./keimling --help` for the generated list. Flags override the configuration file.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
@@ -47,19 +58,19 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 | `--cli` | off | Force shell client |
 | `--server` | off | HTTP agent server only (UI + API; no interactive client) |
 | `--listen` | none | Listen address for `--server` (required), e.g. `0.0.0.0:7420` |
-| `--connect` | none | Attach CLI to remote agent base URL (needs `--access-secret`) |
-| `--access-secret` | none | Shared secret for agent HTTP API (required with `--server`; or `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE`) |
+| `--connect` | none | Attach the terminal to a running server (needs `--access-secret`) |
+| `--access-secret` | none | Shared secret for the HTTP API (required with `--server`; or `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE`) |
 | `--public-url` | none | Public base URL for `share_file` links (e.g. `https://keimling.example.com`); else derived from `X-Forwarded-*` |
 | `--mode` | `auto` | Approval mode: `ask`, `auto`, or `yolo` |
 | `--model` | `gpt-6-luna` | Model for the main conversation |
 | `--reasoning` | `high` | Reasoning effort: `low`, `medium`, `high`, `xhigh`, `max` |
 | `--config` | `~/.config/keimling/config.json` (Windows: `%AppData%\keimling\config.json`) | JSON configuration file |
-| `--api-key-file` | from `OPENAI_API_KEY` / `~/.credentials_openai` | Key file for the model provider |
-| `--base-url` | OpenAI | Responses-compatible endpoint, e.g. `http://localhost:8080/v1` |
+| `--api-key-file` | | Key file for the model provider |
+| `--base-url` | | Responses-compatible endpoint, e.g. `http://localhost:8080/v1` |
 | `--api-mode` | `responses` | Only `responses` is supported |
-| `--web` | `true` | Enable OpenAI web search |
+| `--web` | `true` | Allow web search when a search service is configured |
 | `--check-model` | `true` | Validate the model against `/models` at startup |
-| `--session` | `~/.local/state/keimling/session.jsonl` | JSONL session file |
+| `--session` | workspace thread under the data directory | JSONL session file |
 | `--resume` | `true` | Resume the last session |
 | `--max-steps` | `200` | Maximum API rounds per user task |
 | `--context-limit` | `128000` | Context token budget for compaction |
@@ -74,10 +85,12 @@ Run `./keimling --help` for the generated list; command-line flags override valu
 | `--delegate-balanced-model` | `gpt-6.1-sol` | Balanced delegate model |
 | `--delegate-deep-model` | `gpt-6.1-sol` | Deep delegate model |
 | `--voice-model` | `gpt-transcribe` | Transcription model |
-| `--disable-external-services` | `false` | Disable OpenAI web search and transcription |
-| `--openai-api-key-file` | none | Separate OpenAI key file for web search and transcription |
+| `--disable-external-services` | `false` | Disable web search and transcription |
+| `--openai-api-key-file` | none | Separate OpenAI key file for web search and transcription when those services use OpenAI |
 
 If the model cannot be found in the provider catalog, startup exits with status 2; other check failures only warn.
+
+Threads and workspaces are stored under `~/.local/share/keimling/` on Linux and macOS. On Windows that data lives in the user cache directory. Configuration is `~/.config/keimling/config.json`, or `%AppData%\keimling\config.json` on Windows.
 
 ## Interactive commands
 
@@ -100,30 +113,40 @@ During a task, type a message to steer the next step. Key bindings: `Ctrl+G` tog
 
 ## Configuration file
 
+Settings → Models writes the provider list. A provider is a name, a Responses base URL, a key, and the models you keep. `openai.key` is only for web search and transcription when those services use OpenAI, and is never sent to a custom chat provider. You can use `key_file` instead of an inline key. The file is mode `0600`. Anyone with the access secret may change it through the UI.
+
 ```json
 {
-  "api": { "base_url": "https://openrouter.ai/api/v1", "model": "…", "mode": "ask", "key": "sk-or-…" },
-  "openai": { "key": "sk-…" },
-  "features": { "web_search": true, "disable_external_services": false }
+  "model_providers": [
+    {
+      "id": "provider-local",
+      "name": "local",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "kind": "local",
+      "model": "llama"
+    }
+  ],
+  "active_model_provider_id": "provider-local"
 }
 ```
 
-`api.key` is the model-provider credential (OpenRouter, local server, …). `openai.key` is only for web search and transcription and is never sent to a custom provider. You can use `key_file` instead of inline `key`. The UI Settings → Agent form can write these fields (mode `0600`); anyone with the access secret may change them.
+## Build
 
-## File editing
+The Go module lives in [`src/`](src). `make` builds `./keimling` in the repository root.
 
-Edits happen through two tools: `edit_file` does exact `old_string` → `new_string`
-replacement (optionally `replace_all`), and `write_file` creates or overwrites a
-whole file. See [tools-and-editing.md](docs/tools-and-editing.md). In automatic
-modes every edit inside the working directory is either approved by the review
-model or shown as a preview before the approval prompt.
+```sh
+make            # build ./keimling
+make test       # run the test suite
+make check      # gofmt, go vet, and the tests
+make clean      # remove the binary
+```
 
-## Documentation
+`make build-nogui` builds the terminal and server binary without a web view. Without make: `cd src && go build -trimpath -o ../keimling .`.
 
-The [`docs/`](docs/README.md) directory describes the concept and architecture: guiding principles and provider integration, the agent loop and supervision, tools and file editing, history and semantic compaction, and the security and quality standards.
+GitHub Actions (`.github/workflows/gui.yml`) builds the windowed binaries for Linux, macOS, and Windows. Each binary is stamped with the short git commit; `keimling --version` prints it. A push to `main` publishes them as a GitHub Release under that commit.
 
-## Safety
+A voice recorder is needed only for the microphone: `arecord` on Linux, `rec` (SoX) or `ffmpeg` on macOS, `ffmpeg` on Windows.
 
-Keimling is experimental and is not a sandbox. In automatic modes, tools act with the permissions of the current user; shell commands can bypass restrictions applied to individual file tools. Review actions and outputs, and do not use it unattended for sensitive tasks.
+How it is put together is in [docs/](docs/README.md).
 
 See [LICENSE](LICENSE) for licensing information.
