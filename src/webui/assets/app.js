@@ -354,6 +354,29 @@
     return apiBase.replace(/\/$/, "") + path;
   }
 
+  function askConfirm(message, confirmLabel) {
+    var dlg = document.getElementById("confirm-dialog");
+    var text = document.getElementById("confirm-text");
+    var ok = document.getElementById("confirm-ok");
+    var cancel = document.getElementById("confirm-cancel");
+    if (!dlg || !text || !ok || typeof dlg.showModal !== "function") {
+      return Promise.resolve(false);
+    }
+    if (dlg.open) dlg.close();
+    text.textContent = message == null ? "" : String(message);
+    ok.textContent = confirmLabel || "OK";
+    dlg.returnValue = "";
+    return new Promise(function (resolve) {
+      function onClose() {
+        dlg.removeEventListener("close", onClose);
+        resolve(dlg.returnValue === "ok");
+      }
+      dlg.addEventListener("close", onClose);
+      dlg.showModal();
+      if (cancel) cancel.focus();
+    });
+  }
+
   function storePrefs() {
     try {
       localStorage.setItem(STORAGE_SEEN, "1");
@@ -801,26 +824,28 @@
 
   function deleteConnectionEditor() {
     if (!editingConnectionID) return;
-    if (!window.confirm("Delete this connection profile?")) return;
-    if (editingConnectionScope === "server") {
-      serverConnectionsCache = serverConnectionsCache.filter(function (c) {
-        return c.id !== editingConnectionID;
-      });
-      if (connectTarget.source === "server" && connectTarget.id === editingConnectionID) {
-        selectConnectTarget("current");
+    askConfirm("Delete this connection profile?", "Delete").then(function (yes) {
+      if (!yes) return;
+      if (editingConnectionScope === "server") {
+        serverConnectionsCache = serverConnectionsCache.filter(function (c) {
+          return c.id !== editingConnectionID;
+        });
+        if (connectTarget.source === "server" && connectTarget.id === editingConnectionID) {
+          selectConnectTarget("current");
+        }
+        persistServerConnections();
+      } else {
+        clientConnectionsCache = clientConnectionsCache.filter(function (c) {
+          return c.id !== editingConnectionID;
+        });
+        if (connectTarget.source === "client" && connectTarget.id === editingConnectionID) {
+          selectConnectTarget("current");
+        }
+        persistClientConnections();
       }
-      persistServerConnections();
-    } else {
-      clientConnectionsCache = clientConnectionsCache.filter(function (c) {
-        return c.id !== editingConnectionID;
-      });
-      if (connectTarget.source === "client" && connectTarget.id === editingConnectionID) {
-        selectConnectTarget("current");
-      }
-      persistClientConnections();
-    }
-    closeConnectionEditor();
-    renderAllConnectionLists();
+      closeConnectionEditor();
+      renderAllConnectionLists();
+    });
   }
 
   function adoptServerConnectionToClient(c) {
@@ -922,11 +947,13 @@
       remove.textContent = "Remove";
       remove.addEventListener("click", function () {
         var label = p.name || p.location;
-        if (!window.confirm("Remove plugin " + label + "?")) return;
-        fetch(apiURL("/api/plugins/remove"), { method: "POST", headers: headers(), body: JSON.stringify({ id: p.id }) })
-          .then(readAPIResult)
-          .then(loadPlugins)
-          .catch(function (err) { showPluginErr(String(err.message || err)); });
+        askConfirm("Remove plugin " + label + "?", "Remove").then(function (yes) {
+          if (!yes) return;
+          fetch(apiURL("/api/plugins/remove"), { method: "POST", headers: headers(), body: JSON.stringify({ id: p.id }) })
+            .then(readAPIResult)
+            .then(loadPlugins)
+            .catch(function (err) { showPluginErr(String(err.message || err)); });
+        });
       });
       actions.appendChild(remove);
       li.appendChild(actions);
@@ -1100,7 +1127,8 @@
 
   function deleteCredentialEditor() {
     if (!editingCredentialID) return;
-    if (!window.confirm("Delete this credential?")) return;
+    askConfirm("Delete this credential?", "Delete").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/credentials/" + encodeURIComponent(editingCredentialID)), {
       method: "DELETE",
       headers: headers(),
@@ -1114,6 +1142,7 @@
         gateErr.hidden = false;
         gateErr.textContent = String(e);
       });
+    });
   }
 
   function activeModelOf(p) {
@@ -1510,12 +1539,14 @@
     var ask = last
       ? "Remove “" + name + "”? Chat cannot call a model until you add one. Save settings to keep this. The saved API key is removed with it."
       : "Remove “" + name + "”? Save settings to keep this. The saved API key is removed with it.";
-    if (!window.confirm(ask)) return;
-    providersCache = providersCache.filter(function (p) { return p.id !== editingProviderID; });
-    if (activeProviderID === editingProviderID) activeProviderID = providersCache[0] ? providersCache[0].id : "";
-    closeProviderEditor();
-    syncHiddenProviderFields();
-    renderProviderList();
+    askConfirm(ask, "Remove").then(function (yes) {
+      if (!yes) return;
+      providersCache = providersCache.filter(function (p) { return p.id !== editingProviderID; });
+      if (activeProviderID === editingProviderID) activeProviderID = providersCache[0] ? providersCache[0].id : "";
+      closeProviderEditor();
+      syncHiddenProviderFields();
+      renderProviderList();
+    });
   }
 
   function fillVoiceAndSearch(j) {
@@ -2193,7 +2224,8 @@
 
   function hideWorkspace(ws) {
     var name = (ws && (ws.name || ws.id)) || "this workspace";
-    if (!window.confirm("Remove “" + name + "” from the menu?\n\nNo files are deleted. Open the folder again to put it back.")) return;
+    askConfirm("Remove “" + name + "” from the menu?\n\nNo files are deleted. Open the folder again to put it back.", "Remove").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/workspaces/hide"), {
       method: "POST",
       headers: headers(),
@@ -2204,6 +2236,7 @@
       .catch(function (err) {
         appendLive("\n[workspace] " + err + "\n");
       });
+    });
   }
 
   function openWorkspacePath(path) {
@@ -2428,9 +2461,8 @@
   function deleteThread(id, label) {
     if (!id) return;
     var name = label || id;
-    if (!window.confirm("Delete thread “" + name + "” permanently?\n\nThis cannot be undone. The conversation and its local data will be removed.")) {
-      return;
-    }
+    askConfirm("Delete thread “" + name + "” permanently?\n\nThis cannot be undone. The conversation and its local data will be removed.", "Delete").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/threads/delete"), {
       method: "POST",
       headers: headers(),
@@ -2453,6 +2485,7 @@
       .catch(function (err) {
         appendLive("\n[threads] " + err + "\n");
       });
+    });
   }
 
   function renderAgentList() {
@@ -2785,9 +2818,8 @@
   function resetAgent(id, label) {
     if (!id) return;
     var name = label || id;
-    if (!window.confirm("Reset “" + name + "” to a fresh context?\n\nThe conversation and charter are cleared. The old transcript is kept as a backup file. Contacts, tools, and alarms stay.")) {
-      return;
-    }
+    askConfirm("Reset “" + name + "” to a fresh context?\n\nThe conversation and charter are cleared. The old transcript is kept as a backup file. Contacts, tools, and alarms stay.", "Reset").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/agents/instances/reset"), {
       method: "POST",
       headers: headers(),
@@ -2802,14 +2834,14 @@
       .catch(function (err) {
         appendLive("\n[agents] " + err + "\n");
       });
+    });
   }
 
   function deleteAgent(id, label) {
     if (!id) return;
     var name = label || id;
-    if (!window.confirm("Delete agent “" + name + "” permanently?\n\nThis removes the instance and its main thread. The definition stays.")) {
-      return;
-    }
+    askConfirm("Delete agent “" + name + "” permanently?\n\nThis removes the instance and its main thread. The definition stays.", "Delete").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/agents/instances/delete"), {
       method: "POST",
       headers: headers(),
@@ -2826,6 +2858,7 @@
       .catch(function (err) {
         showAgentDefErr(String(err.message || err));
       });
+    });
   }
 
   function showAgentDefErr(msg) {
@@ -3149,15 +3182,17 @@
         actions.className = "agent-manage-actions";
         actions.appendChild(manageAction("Spawn", "ghost", function () { spawnTeam(team.id); }));
         actions.appendChild(manageAction("Delete", "ghost danger", function () {
-          if (!window.confirm("Delete team “" + (team.name || team.id) + "”? Instances already spawned stay.")) return;
-          fetch(apiURL("/api/agents/teams/delete"), {
-            method: "POST",
-            headers: headers(),
-            body: JSON.stringify({ id: team.id }),
-          })
-            .then(readAPIResult)
-            .then(function () { return loadTeams(); })
-            .catch(function (err) { showAgentDefErr(String(err)); });
+          askConfirm("Delete team “" + (team.name || team.id) + "”? Instances already spawned stay.", "Delete").then(function (yes) {
+            if (!yes) return;
+            fetch(apiURL("/api/agents/teams/delete"), {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ id: team.id }),
+            })
+              .then(readAPIResult)
+              .then(function () { return loadTeams(); })
+              .catch(function (err) { showAgentDefErr(String(err)); });
+          });
         }));
         row.appendChild(name);
         row.appendChild(actions);
@@ -3470,7 +3505,8 @@
 
   function deleteEditDefinition() {
     if (!editingDefinitionID) return;
-    if (!window.confirm("Delete this definition? Instances using it must be deleted first.")) return;
+    askConfirm("Delete this definition? Instances using it must be deleted first.", "Delete").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/agents/recipes/delete"), {
       method: "POST",
       headers: headers(),
@@ -3485,6 +3521,7 @@
       .catch(function (err) {
         showAgentDefErr(String(err));
       });
+    });
   }
 
   function createInstanceFromDefinition() {
@@ -3549,7 +3586,8 @@
 
   function spawnTeam(id) {
     if (!id || !currentWorkspaceID) return;
-    if (!window.confirm("Spawn team instances in this workspace?")) return;
+    askConfirm("Spawn team instances in this workspace?", "Spawn").then(function (yes) {
+      if (!yes) return;
     fetch(apiURL("/api/agents/teams/spawn"), {
       method: "POST",
       headers: headers(),
@@ -3565,6 +3603,7 @@
       .catch(function (err) {
         showAgentDefErr(String(err));
       });
+    });
   }
 
   function memoryLabel(m) {
@@ -4983,7 +5022,8 @@
       var dirty = autopilotInstructionsEl && autopilotInstructionsEl.value !== threadAutopilotSaved;
       var msg = "Drop this thread's instructions and follow the global prompt again?";
       if (dirty) msg += " Unsaved edits in this box are discarded.";
-      if (!window.confirm(msg)) return;
+      askConfirm(msg, "Reset").then(function (yes) {
+        if (!yes) return;
       threadAutopilotUndoText = threadAutopilotSaved;
       fetch(apiURL("/api/threads/autopilot"), {
         method: "PUT",
@@ -5002,6 +5042,7 @@
             autopilotInstructionsErr.textContent = String(err.message || err);
           }
         });
+      });
     });
   }
   if (autopilotInstructionsUndo) {
@@ -5032,7 +5073,8 @@
       var dirty = setAutopilotInstructions && setAutopilotInstructions.value !== autopilotSettingsBaseline;
       var msg = "Reset global autopilot instructions to the built-in prompt? Threads that saved their own text keep it.";
       if (dirty) msg += " Unsaved edits in this box are discarded.";
-      if (!window.confirm(msg)) return;
+      askConfirm(msg, "Reset").then(function (yes) {
+        if (!yes) return;
       autopilotSettingsUndoText = autopilotSettingsBaseline;
       fetch(apiURL("/api/settings"), {
         method: "PUT",
@@ -5051,6 +5093,7 @@
             setAutopilotInstructionsErr.textContent = String(err.message || err);
           }
         });
+      });
     });
   }
   if (setAutopilotInstructionsUndo) {
@@ -5223,22 +5266,24 @@
         rmBtn.className = "ghost danger";
         rmBtn.textContent = "Remove";
         rmBtn.addEventListener("click", function () {
-          if (!window.confirm("Remove skill “" + sk.name + "”?")) return;
-          showSkillsErr("");
-          rmBtn.disabled = true;
-          fetch(apiURL("/api/skills/remove"), {
-            method: "POST",
-            headers: headers(),
-            body: JSON.stringify({ name: sk.name }),
-          })
-            .then(function (r) {
-              return r.text().then(function (t) {
-                if (!r.ok) throw new Error(t || r.status);
-              });
+          askConfirm("Remove skill “" + sk.name + "”?", "Remove").then(function (yes) {
+            if (!yes) return;
+            showSkillsErr("");
+            rmBtn.disabled = true;
+            fetch(apiURL("/api/skills/remove"), {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ name: sk.name }),
             })
-            .then(function () { return loadSkillsList(); })
-            .catch(function (e) { showSkillsErr(e.message || e); })
-            .finally(function () { rmBtn.disabled = false; });
+              .then(function (r) {
+                return r.text().then(function (t) {
+                  if (!r.ok) throw new Error(t || r.status);
+                });
+              })
+              .then(function () { return loadSkillsList(); })
+              .catch(function (e) { showSkillsErr(e.message || e); })
+              .finally(function () { rmBtn.disabled = false; });
+          });
         });
         actions.appendChild(rmBtn);
       }
@@ -5705,29 +5750,31 @@
       rm.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
-        if (!window.confirm("Remove MCP server " + (s.name || "") + "?")) return;
-        showMcpErr("");
-        rm.disabled = true;
-        fetch(apiURL("/api/mcp/remove"), {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ name: s.name }),
-        })
-          .then(function (r) {
-            return r.text().then(function (t) {
-              var j = {};
-              try { j = t ? JSON.parse(t) : {}; } catch (e) {}
-              if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
-              return j;
-            });
+        askConfirm("Remove MCP server " + (s.name || "") + "?", "Remove").then(function (yes) {
+          if (!yes) return;
+          showMcpErr("");
+          rm.disabled = true;
+          fetch(apiURL("/api/mcp/remove"), {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ name: s.name }),
           })
-          .then(function (j) {
-            return loadMcpList().then(function () {
-              if (j && j.warning) showMcpErr(j.warning);
-            });
-          })
-          .catch(function (e) { showMcpErr(e.message || e); })
-          .finally(function () { rm.disabled = false; });
+            .then(function (r) {
+              return r.text().then(function (t) {
+                var j = {};
+                try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+                if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+                return j;
+              });
+            })
+            .then(function (j) {
+              return loadMcpList().then(function () {
+                if (j && j.warning) showMcpErr(j.warning);
+              });
+            })
+            .catch(function (e) { showMcpErr(e.message || e); })
+            .finally(function () { rm.disabled = false; });
+        });
       });
       }
       li.appendChild(title);
@@ -6342,7 +6389,8 @@
       var dirty = box && reviewPromptFactory && box.value.trim() !== reviewPromptFactory.trim();
       var msg = "Drop this definition's review prompt and use the built-in one again?";
       if (dirty) msg += " Unsaved edits in this box are discarded.";
-      if (!window.confirm(msg)) return;
+      askConfirm(msg, "Reset").then(function (yes) {
+        if (!yes) return;
       var modeEl = document.getElementById("agent-def-edit-mode");
       agentDefReviewReset.disabled = true;
       fetch(apiURL("/api/agents/recipes/update"), {
@@ -6360,6 +6408,7 @@
         })
         .catch(function (err) { showAgentDefErr(String(err)); })
         .finally(function () { agentDefReviewReset.disabled = false; });
+      });
     });
   }
   if (agentDefEditDelete) {
@@ -6415,7 +6464,8 @@
 
   newChatBtn.addEventListener("click", function () {
     if (!connected) return;
-    if (!window.confirm("Start a new thread in this workspace?")) return;
+    askConfirm("Start a new thread in this workspace?", "Start").then(function (yes) {
+      if (!yes) return;
     newChatBtn.disabled = true;
     fetch(apiURL("/api/threads"), { method: "POST", headers: headers() })
       .then(function (r) {
@@ -6456,6 +6506,7 @@
       .finally(function () {
         newChatBtn.disabled = false;
       });
+    });
   });
 
   var mentionMenu = document.getElementById("mention-menu");
