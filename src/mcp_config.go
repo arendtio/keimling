@@ -175,19 +175,35 @@ func writeMCPFile(path string, servers map[string]MCPServerConfig) error {
 // LoadMCPServerConfigs merges mcpServers from config.json and mcp.json files.
 // Later paths override earlier ones for the same server name.
 func LoadMCPServerConfigs(configPath string) map[string]MCPServerConfig {
-	out := map[string]MCPServerConfig{}
-	merge := func(m map[string]MCPServerConfig) {
-		for name, cfg := range m {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			out[name] = cfg
+	configs, _, _ := loadMCPServers(configPath)
+	return configs
+}
+
+// loadMCPServers returns the merged configs plus where the winning entry came from.
+// sources are user, config, project, cursor, or plugin. names is set for plugins.
+func loadMCPServers(configPath string) (map[string]MCPServerConfig, map[string]string, map[string]string) {
+	configs := map[string]MCPServerConfig{}
+	sources := map[string]string{}
+	names := map[string]string{}
+	put := func(name, source, sourceName string, cfg MCPServerConfig) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
 		}
+		configs[name] = cfg
+		sources[name] = source
+		if sourceName == "" {
+			delete(names, name)
+			return
+		}
+		names[name] = sourceName
 	}
-	if configPath = strings.TrimSpace(configPath); configPath != "" {
-		if fc, err := readConfiguration(configPath); err == nil && len(fc.MCPServers) > 0 {
-			merge(fc.MCPServers)
+	configPath = strings.TrimSpace(configPath)
+	if configPath != "" {
+		if fc, err := readConfiguration(configPath); err == nil {
+			for name, cfg := range fc.MCPServers {
+				put(name, "config", "", cfg)
+			}
 		}
 	}
 	for _, p := range mcpConfigPaths(configPath) {
@@ -195,15 +211,40 @@ func LoadMCPServerConfigs(configPath string) map[string]MCPServerConfig {
 		if err != nil || len(m) == 0 {
 			continue
 		}
-		merge(m)
+		source := mcpFileSource(p, configPath)
+		for name, cfg := range m {
+			put(name, source, "", cfg)
+		}
 	}
-	for name, cfg := range pluginMCPOverlay() {
-		if _, exists := out[name]; exists {
+	plugins, labels := pluginMCPOverlay()
+	for name, cfg := range plugins {
+		name = strings.TrimSpace(name)
+		if name == "" {
 			continue
 		}
-		out[name] = cfg
+		if _, exists := configs[name]; exists {
+			continue
+		}
+		put(name, "plugin", labels[name], cfg)
 	}
-	return out
+	return configs, sources, names
+}
+
+func mcpFileSource(path, configPath string) string {
+	path = filepath.Clean(path)
+	if user := defaultUserMCPPath(); user != "" && path == filepath.Clean(user) {
+		return "user"
+	}
+	if strings.HasSuffix(path, filepath.Join(".keimling", "mcp.json")) {
+		return "project"
+	}
+	if strings.HasSuffix(path, filepath.Join(".cursor", "mcp.json")) {
+		return "cursor"
+	}
+	if configPath != "" && path == filepath.Clean(filepath.Join(filepath.Dir(configPath), "mcp.json")) {
+		return "user"
+	}
+	return "user"
 }
 
 func UpsertUserMCPServer(name string, cfg MCPServerConfig) error {
@@ -229,24 +270,24 @@ func UpsertUserMCPServer(name string, cfg MCPServerConfig) error {
 	return writeMCPFile(path, servers)
 }
 
-// setMCPToolAllow marks or clears one exposed tool name on a saved MCP server.
-func setMCPToolAllow(server, tool string, allow bool) ([]string, error) {
+// setMCPToolAllow marks or clears one exposed tool name on the file that actually supplies the server.
+func setMCPToolAllow(server, tool string, allow bool, configPath string) ([]string, error) {
 	server = strings.TrimSpace(server)
 	tool = strings.TrimSpace(tool)
 	if server == "" || tool == "" {
 		return nil, fmt.Errorf("server and tool required")
 	}
-	path := defaultUserMCPPath()
-	servers, err := readMCPFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if servers == nil {
-		servers = map[string]MCPServerConfig{}
-	}
-	cfg, ok := servers[server]
+	configs, sources, names := loadMCPServers(configPath)
+	cfg, ok := configs[server]
 	if !ok {
 		return nil, fmt.Errorf("unknown MCP server")
+	}
+	if sources[server] == "plugin" {
+		label := names[server]
+		if label == "" {
+			label = "a plugin"
+		}
+		return nil, fmt.Errorf("server %q comes from plugin %s", server, label)
 	}
 	next := make([]string, 0, len(cfg.AllowTools)+1)
 	seen := false
@@ -263,12 +304,44 @@ func setMCPToolAllow(server, tool string, allow bool) ([]string, error) {
 	if allow && !seen {
 		next = append(next, tool)
 	}
-	cfg.AllowTools = next
-	servers[server] = cfg
-	if err := writeMCPFile(path, servers); err != nil {
+	if sources[server] == "config" {
+		err := updateConfiguration(configPath, func(fc *fileConfig) {
+			if fc.MCPServers == nil {
+				fc.MCPServers = map[string]MCPServerConfig{}
+			}
+			cur := fc.MCPServers[server]
+			cur.AllowTools = next
+			fc.MCPServers[server] = cur
+		})
+		if err != nil {
+			return nil, err
+		}
+		return next, nil
+	}
+	path := winningMCPFile(server, configPath)
+	if path == "" {
+		return nil, fmt.Errorf("unknown MCP server")
+	}
+	if err := updateMCPServerInFile(path, server, func(c *MCPServerConfig) {
+		c.AllowTools = next
+	}); err != nil {
 		return nil, err
 	}
 	return next, nil
+}
+
+func winningMCPFile(name, configPath string) string {
+	var found string
+	for _, p := range mcpConfigPaths(configPath) {
+		servers, err := readMCPFile(p)
+		if err != nil || len(servers) == 0 {
+			continue
+		}
+		if _, ok := servers[name]; ok {
+			found = p
+		}
+	}
+	return found
 }
 
 // mcpToolAlwaysAllowed reports whether this exposed tool is marked on any loaded server.
@@ -287,23 +360,170 @@ func mcpToolAlwaysAllowed(configPath, exposed string) bool {
 }
 
 func RemoveUserMCPServer(name string) error {
+	return RemoveMCPServer(name, "")
+}
+
+// RemoveMCPServer deletes name from every config file that lists it.
+// A server that exists only because a plugin is enabled is left alone.
+func RemoveMCPServer(name, configPath string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("server name required")
 	}
-	path := defaultUserMCPPath()
-	servers, err := readMCPFile(path)
+	removed := false
+	if ok, err := removeMCPFromConfig(configPath, name); err != nil {
+		return err
+	} else if ok {
+		removed = true
+	}
+	seen := map[string]struct{}{}
+	for _, p := range mcpConfigPaths(configPath) {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		ok, err := deleteMCPServerKey(p, name)
+		if err != nil {
+			return err
+		}
+		if ok {
+			removed = true
+		}
+	}
+	if removed {
+		return nil
+	}
+	_, labels := pluginMCPOverlay()
+	if label := labels[name]; label != "" {
+		return fmt.Errorf("server %q comes from plugin %s; remove or turn off that plugin", name, label)
+	}
+	return fmt.Errorf("server %q not found", name)
+}
+
+func removeMCPFromConfig(configPath, name string) (bool, error) {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return false, nil
+	}
+	fc, err := readConfiguration(configPath)
+	if err != nil {
+		return false, err
+	}
+	if _, ok := fc.MCPServers[name]; !ok {
+		return false, nil
+	}
+	err = updateConfiguration(configPath, func(cfg *fileConfig) {
+		if cfg.MCPServers == nil {
+			return
+		}
+		delete(cfg.MCPServers, name)
+		if len(cfg.MCPServers) == 0 {
+			cfg.MCPServers = nil
+		}
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func deleteMCPServerKey(path, name string) (bool, error) {
+	doc, servers, err := readMCPDocument(path)
+	if err != nil || doc == nil {
+		return false, err
+	}
+	if _, ok := servers[name]; !ok {
+		return false, nil
+	}
+	delete(servers, name)
+	return true, writeMCPDocument(path, doc, servers)
+}
+
+func updateMCPServerInFile(path, name string, mut func(*MCPServerConfig)) error {
+	doc, servers, err := readMCPDocument(path)
 	if err != nil {
 		return err
 	}
+	if doc == nil {
+		return fmt.Errorf("server %q not found", name)
+	}
+	raw, ok := servers[name]
+	if !ok {
+		return fmt.Errorf("server %q not found", name)
+	}
+	var cfg MCPServerConfig
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	mut(&cfg)
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	servers[name] = encoded
+	return writeMCPDocument(path, doc, servers)
+}
+
+func readMCPDocument(path string) (map[string]json.RawMessage, map[string]json.RawMessage, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if doc == nil {
+		doc = map[string]json.RawMessage{}
+	}
+	servers := map[string]json.RawMessage{}
+	if raw := doc["mcpServers"]; len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &servers); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	if servers == nil {
-		return fmt.Errorf("server %q not found in %s", name, path)
+		servers = map[string]json.RawMessage{}
 	}
-	if _, ok := servers[name]; !ok {
-		return fmt.Errorf("server %q not found in %s", name, path)
+	return doc, servers, nil
+}
+
+func writeMCPDocument(path string, doc, servers map[string]json.RawMessage) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("mcp path is empty")
 	}
-	delete(servers, name)
-	return writeMCPFile(path, servers)
+	if doc == nil {
+		doc = map[string]json.RawMessage{}
+	}
+	if servers == nil {
+		servers = map[string]json.RawMessage{}
+	}
+	encoded, err := json.Marshal(servers)
+	if err != nil {
+		return err
+	}
+	doc["mcpServers"] = encoded
+	b, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func sanitizeMCPToken(s string) string {

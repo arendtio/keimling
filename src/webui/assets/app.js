@@ -5652,7 +5652,12 @@
       if (s.oauth === "signed_in") authNote = " · signed in";
       else if (s.oauth === "expired") authNote = " · sign-in expired";
       else if (s.auth === "bearer" || s.auth === "headers" || s.auth === "env") authNote = " · secret set";
-      meta.textContent = (s.transport || "") + " · " + (s.status || "") + authNote +
+      var from = "";
+      if (s.source === "cursor") from = " · .cursor/mcp.json";
+      else if (s.source === "project") from = " · .keimling/mcp.json";
+      else if (s.source === "config") from = " · config.json";
+      else if (s.source === "plugin") from = " · plugin " + (s.source_name || "");
+      meta.textContent = (s.transport || "") + " · " + (s.status || "") + from + authNote +
         (errText ? " — " + errText : "") +
         (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : "");
       var tools = document.createElement("div");
@@ -5665,7 +5670,12 @@
         var box = document.createElement("input");
         box.type = "checkbox";
         box.checked = !!allowed[toolName];
+        if (s.source === "plugin") {
+          box.disabled = true;
+          box.title = "This server comes from a plugin";
+        }
         box.addEventListener("change", function () {
+          if (s.source === "plugin") return;
           box.disabled = true;
           fetch(apiURL("/api/mcp/allow"), {
             method: "POST",
@@ -5688,10 +5698,13 @@
         row.appendChild(document.createTextNode(" Always allow " + toolName));
         tools.appendChild(row);
       });
+      if (s.source !== "plugin") {
       var rm = document.createElement("button");
       rm.type = "button";
       rm.textContent = "Remove";
-      rm.addEventListener("click", function () {
+      rm.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
         if (!window.confirm("Remove MCP server " + (s.name || "") + "?")) return;
         showMcpErr("");
         rm.disabled = true;
@@ -5702,13 +5715,21 @@
         })
           .then(function (r) {
             return r.text().then(function (t) {
-              if (!r.ok) throw new Error(t || r.status);
+              var j = {};
+              try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+              if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+              return j;
             });
           })
-          .then(function () { return loadMcpList(); })
+          .then(function (j) {
+            return loadMcpList().then(function () {
+              if (j && j.warning) showMcpErr(j.warning);
+            });
+          })
           .catch(function (e) { showMcpErr(e.message || e); })
           .finally(function () { rm.disabled = false; });
       });
+      }
       li.appendChild(title);
       li.appendChild(meta);
       if (s.tools && s.tools.length) {
@@ -5731,7 +5752,7 @@
         });
         li.appendChild(sign);
       }
-      li.appendChild(rm);
+      if (rm) li.appendChild(rm);
       mcpList.appendChild(li);
     });
   }

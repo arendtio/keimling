@@ -400,12 +400,13 @@ func pluginSkillRoots() []string {
 	return roots
 }
 
-func pluginMCPOverlay() map[string]MCPServerConfig {
+func pluginMCPOverlay() (map[string]MCPServerConfig, map[string]string) {
 	f, err := readPluginFile()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	out := map[string]MCPServerConfig{}
+	labels := map[string]string{}
 	for _, src := range f.Sources {
 		if !src.Enabled {
 			continue
@@ -414,18 +415,24 @@ func pluginMCPOverlay() map[string]MCPServerConfig {
 		if err != nil {
 			continue
 		}
-		if _, err := readPluginManifest(root); err != nil {
+		manifest, err := readPluginManifest(root)
+		if err != nil {
 			continue
 		}
 		servers, _ := pluginServers(src.ID, root)
+		label := manifest.Name
+		if label == "" {
+			label = src.ID
+		}
 		for name, cfg := range servers {
 			if _, exists := out[name]; exists {
 				continue
 			}
 			out[name] = cfg
+			labels[name] = label
 		}
 	}
-	return out
+	return out, labels
 }
 
 func pluginServers(id, root string) (map[string]MCPServerConfig, []string) {

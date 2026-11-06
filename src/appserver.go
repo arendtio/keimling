@@ -1125,7 +1125,7 @@ func (s *appServer) handleMCPAllow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name, tool, and allow required", http.StatusBadRequest)
 		return
 	}
-	tools, err := setMCPToolAllow(body.Name, body.Tool, *body.Allow)
+	tools, err := setMCPToolAllow(body.Name, body.Tool, *body.Allow, s.agent.Cfg.ConfigPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1151,13 +1151,24 @@ func (s *appServer) handleMCPRemove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := RemoveUserMCPServer(body.Name); err != nil {
+	name := strings.TrimSpace(body.Name)
+	if err := RemoveMCPServer(name, s.agent.Cfg.ConfigPath); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	s.agent.reloadMCP(r.Context())
+	var warning string
+	for _, st := range s.agent.ensureMCP().Status() {
+		if st.Name == name && st.Source == "plugin" {
+			label := st.SourceName
+			if label == "" {
+				label = "a plugin"
+			}
+			warning = name + " is still provided by plugin " + label
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "warning": warning, "servers": s.agent.ensureMCP().Status()})
 }
 
 func (s *appServer) handleMCPSignIn(w http.ResponseWriter, r *http.Request) {

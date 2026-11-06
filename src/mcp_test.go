@@ -154,6 +154,114 @@ func TestRemoteURLAuthorizationRequiredDoesNotProbeSSE(t *testing.T) {
 	}
 }
 
+func TestRemoveMCPServerFromEveryConfigFile(t *testing.T) {
+	withTempAgentHomes(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"listen":":9","mcpServers":{"fromConfig":{"command":"cfg"},"shadow":{"command":"old"}}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertUserMCPServer("useronly", MCPServerConfig{Command: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertUserMCPServer("shadow", MCPServerConfig{Command: "user-shadow"}); err != nil {
+		t.Fatal(err)
+	}
+	cursor := filepath.Join(dir, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(cursor), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"mcpServers":{"blender":{"command":"blender"},"keep":{"command":"stay","extraFlag":true},"shadow":{"command":"cursor-wins"}}}`
+	if err := os.WriteFile(cursor, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, sources, _ := loadMCPServers(cfgPath)
+	if sources["fromConfig"] != "config" || sources["useronly"] != "user" || sources["blender"] != "cursor" || sources["shadow"] != "cursor" {
+		t.Fatalf("sources: %#v", sources)
+	}
+	for _, name := range []string{"fromConfig", "blender", "shadow", "useronly"} {
+		if err := RemoveMCPServer(name, cfgPath); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := RemoveMCPServer("missing", cfgPath); err == nil {
+		t.Fatal("expected missing server to fail")
+	}
+	got := LoadMCPServerConfigs(cfgPath)
+	for _, name := range []string{"fromConfig", "blender", "shadow", "useronly"} {
+		if _, ok := got[name]; ok {
+			t.Fatalf("%s still loaded", name)
+		}
+	}
+	if got["keep"].Command != "stay" {
+		t.Fatalf("keep: %+v", got["keep"])
+	}
+	b, err := os.ReadFile(cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "extraFlag") || strings.Contains(string(b), "blender") {
+		t.Fatalf("cursor file: %s", b)
+	}
+	cfgb, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfgb), `":9"`) && !strings.Contains(string(cfgb), ":9") {
+		t.Fatalf("config.json: %s", cfgb)
+	}
+	if strings.Contains(string(cfgb), "fromConfig") || strings.Contains(string(cfgb), "shadow") {
+		t.Fatalf("config.json still lists a removed server: %s", cfgb)
+	}
+}
+
+func TestRemoveMCPServerLeavesPluginSource(t *testing.T) {
+	withTempAgentHomes(t)
+	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	writePluginFixture(t, root)
+	if _, err := addPluginSource(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveMCPServer("review", ""); err == nil {
+		t.Fatal("expected plugin server to stay")
+	}
+	if _, ok := LoadMCPServerConfigs("")["review"]; !ok {
+		t.Fatal("plugin server was removed")
+	}
+	_, sources, names := loadMCPServers("")
+	if sources["review"] != "plugin" || names["review"] != "review-kit" {
+		t.Fatalf("source %q name %q", sources["review"], names["review"])
+	}
+}
+
+func TestMCPToolAllowUpdatesWinningFile(t *testing.T) {
+	withTempAgentHomes(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cursor := filepath.Join(dir, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(cursor), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cursor, []byte(`{"mcpServers":{"blender":{"command":"blender"},"keep":{"command":"stay","extraFlag":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setMCPToolAllow("blender", "mcp__blender__list", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !mcpToolAlwaysAllowed("", "mcp__blender__list") {
+		t.Fatal("mark was not visible")
+	}
+	b, err := os.ReadFile(cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "allow_tools") || !strings.Contains(string(b), "extraFlag") {
+		t.Fatalf("cursor file: %s", b)
+	}
+}
+
 func TestMCPServerConfigValidate(t *testing.T) {
 	if err := (MCPServerConfig{}).validate(); err == nil {
 		t.Fatal("expected error")

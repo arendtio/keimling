@@ -23,18 +23,20 @@ type mcpToolRoute struct {
 }
 
 type MCPServerStatus struct {
-	Name      string   `json:"name"`
-	Transport string   `json:"transport"`
-	Status    string   `json:"status"` // connected | error | disabled
-	Error     string   `json:"error,omitempty"`
-	Tools     []string `json:"tools,omitempty"`
-	Allow     []string `json:"allow,omitempty"`
-	Command   string   `json:"command,omitempty"`
-	URL       string   `json:"url,omitempty"`
-	Disabled  bool     `json:"disabled,omitempty"`
-	Grant     string   `json:"grant,omitempty"`
-	Auth      string   `json:"auth,omitempty"`
-	OAuth     string   `json:"oauth,omitempty"`
+	Name       string   `json:"name"`
+	Transport  string   `json:"transport"`
+	Status     string   `json:"status"` // connected | error | disabled
+	Error      string   `json:"error,omitempty"`
+	Tools      []string `json:"tools,omitempty"`
+	Allow      []string `json:"allow,omitempty"`
+	Command    string   `json:"command,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	Disabled   bool     `json:"disabled,omitempty"`
+	Grant      string   `json:"grant,omitempty"`
+	Auth       string   `json:"auth,omitempty"`
+	OAuth      string   `json:"oauth,omitempty"`
+	Source     string   `json:"source,omitempty"`      // user, config, project, cursor, plugin
+	SourceName string   `json:"source_name,omitempty"` // plugin name when Source is plugin
 }
 
 type mcpSession struct {
@@ -48,10 +50,12 @@ type mcpSession struct {
 
 // MCPManager holds backend MCP clients (stdio/HTTP/SSE). The browser never talks to MCP servers.
 type MCPManager struct {
-	mu       sync.RWMutex
-	sessions map[string]*mcpSession
-	routes   map[string]mcpToolRoute
-	defs     []map[string]any
+	mu          sync.RWMutex
+	sessions    map[string]*mcpSession
+	routes      map[string]mcpToolRoute
+	defs        []map[string]any
+	sources     map[string]string
+	sourceNames map[string]string
 }
 
 func NewMCPManager() *MCPManager {
@@ -348,16 +352,18 @@ func (m *MCPManager) Status() []MCPServerStatus {
 	for _, name := range names {
 		s := m.sessions[name]
 		st := MCPServerStatus{
-			Name:      name,
-			Transport: s.cfg.transportKind(),
-			Status:    s.status,
-			Error:     s.err,
-			Command:   s.cfg.Command,
-			URL:       s.cfg.URL,
-			Disabled:  s.cfg.Disabled,
-			Grant:     mcpServerGrantID(name),
-			Auth:      s.cfg.authKind(),
-			OAuth:     s.cfg.oauthState(time.Now()),
+			Name:       name,
+			Transport:  s.cfg.transportKind(),
+			Status:     s.status,
+			Error:      s.err,
+			Command:    s.cfg.Command,
+			URL:        s.cfg.URL,
+			Disabled:   s.cfg.Disabled,
+			Grant:      mcpServerGrantID(name),
+			Auth:       s.cfg.authKind(),
+			OAuth:      s.cfg.oauthState(time.Now()),
+			Source:     m.sources[name],
+			SourceName: m.sourceNames[name],
 		}
 		for _, t := range s.tools {
 			st.Tools = append(st.Tools, mcpExposedName(name, t.Name))
@@ -440,9 +446,22 @@ func (a *Agent) mcpToolDefs() []map[string]any {
 	return a.MCP.ToolDefs()
 }
 
+func (m *MCPManager) setServerSources(sources, names map[string]string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.sources = sources
+	m.sourceNames = names
+	m.mu.Unlock()
+}
+
 func (a *Agent) reloadMCP(ctx context.Context) {
 	if a == nil {
 		return
 	}
-	a.ensureMCP().Reload(ctx, LoadMCPServerConfigs(a.Cfg.ConfigPath))
+	configs, sources, names := loadMCPServers(a.Cfg.ConfigPath)
+	m := a.ensureMCP()
+	m.setServerSources(sources, names)
+	m.Reload(ctx, configs)
 }

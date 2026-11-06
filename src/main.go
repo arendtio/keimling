@@ -575,7 +575,7 @@ func main() {
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	a.SessionCtx = sessionCtx
 	defer sessionCancel()
-	a.MCP.ConnectAll(sessionCtx, LoadMCPServerConfigs(c.ConfigPath))
+	a.reloadMCP(sessionCtx)
 	defer a.MCP.Close()
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(c.SessionPath)
 	if *disableExternal {
@@ -804,7 +804,7 @@ func printHelp() {
 	fmt.Println("  /mcp              List MCP servers (backend clients; no browser CORS)")
 	fmt.Println("  /mcp reload       Reconnect MCP servers from mcp.json")
 	fmt.Println("  /mcp add NAME -- CMD… | --url URL   Persist to the user keimling/mcp.json")
-	fmt.Println("  /mcp remove NAME  Remove from user mcp.json")
+	fmt.Println("  /mcp remove NAME  Remove a configured MCP server")
 	fmt.Println("  /mode             Show current approval mode")
 	fmt.Println("  /mode auto        Review commands; ask before sensitive changes")
 	fmt.Println("  /mode ask         Confirm changing commands")

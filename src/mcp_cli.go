@@ -44,14 +44,14 @@ func handleMCPCommand(a *Agent, arg string) {
 		if strings.HasPrefix(arg, "rm ") {
 			name = strings.TrimSpace(strings.TrimPrefix(arg, "rm "))
 		}
-		if err := RemoveUserMCPServer(name); err != nil {
+		if err := RemoveMCPServer(name, a.Cfg.ConfigPath); err != nil {
 			fmt.Println("mcp remove:", err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		a.reloadMCP(ctx)
-		fmt.Printf("Removed MCP server %q from user mcp.json\n", name)
+		fmt.Printf("Removed MCP server %q\n", name)
 		return
 	}
 	fmt.Println("Usage: /mcp | /mcp reload | /mcp add NAME -- command args… | /mcp add NAME --url URL | /mcp remove NAME")

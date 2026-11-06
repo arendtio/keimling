@@ -139,7 +139,7 @@ func TestMCPToolAllowRoundTrip(t *testing.T) {
 	if err := UpsertUserMCPServer("allow-demo", MCPServerConfig{Command: "true"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := setMCPToolAllow("allow-demo", "mcp__allow-demo__list", true); err != nil {
+	if _, err := setMCPToolAllow("allow-demo", "mcp__allow-demo__list", true, ""); err != nil {
 		t.Fatal(err)
 	}
 	if !mcpToolAlwaysAllowed("", "mcp__allow-demo__list") {
@@ -154,7 +154,7 @@ func TestMCPToolAllowRoundTrip(t *testing.T) {
 	if !mcpToolAlwaysAllowed("", "mcp__allow-demo__list") {
 		t.Fatal("saving the server again should keep the mark")
 	}
-	if _, err := setMCPToolAllow("allow-demo", "mcp__allow-demo__list", false); err != nil {
+	if _, err := setMCPToolAllow("allow-demo", "mcp__allow-demo__list", false, ""); err != nil {
 		t.Fatal(err)
 	}
 	if mcpToolAlwaysAllowed("", "mcp__allow-demo__list") {
