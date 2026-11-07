@@ -51,6 +51,9 @@ type Agent struct {
 	// when encrypted reasoning will be left out. Idle only.
 	modelNoted bool
 	notedChat  chatTarget
+	// toolData holds tool results the model can name without receiving the bytes.
+	toolData        *dataStore
+	toolDataPending *dataPending
 }
 
 func (a *Agent) emit(kind, text string) {

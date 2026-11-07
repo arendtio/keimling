@@ -403,6 +403,12 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 			}
 			return answer, ""
 		}
+		if item.Name == "data_processing" {
+			return a.runDataTool(item.Arguments), ""
+		}
+		if item.Name == "data_processing_help" {
+			return dataHelp(item.Arguments), ""
+		}
 		if isMCPTool(item.Name) {
 			argsJSON := item.Arguments
 			secret := ""
@@ -414,8 +420,20 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 				argsJSON = prepared
 				secret = sec
 			}
-			result = a.ensureMCP().Call(ctx, item.Name, argsJSON)
-			result = redactSecret(result, secret)
+			display, kind, value, stored := a.ensureMCP().callStored(ctx, item.Name, argsJSON)
+			display = redactSecret(display, secret)
+			if stored && secret != "" {
+				if b, err := json.Marshal(value); err == nil {
+					var redacted any
+					if json.Unmarshal([]byte(redactSecret(string(b), secret)), &redacted) == nil {
+						value = redacted
+					}
+				}
+			}
+			if stored {
+				a.toolDataPending = &dataPending{kind: kind, value: value}
+			}
+			result = display
 			a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
 			return result, ""
 		}
@@ -444,6 +462,7 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec string, allowed bool) error {
 	toolCmd := toolCommandLabel(item.Name, item.Arguments)
 	toolOK := markToolOK(item.Name, result, rawExec)
+	filteredExec := false
 	if item.Name == "exec" {
 		code := "?"
 		displayedResult := result
@@ -466,15 +485,23 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 				a.cliWrite("\n")
 			}
 		}
-		filtered := rawExec != "" && rawExec != result
-		if filtered {
+		filteredExec = rawExec != "" && rawExec != result
+		if filteredExec {
 			modelVisible := truncate(result, 32<<10)
 			a.cliWrite(fmt.Sprintf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExec), len(modelVisible), modelVisible))
 			a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(result), strings.TrimSpace(rawExec), toolOK, true)
 		} else {
 			a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(output), "", toolOK, false)
 		}
+		visible := a.attachDataRef(item.Name, result)
+		if visible != result {
+			result = visible
+		}
 	} else {
+		visible := a.attachDataRef(item.Name, result)
+		if visible != result {
+			result = visible
+		}
 		if !toolOK {
 			a.cliWrite(fmt.Sprintf("\033[31m✗\033[0m %s\n", truncate(result, 1800)))
 		} else {
@@ -483,7 +510,7 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 		a.presentToolResult(item.Name, toolCmd, truncate(result, 1800), "", toolOK, false)
 	}
 	outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10), "ok": toolOK}
-	if rawExec != "" && rawExec != result {
+	if filteredExec && !strings.Contains(result, `"ref"`) {
 		outItem["raw_output"] = truncate(rawExec, 32<<10)
 	}
 	if err := a.add(outItem); err != nil {

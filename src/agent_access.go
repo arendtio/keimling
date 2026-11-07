@@ -234,6 +234,9 @@ func (a *Agent) instanceToolGranted(name string) bool {
 }
 
 func toolNameGranted(grant []string, name string) bool {
+	if name == "data_processing" || name == "data_processing_help" {
+		return true
+	}
 	if grant == nil {
 		return true
 	}

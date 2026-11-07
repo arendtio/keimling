@@ -415,7 +415,7 @@ type toolGate struct {
 
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "set_alarm", "list_alarms", "cancel_alarm", "list_agents", "allow_peer", "message_agent", "list_credentials", "agent_instructions":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "set_alarm", "list_alarms", "cancel_alarm", "list_agents", "allow_peer", "message_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help":
 		return true
 	default:
 		return false

@@ -375,8 +375,13 @@ func (m *MCPManager) Status() []MCPServerStatus {
 }
 
 func (m *MCPManager) Call(ctx context.Context, exposedName, argumentsJSON string) string {
+	display, _, _, _ := m.callStored(ctx, exposedName, argumentsJSON)
+	return display
+}
+
+func (m *MCPManager) callStored(ctx context.Context, exposedName, argumentsJSON string) (display, kind string, value any, ok bool) {
 	if m == nil {
-		return "mcp: not configured"
+		return "mcp: not configured", "", nil, false
 	}
 	m.mu.RLock()
 	route, ok := m.routes[exposedName]
@@ -386,12 +391,12 @@ func (m *MCPManager) Call(ctx context.Context, exposedName, argumentsJSON string
 	}
 	m.mu.RUnlock()
 	if !ok || sess == nil || sess.client == nil {
-		return "mcp: unknown tool " + exposedName
+		return "mcp: unknown tool " + exposedName, "", nil, false
 	}
 	var args map[string]any
 	if strings.TrimSpace(argumentsJSON) != "" {
 		if err := json.Unmarshal([]byte(argumentsJSON), &args); err != nil {
-			return "mcp: invalid arguments: " + err.Error()
+			return "mcp: invalid arguments: " + err.Error(), "", nil, false
 		}
 	}
 	req := mcp.CallToolRequest{}
@@ -401,9 +406,9 @@ func (m *MCPManager) Call(ctx context.Context, exposedName, argumentsJSON string
 	defer cancel()
 	result, err := sess.client.CallTool(cctx, req)
 	if err != nil {
-		return "mcp error: " + err.Error()
+		return "mcp error: " + err.Error(), "", nil, false
 	}
-	return formatMCPResult(result)
+	return mcpCallOutcome(result)
 }
 
 func formatMCPResult(result *mcp.CallToolResult) string {
