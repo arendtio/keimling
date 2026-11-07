@@ -97,3 +97,11 @@ The user can remove a workspace from the menu. That does not delete files. The h
 Origin: user, 2026-10-31. "Now I need a functionality to remove old workspaces from the menu. No Files should be deleted, but the entry from the workspace menu should be removed."
 
 Fit: after remove, the name is gone from the menu, a file in the workspace directory is still there, and Keimling's record of that workspace is still on disk. Opening that folder lists it again. Home cannot be removed.
+
+### REQ-WS-3 Start a thread without a question
+
+Starting a thread in the open workspace does not ask for confirmation. The previous thread stays in the list.
+
+Origin: user, 2026-11-07. "können wir diese confirmation wenn man einen neuen thread öffnet auch ausbauen? Ich meine der schrit ist ja einfach rückgängig zu machen, da brauch man kein confirm."
+
+Fit: the New control creates the thread immediately. The thread that was open is still in the list and can be opened again.

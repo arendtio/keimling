@@ -6547,8 +6547,6 @@
 
   newChatBtn.addEventListener("click", function () {
     if (!connected) return;
-    askConfirm("Start a new thread in this workspace?", "Start").then(function (yes) {
-      if (!yes) return;
     newChatBtn.disabled = true;
     fetch(apiURL("/api/threads"), { method: "POST", headers: headers() })
       .then(function (r) {
@@ -6589,7 +6587,6 @@
       .finally(function () {
         newChatBtn.disabled = false;
       });
-    });
   });
 
   var mentionMenu = document.getElementById("mention-menu");
