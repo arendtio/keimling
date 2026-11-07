@@ -152,14 +152,23 @@ func publicModelProviders(list []modelProvider) []map[string]any {
 		p.ensureProviderModels()
 		models := make([]map[string]any, 0, len(p.Models))
 		for _, m := range p.Models {
-			models = append(models, map[string]any{
+			row := map[string]any{
 				"id":               m.ID,
 				"name":             m.Name,
 				"context_limit":    m.ContextLimit,
 				"reasoning":        m.Reasoning,
 				"prompt_price":     m.PromptPrice,
 				"completion_price": m.CompletionPrice,
-			})
+			}
+			if m.SeesImages {
+				row["sees_images"] = true
+				row["use_images"] = m.nativeImages()
+			}
+			if m.HearsAudio {
+				row["hears_audio"] = true
+				row["use_audio"] = m.nativeAudio()
+			}
+			models = append(models, row)
 		}
 		out = append(out, map[string]any{
 			"id":              p.ID,

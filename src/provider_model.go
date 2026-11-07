@@ -13,6 +13,10 @@ type providerModel struct {
 	Reasoning       string `json:"reasoning,omitempty"`
 	PromptPrice     string `json:"prompt_price,omitempty"`     // USD per input token (OpenRouter-style string)
 	CompletionPrice string `json:"completion_price,omitempty"` // USD per output token
+	SeesImages      bool   `json:"sees_images,omitempty"`
+	HearsAudio      bool   `json:"hears_audio,omitempty"`
+	UseImages       *bool  `json:"use_images,omitempty"` // nil means on when SeesImages
+	UseAudio        *bool  `json:"use_audio,omitempty"`
 }
 
 func (m providerModel) displayName() string {

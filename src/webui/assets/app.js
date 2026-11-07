@@ -282,6 +282,16 @@
   var provModelReasoning = document.getElementById("prov-model-reasoning");
   var provModelPromptPrice = document.getElementById("prov-model-prompt-price");
   var provModelCompletionPrice = document.getElementById("prov-model-completion-price");
+  var provModelImagesLabel = document.getElementById("prov-model-images-label");
+  var provModelImages = document.getElementById("prov-model-images");
+  var provModelImagesHint = document.getElementById("prov-model-images-hint");
+  var provModelAudioLabel = document.getElementById("prov-model-audio-label");
+  var provModelAudio = document.getElementById("prov-model-audio");
+  var provModelAudioHint = document.getElementById("prov-model-audio-hint");
+  var attachRow = document.getElementById("attach-row");
+  var attachFileBtn = document.getElementById("attach-file");
+  var attachInput = document.getElementById("attach-input");
+  var pendingFiles = [];
   var provModelSave = document.getElementById("prov-model-save");
   var provModelCancel = document.getElementById("prov-model-cancel");
   var provCatalogFetch = document.getElementById("prov-catalog-fetch");
@@ -1205,6 +1215,7 @@
     if (provModelReasoning) provModelReasoning.value = "";
     if (provModelPromptPrice) provModelPromptPrice.value = "";
     if (provModelCompletionPrice) provModelCompletionPrice.value = "";
+    setModelSenses(null);
   }
 
   function fillModelForm(m) {
@@ -1215,6 +1226,7 @@
     if (provModelReasoning) provModelReasoning.value = m.reasoning || "";
     if (provModelPromptPrice) provModelPromptPrice.value = m.prompt_price || "";
     if (provModelCompletionPrice) provModelCompletionPrice.value = m.completion_price || "";
+    setModelSenses(m);
   }
 
   function closeModelForm() {
@@ -1259,6 +1271,8 @@
       if (isDefault) meta.push("default");
       if (m.context_limit) meta.push(m.context_limit + " ctx");
       if (m.reasoning) meta.push(m.reasoning);
+      if (m.sees_images) meta.push(m.use_images === false ? "images off" : "images");
+      if (m.hears_audio) meta.push(m.use_audio === false ? "audio off" : "audio");
       label.innerHTML = esc(m.name || m.id) +
         (meta.length ? '<span class="profile-meta">' + esc(meta.join(" · ")) + "</span>" : "");
       var actions = document.createElement("div");
@@ -1322,6 +1336,14 @@
       prompt_price: provModelPromptPrice ? provModelPromptPrice.value.trim() : "",
       completion_price: provModelCompletionPrice ? provModelCompletionPrice.value.trim() : "",
     };
+    if (provModelImagesLabel && !provModelImagesLabel.hidden) {
+      row.sees_images = true;
+      row.use_images = !!(provModelImages && provModelImages.checked);
+    }
+    if (provModelAudioLabel && !provModelAudioLabel.hidden) {
+      row.hears_audio = true;
+      row.use_audio = !!(provModelAudio && provModelAudio.checked);
+    }
     if (modelFormMode === "edit") {
       var replaced = false;
       for (var i = 0; i < editingProviderModels.length; i++) {
@@ -1360,6 +1382,23 @@
     if (provModelContext && entry.context_limit) provModelContext.value = String(entry.context_limit);
     if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = entry.prompt_price;
     if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = entry.completion_price;
+    setModelSenses(entry.sees_images || entry.hears_audio ? {
+      sees_images: !!entry.sees_images,
+      hears_audio: !!entry.hears_audio,
+      use_images: true,
+      use_audio: true,
+    } : null);
+  }
+
+  function setModelSenses(m) {
+    var images = !!(m && m.sees_images);
+    var audio = !!(m && m.hears_audio);
+    if (provModelImagesLabel) provModelImagesLabel.hidden = !images;
+    if (provModelImagesHint) provModelImagesHint.hidden = !images;
+    if (provModelAudioLabel) provModelAudioLabel.hidden = !audio;
+    if (provModelAudioHint) provModelAudioHint.hidden = !audio;
+    if (provModelImages) provModelImages.checked = images && m.use_images !== false;
+    if (provModelAudio) provModelAudio.checked = audio && m.use_audio !== false;
   }
 
   function fillCatalogDatalist(models) {
@@ -1432,6 +1471,10 @@
         reasoning: m.reasoning || "",
         prompt_price: m.prompt_price || "",
         completion_price: m.completion_price || "",
+        sees_images: !!m.sees_images,
+        hears_audio: !!m.hears_audio,
+        use_images: m.use_images !== false,
+        use_audio: m.use_audio !== false,
       };
     });
     if (!editingProviderModels.length && p && p.model) {
@@ -1475,6 +1518,10 @@
   }
 
   function saveProviderEditor() {
+    if (modelFormMode && provModelEditor && !provModelEditor.hidden) {
+      saveEditorModel();
+      if (modelFormMode) return;
+    }
     var name = provEditName ? provEditName.value.trim() : "";
     var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
     var kind = provEditKind ? provEditKind.value : "auto";
@@ -1711,7 +1758,7 @@
           reasoning: p.reasoning || "",
           active_model_id: p.active_model_id || p.model || "",
           models: (p.models || []).map(function (m) {
-            return {
+            var model = {
               id: m.id,
               name: m.name || "",
               context_limit: m.context_limit || 0,
@@ -1719,6 +1766,15 @@
               prompt_price: m.prompt_price || "",
               completion_price: m.completion_price || "",
             };
+            if (m.sees_images) {
+              model.sees_images = true;
+              model.use_images = m.use_images !== false;
+            }
+            if (m.hears_audio) {
+              model.hears_audio = true;
+              model.use_audio = m.use_audio !== false;
+            }
+            return model;
           }),
         };
         if (p.api_key) row.api_key = p.api_key;
@@ -1906,6 +1962,7 @@
     var queueHere = busyish || backgroundBusy;
     send.disabled = !connected || needsProvider;
     msg.disabled = !connected || needsProvider;
+    if (attachFileBtn) attachFileBtn.disabled = !connected || needsProvider;
     if (msg) msg.placeholder = needsProvider ? "Add a model provider before sending" : "Message Keimling…";
     if (modelEl) modelEl.disabled = !connected || needsProvider;
     voiceBtn.disabled = !connected || !voiceOK;
@@ -3737,7 +3794,7 @@
     if (m.role === "tool_group") {
       return ["tool", m.name || "", m.command || "", m.pending ? "1" : "0", m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
     }
-    return [m.role || "", m.text || "", m.name || "", m.streaming ? "1" : "0", m.collapsed ? "1" : "0"].join("\u0001");
+    return [m.role || "", m.text || "", m.name || "", (m.files || []).join(","), m.streaming ? "1" : "0", m.collapsed ? "1" : "0"].join("\u0001");
   }
 
   function stampMessageEl(el, m, role) {
@@ -3791,7 +3848,13 @@
     if (role === "peer") {
       el.className = "msg peer";
       var peerWho = m.name || "Agent";
-      el.innerHTML = '<p class="who">' + esc(peerWho) + '</p><div class="body">' + esc(m.text || "") + "</div>";
+      var peerFiles = "";
+      if (m.files && m.files.length) {
+        peerFiles = '<ul class="msg-files">' + m.files.map(function (name) {
+          return "<li>" + esc(name) + "</li>";
+        }).join("") + "</ul>";
+      }
+      el.innerHTML = '<p class="who">' + esc(peerWho) + '</p><div class="body">' + esc(m.text || "") + peerFiles + "</div>";
       stampMessageEl(el, m, role);
       parent.appendChild(el);
       return role;
@@ -3801,6 +3864,11 @@
     el.className = "msg " + role + (continuation ? " continuation" : "") + (m.streaming ? " streaming" : "");
     var who = role === "user" ? "You" : role === "system" ? "System" : "Keimling";
     var body = role === "assistant" ? renderAssistantHTML(m.text) : esc(m.text || "");
+    if (role === "user" && m.files && m.files.length) {
+      body += '<ul class="msg-files">' + m.files.map(function (name) {
+        return "<li>" + esc(name) + "</li>";
+      }).join("") + "</ul>";
+    }
     if (continuation) {
       el.innerHTML = '<div class="body">' + body + "</div>";
     } else {
@@ -4835,6 +4903,21 @@
   if (provEditDelete) provEditDelete.addEventListener("click", deleteProviderEditor);
   if (provModelNew) provModelNew.addEventListener("click", openModelFormAdd);
   if (provModelSave) provModelSave.addEventListener("click", saveEditorModel);
+  if (provModelID) provModelID.addEventListener("change", function () {
+    if (!catalogCache.length) return;
+    var id = provModelID.value.trim();
+    var found = null;
+    for (var i = 0; i < catalogCache.length; i++) {
+      if (catalogCache[i].id === id) { found = catalogCache[i]; break; }
+    }
+    if (!found) setModelSenses(null);
+    else setModelSenses({
+      sees_images: !!found.sees_images,
+      hears_audio: !!found.hears_audio,
+      use_images: true,
+      use_audio: true,
+    });
+  });
   if (provModelCancel) provModelCancel.addEventListener("click", closeModelForm);
   if (provCatalogFetch) provCatalogFetch.addEventListener("click", fetchModelCatalog);
   if (budgetLineEl) {
@@ -6515,6 +6598,8 @@
   var mentionIndex = 0;
   var mentionDismissed = null;
   var mentionLoading = false;
+  var fileMentionCache = { q: "", files: [] };
+  var fileMentionToken = 0;
 
   function closeMentionMenu() {
     if (!mentionMenu) return;
@@ -6524,7 +6609,6 @@
   }
 
   function activeMention(value, pos) {
-    if (currentAgentInstanceID) return null;
     value = String(value || "");
     pos = Math.max(0, Math.min(pos || 0, value.length));
     var upto = value.slice(0, pos);
@@ -6559,7 +6643,7 @@
   }
 
   function updateMentionMenu() {
-    if (!mentionMenu || currentAgentInstanceID) {
+    if (!mentionMenu) {
       closeMentionMenu();
       return;
     }
@@ -6569,21 +6653,39 @@
       return;
     }
     var q = active.query.toLowerCase();
-    var list = (agentsCache || []).filter(function (a) {
+    if (currentAgentInstanceID && !q.trim()) {
+      closeMentionMenu();
+      return;
+    }
+    var agents = currentAgentInstanceID ? [] : (agentsCache || []).filter(function (a) {
       var name = String(a.name || "").toLowerCase();
       var id = String(a.id || "").toLowerCase();
       if (!q.trim()) return true;
       if (name.indexOf(q) >= 0 || id.indexOf(q) >= 0) return true;
       return !!(name && q.indexOf(name) === 0);
+    }).map(function (a) {
+      return { kind: "agent", id: a.id, name: a.name || a.id };
     });
+    var files = [];
+    if (q.trim()) {
+      if (fileMentionCache.q !== q) {
+        fileMentionCache = { q: q, files: [] };
+        requestFileMentions(active.query);
+      }
+      files = (fileMentionCache.files || []).map(function (f) {
+        return { kind: "file", id: "", name: f.path || f.name, path: f.path || f.name };
+      });
+    }
+    var list = agents.concat(files);
     mentionItems = list;
     mentionMenu.innerHTML = "";
     mentionMenu.hidden = false;
     if (!list.length) {
       var empty = document.createElement("p");
       empty.className = "mention-empty";
-      empty.textContent = "No agent in this workspace";
+      empty.textContent = q.trim() ? "No match" : "No agent in this workspace";
       mentionMenu.appendChild(empty);
+      placeMentionMenu();
       return;
     }
     if (mentionIndex >= list.length) mentionIndex = 0;
@@ -6598,7 +6700,7 @@
       label.textContent = a.name || a.id;
       var id = document.createElement("span");
       id.className = "mention-id";
-      id.textContent = a.id || "";
+      id.textContent = a.kind === "file" ? "File" : (a.id || "");
       b.appendChild(label);
       b.appendChild(id);
       b.addEventListener("mousedown", function (e) {
@@ -6608,6 +6710,19 @@
       mentionMenu.appendChild(b);
     });
     placeMentionMenu();
+  }
+
+  function requestFileMentions(query) {
+    var token = ++fileMentionToken;
+    var key = String(query || "").toLowerCase();
+    fetch(apiURL("/api/files?q=" + encodeURIComponent(query)), { headers: headers() })
+      .then(function (r) { return r.ok ? r.json() : { files: [] }; })
+      .then(function (j) {
+        if (token !== fileMentionToken) return;
+        fileMentionCache = { q: key, files: (j && j.files) || [] };
+        updateMentionMenu();
+      })
+      .catch(function () {});
   }
 
   function placeMentionMenu() {
@@ -6635,15 +6750,25 @@
     });
   }
 
+  function quoteFileMention(path) {
+    path = String(path || "");
+    var clash = (agentsCache || []).some(function (a) {
+      return String(a.name || "").toLowerCase() === path.toLowerCase();
+    });
+    if (clash) path = "./" + path;
+    if (/[\s"]/.test(path)) return '"' + path.replace(/"/g, "") + '"';
+    return path;
+  }
+
   function applyMention(agent) {
     var active = activeMention(msg.value, msg.selectionStart);
     if (!active || !agent) return;
-    var name = agent.name || agent.id;
+    var name = agent.kind === "file" ? quoteFileMention(agent.path || agent.name) : (agent.name || agent.id);
     var insert = "@" + name + " ";
     var caret = active.start + insert.length;
     msg.value = msg.value.slice(0, active.start) + insert + msg.value.slice(msg.selectionStart);
     msg.setSelectionRange(caret, caret);
-    mentionPicks.push({ id: agent.id, name: name });
+    if (agent.kind !== "file") mentionPicks.push({ id: agent.id, name: agent.name || agent.id });
     mentionDismissed = null;
     closeMentionMenu();
     msg.focus();
@@ -6667,9 +6792,141 @@
   var mainEl = document.querySelector("main");
   if (mainEl) mainEl.addEventListener("scroll", placeMentionMenu);
 
+  function renderAttachRow() {
+    if (!attachRow) return;
+    attachRow.innerHTML = "";
+    attachRow.hidden = pendingFiles.length === 0;
+    pendingFiles.forEach(function (f, i) {
+      var chip = document.createElement("span");
+      chip.className = "attach-chip";
+      var label = document.createElement("span");
+      label.textContent = f.error ? (f.name + " — " + f.error) : (f.uploading ? (f.name + "…") : f.name);
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost";
+      remove.textContent = "Remove";
+      remove.title = "Take this file off the message";
+      remove.addEventListener("click", function () {
+        pendingFiles.splice(i, 1);
+        renderAttachRow();
+      });
+      chip.appendChild(label);
+      chip.appendChild(remove);
+      attachRow.appendChild(chip);
+    });
+  }
+
+  function finishAttachment(slot, response) {
+    response
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = {};
+          try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+          if (!r.ok) throw new Error((j && j.message) || t || r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
+        slot.id = j.id;
+        slot.name = j.name || slot.name;
+        slot.uploading = false;
+        renderAttachRow();
+      })
+      .catch(function (err) {
+        slot.uploading = false;
+        slot.error = String((err && err.message) || err || "upload failed");
+        renderAttachRow();
+      });
+  }
+
+  function beginAttachment(name) {
+    if (pendingFiles.length >= 8) {
+      appendLive("\n[files] Eight files is the limit for one message.\n");
+      return null;
+    }
+    var slot = { id: "", name: name || "file", uploading: true };
+    pendingFiles.push(slot);
+    renderAttachRow();
+    return slot;
+  }
+
+  function addAttachmentFile(file) {
+    if (!file) return;
+    var slot = beginAttachment(file.name || "file");
+    if (!slot) return;
+    var body = new FormData();
+    body.append("file", file, file.name || "file");
+    var h = {};
+    var s = secret();
+    if (s) h.Authorization = "Bearer " + s;
+    finishAttachment(slot, fetch(apiURL("/api/attachments"), { method: "POST", headers: h, body: body }));
+  }
+
+  function droppedFileName(path) {
+    var raw = String(path || "");
+    try {
+      if (raw.toLowerCase().indexOf("file:") === 0) raw = new URL(raw).pathname;
+    } catch (e) { /* keep the raw text */ }
+    try { raw = decodeURIComponent(raw); } catch (e) { /* keep the encoded text */ }
+    var parts = raw.split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "file";
+  }
+
+  var recentDropKeys = {};
+  function dropKey(path) {
+    var raw = String(path || "");
+    try {
+      if (raw.toLowerCase().indexOf("file:") === 0) raw = decodeURIComponent(new URL(raw).pathname);
+    } catch (e) { /* keep the raw text */ }
+    return raw;
+  }
+  function addAttachmentPath(path) {
+    if (!path) return;
+    var key = dropKey(path);
+    var now = Date.now();
+    if (recentDropKeys[key] && now - recentDropKeys[key] < 1500) return;
+    recentDropKeys[key] = now;
+    var slot = beginAttachment(droppedFileName(path));
+    if (!slot) return;
+    finishAttachment(slot, fetch(apiURL("/api/attachments"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ path: path }),
+    }));
+  }
+
+  window.keimlingAcceptDrop = function (uri) {
+    if (composerForm) composerForm.classList.remove("is-drop");
+    addAttachmentPath(uri);
+  };
+
+  function fileDropURIs(dt) {
+    var raw = "";
+    try {
+      raw = dt.getData("text/uri-list") || dt.getData("text/plain") || "";
+    } catch (e) { raw = ""; }
+    var out = [];
+    String(raw).split(/\r?\n/).forEach(function (line) {
+      line = line.trim();
+      if (!line || line.charAt(0) === "#") return;
+      if (line.toLowerCase().indexOf("file:") === 0) out.push(line);
+    });
+    return out;
+  }
+
+  function dropOffersFiles(dt) {
+    if (!dt || !dt.types) return false;
+    for (var i = 0; i < dt.types.length; i++) {
+      var t = String(dt.types[i] || "").toLowerCase();
+      if (t === "files" || t.indexOf("uri-list") >= 0 || t === "text/plain") return true;
+    }
+    return false;
+  }
+
   function sendMessage(text) {
     text = String(text || "").trim();
-    if (!text) return;
+    var files = pendingFiles.slice();
+    if (!text && !files.length) return;
     if (!sendMessage.releasing) {
       send.disabled = true;
       Promise.resolve(modelSave).then(function () {
@@ -6681,6 +6938,16 @@
       return;
     }
     send.disabled = true;
+    if (files.some(function (f) { return f.uploading; })) {
+      appendLive("\n[files] Wait for the upload to finish.\n");
+      setState(agentState);
+      return;
+    }
+    if (files.some(function (f) { return !f.id || f.error; })) {
+      appendLive("\n[files] Remove the file that failed, then send again.\n");
+      setState(agentState);
+      return;
+    }
     clearLive();
     closeMentionMenu();
     var wasBusy = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
@@ -6689,7 +6956,7 @@
     fetch(apiURL("/api/message"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ text: text, to: picks }),
+      body: JSON.stringify({ text: text, to: picks, attachments: files.map(function (f) { return f.id; }) }),
     })
       .then(function (r) {
         return r.text().then(function (t) {
@@ -6703,7 +6970,10 @@
         if (j && j.delivered && j.delivered.length) {
           msg.value = "";
           mentionPicks = [];
+          pendingFiles = [];
+          renderAttachRow();
           var bodyText = j.text != null ? String(j.text) : text;
+          var sentFiles = (j && j.files) || files.map(function (f) { return f.name; });
           var shown = currentThreadID;
           var fromID = (j && j.thread_id) || "";
           if (!fromID || fromID === "main") fromID = workspaceThreadID || currentThreadID;
@@ -6716,7 +6986,7 @@
             if (th && th.id === fromID) threadTitle = th.title || th.name || "";
           });
           j.delivered.forEach(function (d) {
-            messages.push({ role: "peer", name: "To " + (d.name || d.id), text: bodyText });
+            messages.push({ role: "peer", name: "To " + (d.name || d.id), text: bodyText, files: sentFiles });
           });
           renderThread();
           setState(agentState);
@@ -6726,7 +6996,7 @@
               headers: headers(),
               body: JSON.stringify({
                 id: d.id,
-                text: bodyText,
+                text: (j && j.wake) || bodyText,
                 kind: "thread",
                 from: fromID,
                 from_name: threadTitle,
@@ -6749,7 +7019,9 @@
         }
         msg.value = "";
         mentionPicks = [];
-        messages.push({ role: "user", text: text });
+        pendingFiles = [];
+        renderAttachRow();
+        messages.push({ role: "user", text: text, files: files.map(function (f) { return f.name; }) });
         if (j && j.queued) {
           messages.push({
             role: "system",
@@ -6808,13 +7080,54 @@
       });
   }
 
-  document.getElementById("composer").addEventListener("submit", function (e) {
+  var composerForm = document.getElementById("composer");
+  composerForm.addEventListener("submit", function (e) {
     e.preventDefault();
     if (recording) {
       stopRecording(true);
       return;
     }
     sendMessage(msg.value);
+  });
+  if (attachFileBtn && attachInput) {
+    attachFileBtn.addEventListener("click", function () { attachInput.click(); });
+    attachInput.addEventListener("change", function () {
+      Array.prototype.forEach.call(attachInput.files || [], addAttachmentFile);
+      attachInput.value = "";
+    });
+  }
+  function takeComposerDrop(e) {
+    var dt = e.dataTransfer;
+    if (!dt) return;
+    var uris = fileDropURIs(dt);
+    var files = [];
+    if (dt.files) {
+      Array.prototype.forEach.call(dt.files, function (f) {
+        if (f && f.size > 0) files.push(f);
+      });
+    }
+    if (!uris.length && !files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (composerForm) composerForm.classList.remove("is-drop");
+    if (uris.length) {
+      uris.forEach(addAttachmentPath);
+      return;
+    }
+    files.forEach(addAttachmentFile);
+  }
+  [composerForm, document.getElementById("thread")].forEach(function (el) {
+    if (!el) return;
+    el.addEventListener("dragover", function (e) {
+      if (!dropOffersFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      if (composerForm) composerForm.classList.add("is-drop");
+    });
+    el.addEventListener("dragleave", function () {
+      if (composerForm) composerForm.classList.remove("is-drop");
+    });
+    el.addEventListener("drop", takeComposerDrop);
   });
 
   function decide(allow) {
@@ -7001,15 +7314,15 @@
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (msg.value.trim() === "" && canUseVoice()) {
-        startRecording();
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (msg.value.trim() === "" && !pendingFiles.length && canUseVoice()) {
+          startRecording();
+          return;
+        }
+        sendMessage(msg.value);
         return;
       }
-      sendMessage(msg.value);
-      return;
-    }
 
     if (!canUseVoice()) return;
     if (msg.value.trim() !== "") return;

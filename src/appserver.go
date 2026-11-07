@@ -178,6 +178,8 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle(mcpOAuthMetaPath, http.HandlerFunc(s.handleOAuthClientMetadata))
 	s.mux.Handle("/api/artifacts", s.requireSecret(http.HandlerFunc(s.handleArtifacts)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
+	s.mux.Handle("/api/attachments", s.requireSecret(http.HandlerFunc(s.handleAttachment)))
+	s.mux.Handle("/api/files", s.requireSecret(http.HandlerFunc(s.handleWorkspaceFiles)))
 	s.mux.Handle("/api/stop", s.requireSecret(http.HandlerFunc(s.handleStop)))
 	s.mux.Handle("/api/newchat", s.requireSecret(http.HandlerFunc(s.handleNewChat)))
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
@@ -2319,8 +2321,9 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Text string `json:"text"`
-		To   []struct {
+		Text        string   `json:"text"`
+		Attachments []string `json:"attachments"`
+		To          []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"to"`
@@ -2330,7 +2333,21 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(body.Text)
-	if text == "" {
+	var uploads []chatFile
+	for _, id := range body.Attachments {
+		f, err := openChatUpload(attachmentRoot(), id)
+		if err != nil {
+			http.Error(w, "unknown attachment", http.StatusBadRequest)
+			return
+		}
+		uploads = append(uploads, f)
+	}
+	text = joinChatFiles(text, uploads)
+	if s.agent != nil {
+		text = s.agent.bindChatFiles(text)
+	}
+	shown, attached := splitChatFiles(text)
+	if strings.TrimSpace(shown) == "" && len(attached) == 0 {
 		http.Error(w, "text required", http.StatusBadRequest)
 		return
 	}
@@ -2350,7 +2367,11 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(mentions) > 0 {
 			bodyText := stripResolvedMentions(text, mentions)
-			if bodyText == "" {
+			if s.agent != nil {
+				bodyText = s.agent.bindChatFiles(bodyText)
+			}
+			shownBody, attachedBody := splitChatFiles(bodyText)
+			if strings.TrimSpace(shownBody) == "" && len(attachedBody) == 0 {
 				http.Error(w, "write the message after the name", http.StatusBadRequest)
 				return
 			}
@@ -2369,7 +2390,7 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
-			_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": false, "delivered": delivered, "text": bodyText, "thread_id": view})
+			_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": false, "delivered": delivered, "text": strings.TrimSpace(shownBody), "wake": bodyText, "files": chatFileNames(attachedBody), "thread_id": view})
 			return
 		}
 	}
@@ -2390,6 +2411,64 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 // workspaceMentionThread is the workspace thread a mention is recorded on.
 // The agent instance's own thread id is not a workspace thread. When the
 // worker is sitting on that placeholder, the mention moves to a real thread.
+func (s *appServer) handleAttachment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		saved, err := copyDroppedChatFile(attachmentRoot(), body.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": saved.ID, "name": saved.Name})
+		return
+	}
+	if err := r.ParseMultipartForm(chatUploadLimit); err != nil {
+		http.Error(w, "invalid upload", http.StatusBadRequest)
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	saved, err := saveChatUpload(attachmentRoot(), hdr.Filename, file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"id": saved.ID, "name": saved.Name})
+}
+
+func (s *appServer) handleWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	files := searchWorkspaceFiles(s.agent.Cfg.WorkspaceRoot, r.URL.Query().Get("q"), 12)
+	if files == nil {
+		files = []map[string]string{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"files": files})
+}
+
 func (s *appServer) workspaceMentionThread() (string, error) {
 	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
 		return "", fmt.Errorf("no workspace thread")

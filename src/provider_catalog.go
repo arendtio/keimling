@@ -18,6 +18,8 @@ type catalogModel struct {
 	ContextLimit    int    `json:"context_limit,omitempty"`
 	PromptPrice     string `json:"prompt_price,omitempty"`
 	CompletionPrice string `json:"completion_price,omitempty"`
+	SeesImages      bool   `json:"sees_images,omitempty"`
+	HearsAudio      bool   `json:"hears_audio,omitempty"`
 }
 
 func fetchProviderModelCatalog(ctx context.Context, baseURL, apiKey string) ([]catalogModel, error) {
@@ -66,6 +68,11 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 				Prompt     string `json:"prompt"`
 				Completion string `json:"completion"`
 			} `json:"pricing"`
+			Architecture *struct {
+				Modality        string   `json:"modality"`
+				InputModalities []string `json:"input_modalities"`
+			} `json:"architecture"`
+			InputModalities []string `json:"input_modalities"`
 		}
 		if err := json.Unmarshal(raw, &row); err != nil {
 			continue
@@ -90,6 +97,13 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 			m.PromptPrice = strings.TrimSpace(row.Pricing.Prompt)
 			m.CompletionPrice = strings.TrimSpace(row.Pricing.Completion)
 		}
+		inputs := row.InputModalities
+		modality := ""
+		if row.Architecture != nil {
+			inputs = append(inputs, row.Architecture.InputModalities...)
+			modality = row.Architecture.Modality
+		}
+		m.SeesImages, m.HearsAudio = catalogModalities(inputs, modality)
 		out = append(out, m)
 	}
 	return out, nil

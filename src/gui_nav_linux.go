@@ -8,6 +8,32 @@ package main
 #include <stdlib.h>
 
 extern void keimlingGoOpenExternal(char* uri);
+extern void keimlingGoAcceptDrop(char* uri);
+
+static void keimling_on_drag_data(GtkWidget *widget,
+                                  GdkDragContext *context,
+                                  gint x,
+                                  gint y,
+                                  GtkSelectionData *selection,
+                                  guint info,
+                                  guint time,
+                                  gpointer user_data) {
+	(void)widget;
+	(void)context;
+	(void)x;
+	(void)y;
+	(void)info;
+	(void)time;
+	(void)user_data;
+	gchar **uris = gtk_selection_data_get_uris(selection);
+	if (uris == NULL) {
+		return;
+	}
+	for (guint i = 0; uris[i] != NULL; i++) {
+		keimlingGoAcceptDrop(uris[i]);
+	}
+	g_strfreev(uris);
+}
 
 static gboolean keimling_on_decide_policy(WebKitWebView *web_view,
                                           WebKitPolicyDecision *decision,
@@ -25,6 +51,12 @@ static gboolean keimling_on_decide_policy(WebKitWebView *web_view,
 	const gchar *uri = webkit_uri_request_get_uri(req);
 	if (uri == NULL) {
 		return FALSE;
+	}
+	// A file dropped from Dolphin is a navigation to file://. Ignore it or the UI is replaced by the picture.
+	if (g_str_has_prefix(uri, "file:")) {
+		keimlingGoAcceptDrop((char *)uri);
+		webkit_policy_decision_ignore(decision);
+		return TRUE;
 	}
 	WebKitNavigationType ntype = webkit_navigation_action_get_navigation_type(action);
 	gboolean open_out = (type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) ||
@@ -46,6 +78,8 @@ static void keimling_intercept_external_links(void *webview) {
 	}
 	g_signal_connect(WEBKIT_WEB_VIEW(webview), "decide-policy",
 	                 G_CALLBACK(keimling_on_decide_policy), NULL);
+	g_signal_connect(WEBKIT_WEB_VIEW(webview), "drag-data-received",
+	                 G_CALLBACK(keimling_on_drag_data), NULL);
 }
 */
 import "C"
@@ -55,12 +89,25 @@ import (
 	webview "github.com/samcharles93/webview_go"
 )
 
+var guiDropView webview.WebView
+
+//export keimlingGoAcceptDrop
+func keimlingGoAcceptDrop(uri *C.char) {
+	js, ok := fileDropEval(C.GoString(uri))
+	if !ok || guiDropView == nil {
+		return
+	}
+	w := guiDropView
+	_ = w.Dispatch(func() { _ = w.Eval(js) })
+}
+
 //export keimlingGoOpenExternal
 func keimlingGoOpenExternal(uri *C.char) {
 	_ = openExternalURL(C.GoString(uri))
 }
 
 func interceptExternalLinks(w webview.WebView) {
+	guiDropView = w
 	view := w.NativeHandle(webview.NativeHandleKindBrowserController)
 	if view == nil {
 		return

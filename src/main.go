@@ -696,6 +696,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "no model provider is configured")
 			continue
 		}
+		line = a.bindChatFiles(line)
 		signalCtx, signalStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		ctx, cancel := context.WithCancel(signalCtx)
 		control := newTaskControl(cancel)
@@ -792,6 +793,7 @@ func printHelp() {
 	fmt.Println("\n\033[1mCommands\033[0m")
 	fmt.Println("  /help             Show this help")
 	fmt.Println("  /status           Show model, context estimate, tokens and settings")
+	fmt.Println("  @path             Refer to a file. It stays where it is")
 	fmt.Println("  /skills           List installed Agent Skills")
 	fmt.Println("  /skills search Q  Search the web for public skills")
 	fmt.Println("  /skills preview N|URL  Download full skill folder for review")

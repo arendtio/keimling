@@ -18,6 +18,8 @@ type chatTarget struct {
 	BaseURL      string
 	APIKey       string
 	Custom       bool
+	SeeImages    bool
+	HearAudio    bool
 }
 
 func (a *Agent) beginRunChat() {
@@ -267,6 +269,8 @@ func chatTargetFrom(p *modelProvider, m *providerModel, globalLimit int, globalR
 	if m.ContextLimit >= 1000 {
 		t.ContextLimit = m.ContextLimit
 	}
+	t.SeeImages = m.nativeImages()
+	t.HearAudio = m.nativeAudio()
 	return t
 }
 
@@ -477,6 +481,7 @@ func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra 
 	input = prepareReasoningInput(input, t.ProviderID, t.Model, a.reasoningOwnerMap())
 	var resp Response
 	var err error
+	input = expandChatFiles(input, t.SeeImages, t.HearAudio)
 	a.withChatEndpoint(func(model, reasoning string) {
 		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.modelInstructions(), extra, a.instanceToolGrant())
 	})

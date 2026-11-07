@@ -49,9 +49,13 @@ func normalizeResponseInput(history []json.RawMessage) ([]json.RawMessage, error
 			_ = json.Unmarshal(item["peer"], &peer)
 			_ = json.Unmarshal(item["text"], &text)
 			_ = json.Unmarshal(item["direction"], &direction)
-			line := "Sent to " + strings.TrimSpace(peer) + ": " + strings.TrimSpace(text)
+			body, files := splitChatFiles(text)
+			line := "Sent to " + strings.TrimSpace(peer) + ": " + strings.TrimSpace(body)
 			if direction == "received" {
-				line = "From " + strings.TrimSpace(peer) + ": " + strings.TrimSpace(text)
+				line = "From " + strings.TrimSpace(peer) + ": " + strings.TrimSpace(body)
+			}
+			for _, f := range files {
+				line += "\nfile: " + f.Path
 			}
 			role, _ := json.Marshal("developer")
 			content, _ := json.Marshal(line)

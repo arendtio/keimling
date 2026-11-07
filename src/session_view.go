@@ -6,16 +6,17 @@ import (
 )
 
 type sessionMessage struct {
-	Role      string `json:"role"` // user | assistant | tool | tool_group | system
-	Name      string `json:"name,omitempty"`
-	Text      string `json:"text,omitempty"`
-	Command   string `json:"command,omitempty"`   // tool_group: visible command / label
-	Result    string `json:"result,omitempty"`    // display / model-facing output
-	Raw       string `json:"raw,omitempty"`       // raw shell output only when filtered
-	Filtered  bool   `json:"filtered,omitempty"`  // true when Raw differs from model Result
-	Status    string `json:"status,omitempty"`    // failed | stopped; empty means ran
-	Collapsed bool   `json:"collapsed,omitempty"` // long system note starts closed
-	Event     int    `json:"event,omitempty"`     // 1-based journal item index
+	Role      string   `json:"role"` // user | assistant | tool | tool_group | system
+	Name      string   `json:"name,omitempty"`
+	Text      string   `json:"text,omitempty"`
+	Command   string   `json:"command,omitempty"`   // tool_group: visible command / label
+	Result    string   `json:"result,omitempty"`    // display / model-facing output
+	Raw       string   `json:"raw,omitempty"`       // raw shell output only when filtered
+	Filtered  bool     `json:"filtered,omitempty"`  // true when Raw differs from model Result
+	Status    string   `json:"status,omitempty"`    // failed | stopped; empty means ran
+	Collapsed bool     `json:"collapsed,omitempty"` // long system note starts closed
+	Event     int      `json:"event,omitempty"`     // 1-based journal item index
+	Files     []string `json:"files,omitempty"`
 }
 
 type sessionChapter struct {
@@ -59,7 +60,18 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 		switch {
 		case item.Role == "user":
 			if s, ok := item.Content.(string); ok {
-				s = strings.TrimSpace(s)
+				body, files := splitChatFiles(s)
+				s = strings.TrimSpace(body)
+				names := chatFileNames(files)
+				if s == "" && len(names) == 0 {
+					continue
+				}
+				if len(names) > 0 && !strings.HasPrefix(s, "[AUTOPILOT") && !strings.HasPrefix(s, "Continue the current plan") && !strings.HasPrefix(s, "<compacted_conversation_memory>") {
+					if _, _, peer := parsePeerUserText(s); !peer {
+						out = append(out, sessionMessage{Role: "user", Text: s, Files: names, Event: ev})
+						continue
+					}
+				}
 				if s == "" {
 					continue
 				}
@@ -82,16 +94,18 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 				out = append(out, sessionMessage{Role: "assistant", Text: text, Event: ev})
 			}
 		case item.Type == "keimling_peer":
-			text := strings.TrimSpace(item.Text)
+			body, fileRefs := splitChatFiles(item.Text)
+			text := strings.TrimSpace(body)
 			peer := strings.TrimSpace(item.Peer)
-			if text == "" || peer == "" {
+			names := chatFileNames(fileRefs)
+			if (text == "" && len(names) == 0) || peer == "" {
 				continue
 			}
 			name := "To " + peer
 			if item.Direction == "received" {
 				name = "From " + peer
 			}
-			out = append(out, sessionMessage{Role: "peer", Name: name, Text: text, Event: ev})
+			out = append(out, sessionMessage{Role: "peer", Name: name, Text: text, Files: names, Event: ev})
 		case item.Type == "keimling_notice":
 			text := strings.TrimSpace(item.Text)
 			if text == "" {

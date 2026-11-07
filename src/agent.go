@@ -180,15 +180,19 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 	defer func() { _ = a.updateHistoryIndex("") }()
 	defer a.finishRun(&err)
 	// Agent instances own a fixed main thread under their data dir — don't rename workspace threads.
+	shown, attached := splitChatFiles(message)
+	if strings.TrimSpace(shown) == "" && len(attached) > 0 {
+		shown = attached[0].Name
+	}
 	if a.Cfg.WorkspaceID != "" && a.Cfg.ThreadID != "" && strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
-		go a.maybeGenerateThreadTitle(ctx, message)
+		go a.maybeGenerateThreadTitle(ctx, shown)
 	}
 	if message != "" {
 		if err := a.add(map[string]any{"role": "user", "content": message}); err != nil {
 			return err
 		}
 		if c := a.ensureCharter(); strings.TrimSpace(c.Goal) == "" {
-			c.Goal = truncate(strings.TrimSpace(message), 400)
+			c.Goal = truncate(strings.TrimSpace(shown), 400)
 			_ = a.persistCharter()
 		}
 	} else {
