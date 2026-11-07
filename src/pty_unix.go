@@ -32,7 +32,7 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 	}
 	cmd := shellCommand(shell, command)
 	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
+		cmd.Env = overlayEnv(os.Environ(), extraEnv)
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}

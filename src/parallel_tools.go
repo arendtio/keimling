@@ -277,7 +277,22 @@ func (a *Agent) handleFunctionCall(ctx context.Context, message string, reader *
 	}
 	raw := ""
 	if adm.Allowed {
+		pre := runPluginHooks("preToolUse", item.Name+"\n"+item.Arguments)
+		if item.Name == "exec" {
+			if shellNote := runPluginHooks("beforeShellExecution", item.Arguments); shellNote != "" {
+				pre = strings.TrimSpace(pre + "\n" + shellNote)
+			}
+		}
 		result, raw = a.invokeTool(ctx, message, item)
+		post := runPluginHooks("postToolUse", item.Name+"\n"+result)
+		if item.Name == "exec" {
+			if shellNote := runPluginHooks("afterShellExecution", result); shellNote != "" {
+				post = strings.TrimSpace(post + "\n" + shellNote)
+			}
+		}
+		if extra := strings.TrimSpace(pre + "\n" + post); extra != "" {
+			result = strings.TrimSpace(result + "\n" + extra)
+		}
 	}
 	return a.recordToolResult(ctx, item, result, raw, adm.Allowed)
 }

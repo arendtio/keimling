@@ -916,13 +916,105 @@
       li.appendChild(title);
       var meta = document.createElement("p");
       meta.className = "profile-meta";
-      var bits = [p.kind === "git" ? "Git" : "Directory", p.location];
+      var bits = [p.layout === "marketplace" ? "Marketplace" : "Plugin", p.kind === "git" ? "Git" : "Directory", p.location];
+      if (p.plugins && p.plugins.length) bits.push("Plugins: " + p.plugins.join(", "));
       if (p.skills && p.skills.length) bits.push("Skills: " + p.skills.join(", "));
+      if (p.rules && p.rules.length) bits.push("Rules: " + p.rules.join(", "));
+      if (p.commands && p.commands.length) bits.push("Commands: " + p.commands.join(", "));
+      if (p.agents && p.agents.length) bits.push("Agents: " + p.agents.join(", "));
       if (p.servers && p.servers.length) bits.push("MCP: " + p.servers.join(", "));
       if (p.notes && p.notes.length) bits.push(p.notes.join("; "));
       if (p.error) bits.push(p.error);
       meta.textContent = bits.join(" · ");
       li.appendChild(meta);
+      if (p.agents && p.agents.length) {
+        var starts = document.createElement("div");
+        starts.className = "profile-row-actions";
+        p.agents.forEach(function (name) {
+          var start = document.createElement("button");
+          start.type = "button";
+          start.className = "ghost";
+          start.textContent = "Start " + name;
+          start.addEventListener("click", function () {
+            if (!currentWorkspaceID) {
+              showPluginErr("Open a workspace first");
+              return;
+            }
+            fetch(apiURL("/api/plugins/agent"), {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ id: p.id, name: name, workspace_id: currentWorkspaceID }),
+            })
+              .then(readAPIResult)
+              .then(function (j) {
+                closeGate();
+                currentAgentInstanceID = (j.instance && j.instance.id) || "";
+                return afterAgentAttach();
+              })
+              .catch(function (err) { showPluginErr(String(err.message || err)); });
+          });
+          starts.appendChild(start);
+        });
+        li.appendChild(starts);
+      }
+      if (p.code && p.code.length) {
+        var code = document.createElement("div");
+        code.className = "plugin-code";
+        p.code.forEach(function (entry) {
+          var row = document.createElement("label");
+          row.className = "plugin-code-row";
+          if (!entry.granted) {
+            var pick = document.createElement("input");
+            pick.type = "checkbox";
+            pick.checked = true;
+            pick.setAttribute("data-code-name", entry.name);
+            row.appendChild(pick);
+          }
+          var text = document.createElement("span");
+          text.textContent = (entry.granted ? "Active" : "Off") + " · " + entry.kind + " " + entry.name + " · " + entry.command;
+          row.appendChild(text);
+          if (entry.granted) {
+            var revoke = document.createElement("button");
+            revoke.type = "button";
+            revoke.className = "ghost";
+            revoke.textContent = "Revoke";
+            revoke.addEventListener("click", function () {
+              fetch(apiURL("/api/plugins/code"), {
+                method: "POST",
+                headers: headers(),
+                body: JSON.stringify({ id: p.id, revoke: [entry.name] }),
+              })
+                .then(readAPIResult)
+                .then(loadPlugins)
+                .catch(function (err) { showPluginErr(String(err.message || err)); });
+            });
+            row.appendChild(revoke);
+          }
+          code.appendChild(row);
+        });
+        if (code.querySelector("input[type=checkbox]")) {
+          var activate = document.createElement("button");
+          activate.type = "button";
+          activate.textContent = "Activate running code";
+          activate.addEventListener("click", function () {
+            var names = [];
+            code.querySelectorAll("input[type=checkbox]").forEach(function (box) {
+              if (box.checked && box.getAttribute("data-code-name")) names.push(box.getAttribute("data-code-name"));
+            });
+            if (!names.length) return;
+            fetch(apiURL("/api/plugins/code"), {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ id: p.id, grant: names }),
+            })
+              .then(readAPIResult)
+              .then(loadPlugins)
+              .catch(function (err) { showPluginErr(String(err.message || err)); });
+          });
+          code.appendChild(activate);
+        }
+        li.appendChild(code);
+      }
       var actions = document.createElement("div");
       actions.className = "profile-row-actions";
       var on = document.createElement("label");
@@ -6745,19 +6837,125 @@
   }
 
   function placeMentionMenu() {
-    if (!mentionMenu || mentionMenu.hidden || !msg) return;
-    if (mentionMenu.parentElement !== document.body) document.body.appendChild(mentionMenu);
+    placePopMenu(mentionMenu);
+  }
+
+  var slashMenu = document.getElementById("slash-menu");
+  var slashItems = [];
+  var slashIndex = 0;
+  var slashCommands = null;
+  var slashLoading = false;
+
+  function closeSlashMenu() {
+    if (!slashMenu) return;
+    slashMenu.hidden = true;
+    slashMenu.innerHTML = "";
+    slashItems = [];
+  }
+
+  function activeSlash(value) {
+    value = String(value || "");
+    if (!value.startsWith("/") || value.indexOf("\n") >= 0) return null;
+    var token = value.slice(1);
+    if (/\s/.test(token)) return null;
+    return token;
+  }
+
+  function ensureSlashCommands(done) {
+    if (slashCommands) {
+      done();
+      return;
+    }
+    if (slashLoading) return;
+    slashLoading = true;
+    fetch(apiURL("/api/plugin-commands"), { headers: headers() })
+      .then(function (r) { return r.ok ? r.json() : { commands: [] }; })
+      .then(function (j) {
+        slashCommands = (j && j.commands) || [];
+        slashLoading = false;
+        done();
+      })
+      .catch(function () { slashLoading = false; });
+  }
+
+  function updateSlashMenu() {
+    if (!slashMenu) return;
+    var query = activeSlash(msg.value);
+    if (query === null) {
+      closeSlashMenu();
+      return;
+    }
+    if (!slashCommands) {
+      ensureSlashCommands(updateSlashMenu);
+      return;
+    }
+    var q = query.toLowerCase();
+    var list = slashCommands.filter(function (c) {
+      return !q || String(c.name || "").indexOf(q) === 0 || String(c.description || "").toLowerCase().indexOf(q) >= 0;
+    });
+    slashItems = list;
+    slashMenu.innerHTML = "";
+    if (!slashCommands.length) {
+      closeSlashMenu();
+      return;
+    }
+    slashMenu.hidden = false;
+    if (!list.length) {
+      var empty = document.createElement("p");
+      empty.className = "mention-empty";
+      empty.textContent = "No command";
+      slashMenu.appendChild(empty);
+      placePopMenu(slashMenu);
+      return;
+    }
+    if (slashIndex >= list.length) slashIndex = 0;
+    if (slashIndex < 0) slashIndex = list.length - 1;
+    list.forEach(function (c, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "mention-option" + (i === slashIndex ? " active" : "");
+      b.setAttribute("role", "option");
+      var label = document.createElement("span");
+      label.className = "mention-name";
+      label.textContent = "/" + c.name;
+      var id = document.createElement("span");
+      id.className = "mention-id";
+      id.textContent = c.description || c.plugin || "";
+      b.appendChild(label);
+      b.appendChild(id);
+      b.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        applySlash(c);
+      });
+      slashMenu.appendChild(b);
+    });
+    placePopMenu(slashMenu);
+  }
+
+  function applySlash(cmd) {
+    if (!cmd) return;
+    msg.value = cmd.body || ("/" + cmd.name);
+    closeSlashMenu();
+    slashCommands = null;
+    msg.focus();
+    msg.setSelectionRange(msg.value.length, msg.value.length);
+    msg.dispatchEvent(new Event("input"));
+  }
+
+  function placePopMenu(menu) {
+    if (!menu || menu.hidden || !msg) return;
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
     var box = msg.getBoundingClientRect();
     var width = Math.max(220, box.width);
     var left = Math.max(8, box.left);
     if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-    mentionMenu.style.width = width + "px";
-    mentionMenu.style.left = left + "px";
+    menu.style.width = width + "px";
+    menu.style.left = left + "px";
     var gap = 6;
-    var height = mentionMenu.offsetHeight || 0;
+    var height = menu.offsetHeight || 0;
     var top = box.top - height - gap;
     if (top < 8) top = Math.min(box.bottom + gap, Math.max(8, window.innerHeight - height - 8));
-    mentionMenu.style.top = Math.max(8, top) + "px";
+    menu.style.top = Math.max(8, top) + "px";
   }
 
   function ensureMentionAgents() {
@@ -6798,6 +6996,7 @@
       mentionDismissed = null;
       if (activeMention(msg.value, msg.selectionStart)) ensureMentionAgents();
       updateMentionMenu();
+      updateSlashMenu();
     });
     msg.addEventListener("keyup", function (e) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape") return;
@@ -7306,6 +7505,21 @@
         e.preventDefault();
         stopRecording(false);
       }
+      return;
+    }
+
+    if (slashMenu && !slashMenu.hidden && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Escape" || (e.key === "Enter" && slashItems.length))) {
+      e.preventDefault();
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        slashIndex += e.key === "ArrowDown" ? 1 : -1;
+        updateSlashMenu();
+        return;
+      }
+      if (e.key === "Escape") {
+        closeSlashMenu();
+        return;
+      }
+      applySlash(slashItems[slashIndex]);
       return;
     }
 

@@ -438,6 +438,9 @@ func (a *Agent) agentInstanceInstructions() string {
 	if agents := strings.TrimSpace(a.agentsMarkdownBlock()); agents != "" {
 		parts = append(parts, agents)
 	}
+	if rules := strings.TrimSpace(pluginRulesText()); rules != "" {
+		parts = append(parts, rules)
+	}
 	if cat := strings.TrimSpace(a.enabledSkillsCatalog()); cat != "" {
 		parts = append(parts, cat)
 	}

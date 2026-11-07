@@ -209,6 +209,10 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 	a.PilotReport = ""
 	a.emit("status", "running")
 	defer a.emit("status", "idle")
+	defer func() { _ = runPluginHooks("stop", "") }()
+	if note := runPluginHooks("sessionStart", message); note != "" {
+		a.note(note)
+	}
 	a.beginRunChat()
 	defer a.endRunChat()
 	pilotCycles := 0

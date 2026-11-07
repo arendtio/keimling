@@ -126,12 +126,17 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		runCtx, cancel := context.WithTimeout(ctx, time.Duration(x.TimeoutSeconds)*time.Second)
 		defer cancel()
 		shell := selectedShell()
+		binDir := pluginExecDir()
 		if x.Interactive {
-			return interactiveExec(runCtx, shell, x.Command, time.Duration(x.TimeoutSeconds)*time.Second, extraEnv...)
+			env := append([]string{}, extraEnv...)
+			if binDir != "" {
+				env = append(env, "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
+			return interactiveExec(runCtx, shell, x.Command, time.Duration(x.TimeoutSeconds)*time.Second, env...)
 		}
 		cmd := shellCommand(shell, x.Command)
-		if len(extraEnv) > 0 {
-			cmd.Env = append(os.Environ(), extraEnv...)
+		if len(extraEnv) > 0 || binDir != "" {
+			cmd.Env = commandEnv(extraEnv, binDir)
 		}
 		// sudo prompts use /dev/tty during a separate credential refresh.
 		if commandUsesSudo(x.Command) {

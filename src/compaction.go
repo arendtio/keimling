@@ -139,6 +139,9 @@ func (a *Agent) compactContext(ctx context.Context, level, instruction string) e
 	if level == "auto" && limit > 0 && estimate*100 < 70*limit {
 		return nil
 	}
+	if note := runPluginHooks("preCompact", level); note != "" {
+		a.note(note)
+	}
 	err := a.refreshCharter(ctx, compactionInstruction(instruction))
 	if err != nil {
 		if level == "hard" && strings.Contains(err.Error(), "nothing safe") {

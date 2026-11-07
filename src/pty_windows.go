@@ -17,7 +17,7 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 	}
 	cmd := shellCommand(shell, command)
 	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
+		cmd.Env = overlayEnv(os.Environ(), extraEnv)
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	setProcessGroup(cmd)

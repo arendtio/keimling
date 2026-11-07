@@ -22,10 +22,11 @@ const (
 var pluginNameRe = regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`)
 
 type pluginRecord struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"` // git | dir
-	Location string `json:"location"`
-	Enabled  bool   `json:"enabled"`
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"` // git | dir
+	Location string   `json:"location"`
+	Enabled  bool     `json:"enabled"`
+	Grants   []string `json:"grants,omitempty"`
 }
 
 type pluginFile struct {
@@ -33,17 +34,23 @@ type pluginFile struct {
 }
 
 type pluginStatus struct {
-	ID          string   `json:"id"`
-	Kind        string   `json:"kind"`
-	Location    string   `json:"location"`
-	Enabled     bool     `json:"enabled"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	Skills      []string `json:"skills,omitempty"`
-	Servers     []string `json:"servers,omitempty"`
-	Error       string   `json:"error,omitempty"`
-	Notes       []string `json:"notes,omitempty"`
+	ID          string             `json:"id"`
+	Kind        string             `json:"kind"`
+	Layout      string             `json:"layout,omitempty"` // plugin | marketplace
+	Location    string             `json:"location"`
+	Enabled     bool               `json:"enabled"`
+	Name        string             `json:"name,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Version     string             `json:"version,omitempty"`
+	Plugins     []string           `json:"plugins,omitempty"`
+	Skills      []string           `json:"skills,omitempty"`
+	Rules       []string           `json:"rules,omitempty"`
+	Commands    []string           `json:"commands,omitempty"`
+	Agents      []string           `json:"agents,omitempty"`
+	Servers     []string           `json:"servers,omitempty"`
+	Code        []pluginCodeStatus `json:"code,omitempty"`
+	Error       string             `json:"error,omitempty"`
+	Notes       []string           `json:"notes,omitempty"`
 }
 
 func pluginsPath() string {
@@ -285,29 +292,7 @@ func pluginRoot(rec pluginRecord, fetch bool) (string, error) {
 }
 
 func inspectPlugin(rec pluginRecord, fetch bool) (pluginStatus, error) {
-	st := pluginStatus{ID: rec.ID, Kind: rec.Kind, Location: rec.Location, Enabled: rec.Enabled}
-	root, err := pluginRoot(rec, fetch)
-	if err != nil {
-		st.Error = err.Error()
-		return st, nil
-	}
-	manifest, err := readPluginManifest(root)
-	if err != nil {
-		st.Error = err.Error()
-		return st, nil
-	}
-	st.Name = manifest.Name
-	st.Description = manifest.Description
-	st.Version = manifest.Version
-	for _, sk := range pluginSkills(root) {
-		st.Skills = append(st.Skills, sk.Name)
-	}
-	servers, notes := pluginServers(rec.ID, root)
-	for name := range servers {
-		st.Servers = append(st.Servers, name)
-	}
-	st.Notes = notes
-	return st, nil
+	return describePlugin(rec, fetch), nil
 }
 
 type pluginManifest struct {
@@ -376,51 +361,22 @@ func pluginSkills(root string) []*SkillMeta {
 }
 
 func pluginSkillRoots() []string {
-	f, err := readPluginFile()
-	if err != nil {
-		return nil
-	}
 	var roots []string
-	for _, src := range f.Sources {
-		if !src.Enabled {
-			continue
-		}
-		root, err := pluginRoot(src, false)
-		if err != nil {
-			continue
-		}
-		if _, err := readPluginManifest(root); err != nil {
-			continue
-		}
-		dir := filepath.Join(root, "skills")
-		if st, err := os.Stat(dir); err == nil && st.IsDir() && withinRoot(root, dir) {
+	eachEnabledUnit(func(_ pluginRecord, unit pluginUnit) {
+		dir := filepath.Join(unit.Root, "skills")
+		if st, err := os.Stat(dir); err == nil && st.IsDir() && withinRoot(unit.Root, dir) {
 			roots = append(roots, dir)
 		}
-	}
+	})
 	return roots
 }
 
 func pluginMCPOverlay() (map[string]MCPServerConfig, map[string]string) {
-	f, err := readPluginFile()
-	if err != nil {
-		return nil, nil
-	}
 	out := map[string]MCPServerConfig{}
 	labels := map[string]string{}
-	for _, src := range f.Sources {
-		if !src.Enabled {
-			continue
-		}
-		root, err := pluginRoot(src, false)
-		if err != nil {
-			continue
-		}
-		manifest, err := readPluginManifest(root)
-		if err != nil {
-			continue
-		}
-		servers, _ := pluginServers(src.ID, root)
-		label := manifest.Name
+	eachEnabledUnit(func(src pluginRecord, unit pluginUnit) {
+		servers, _ := pluginServers(src.ID, unit.Root)
+		label := unit.Name
 		if label == "" {
 			label = src.ID
 		}
@@ -431,12 +387,18 @@ func pluginMCPOverlay() (map[string]MCPServerConfig, map[string]string) {
 			out[name] = cfg
 			labels[name] = label
 		}
-	}
+	})
 	return out, labels
 }
 
 func pluginServers(id, root string) (map[string]MCPServerConfig, []string) {
 	path := filepath.Join(root, "mcp.json")
+	if _, err := os.Stat(path); err != nil {
+		alt := filepath.Join(root, ".mcp.json")
+		if _, err2 := os.Stat(alt); err2 == nil {
+			path = alt
+		}
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -454,8 +416,8 @@ func pluginServers(id, root string) (map[string]MCPServerConfig, []string) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, []string{"mcp.json: " + err.Error()}
 	}
-	if doc.Schema != agentPluginsMCPSchema {
-		return nil, []string{"mcp.json schema does not match the plugin"}
+	if doc.Schema != "" && doc.Schema != agentPluginsMCPSchema {
+		return nil, []string{filepath.Base(path) + " schema does not match the plugin"}
 	}
 	data := pluginDataDir(id)
 	_ = os.MkdirAll(data, 0o700)
@@ -483,8 +445,19 @@ func convertPluginServer(root, data string, raw json.RawMessage) (MCPServerConfi
 		return MCPServerConfig{}, err
 	}
 	var typ string
-	if err := json.Unmarshal(fields["type"], &typ); err != nil || strings.TrimSpace(typ) == "" {
-		return MCPServerConfig{}, fmt.Errorf("type required")
+	if raw, ok := fields["type"]; ok {
+		_ = json.Unmarshal(raw, &typ)
+	}
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		switch {
+		case fields["command"] != nil:
+			typ = "stdio"
+		case fields["url"] != nil:
+			typ = "streamable-http"
+		default:
+			return MCPServerConfig{}, fmt.Errorf("type required")
+		}
 	}
 	switch typ {
 	case "stdio":
@@ -625,7 +598,9 @@ func resolvePluginCwd(root, data, text string) (string, error) {
 }
 
 func expandPluginVars(s, root, data string) string {
-	s = strings.ReplaceAll(s, "${PLUGIN_ROOT}", root)
+	for _, key := range []string{"${PLUGIN_ROOT}", "${CURSOR_PLUGIN_ROOT}", "${CLAUDE_PLUGIN_ROOT}"} {
+		s = strings.ReplaceAll(s, key, root)
+	}
 	s = strings.ReplaceAll(s, "${PLUGIN_DATA}", data)
 	return s
 }

@@ -329,12 +329,12 @@
       </div>
 
       <div id="pane-plugins" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">An Agent Plugin is a Git repository or a checked-out directory with <code>plugin.json</code>. An enabled plugin adds its skills and MCP servers.</p>
+        <p class="settings-lead">Add a Git repository or a checked-out directory. Keimling treats it as a marketplace when it finds a marketplace catalog, and as one plugin otherwise. An enabled marketplace turns on every plugin it lists. Skills, rules, slash commands, agents, and MCP servers are available immediately. Hooks and executables stay off until you activate them.</p>
         <ul id="plugin-list" class="profile-list" aria-label="Plugins"></ul>
         <label>Git URL or directory
-          <input id="plugin-location" type="text" autocomplete="off" placeholder="https://github.com/org/plugin or /path/to/plugin">
+          <input id="plugin-location" type="text" autocomplete="off" placeholder="https://github.com/org/plugins or /path/to/checkout">
         </label>
-        <button type="button" id="plugin-add" class="ghost wide">Add plugin</button>
+        <button type="button" id="plugin-add" class="ghost wide">Add</button>
         <p id="plugin-err" class="gate-err" hidden></p>
       </div>
 
@@ -796,6 +796,7 @@
                 <div id="model-menu" class="model-menu" role="menu" hidden></div>
                 <div class="composer-input">
                   <div id="mention-menu" class="mention-menu" role="listbox" hidden></div>
+                  <div id="slash-menu" class="mention-menu" role="listbox" hidden></div>
                   <div id="attach-row" class="attach-row" hidden></div>
                   <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
                 </div>

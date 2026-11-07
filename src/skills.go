@@ -380,6 +380,9 @@ func (a *Agent) skillsCatalogBlock() string {
 	if agents != "" {
 		parts = append(parts, agents)
 	}
+	if rules := strings.TrimSpace(pluginRulesText()); rules != "" {
+		parts = append(parts, rules)
+	}
 	if cat != "" {
 		parts = append(parts, cat)
 	}
