@@ -6317,6 +6317,21 @@
       }
     });
   }
+  document.addEventListener("copy", function (e) {
+    if (!thread || !e.clipboardData) return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount !== 1) return;
+    var range = sel.getRangeAt(0);
+    var box = range.commonAncestorContainer;
+    var el = box.nodeType === 1 ? box : box.parentElement;
+    if (!el || !thread.contains(el)) return;
+    var frag = range.cloneContents();
+    var badges = frag.querySelectorAll(".chapter-overview-badges");
+    if (!badges.length) return;
+    badges.forEach(function (n) { n.remove(); });
+    e.clipboardData.setData("text/plain", frag.textContent || "");
+    e.preventDefault();
+  });
   document.addEventListener("click", function (e) {
     if (!workspaceMenu || workspaceMenu.hidden) return;
     var t = e.target;

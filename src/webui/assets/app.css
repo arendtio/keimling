@@ -1099,6 +1099,8 @@ button.wide { width: 100%; max-width: 100%; }
   flex-wrap: wrap;
   gap: 0.3rem;
   flex: 0 0 auto;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .chapter-overview-head .status,
 .chapter .status {
