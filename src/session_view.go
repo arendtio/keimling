@@ -322,6 +322,11 @@ func toolCommandLabel(name, args string) string {
 	if name == "list_agents" {
 		return "list_agents"
 	}
+	if name == "delegate" {
+		if label := delegateLabel(args); label != "" {
+			return label
+		}
+	}
 	if name == "data_processing" || name == "data_processing_help" {
 		if label := dataProcessingLabel(name, args); label != "" {
 			return label

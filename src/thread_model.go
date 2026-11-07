@@ -8,7 +8,8 @@ import (
 )
 
 // chatTarget is the main chat model for one call.
-// Compaction, autopilot, delegates, and review stay on Settings.
+// Compaction, autopilot, text delegates, and review stay on Settings.
+// A delegate call that carries an image uses this chat model.
 type chatTarget struct {
 	ProviderID   string
 	Model        string

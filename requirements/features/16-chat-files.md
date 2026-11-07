@@ -56,7 +56,7 @@
 - **Statement:** The user shall be able to ask the agent to OCR an image both when model seeing is on and when it is off.
 - **Origin:** User, 2026-11-06 (quote: "selbst wenn das Model die Capability hat, trotzdem dem Agenten als User sagen, dass er OCR machen soll … die Möglichkeit gibt es ja sowieso immer").
 - **Rationale:** Seeing is an extra channel. The tool path remains an instruction the user can give.
-- **Fit criterion:** With seeing on, the image is included for the model and the path is still available for tools. With seeing off, the image bytes are not included and the path is still available.
+- **Fit criterion:** With seeing on or off, the path stays available for tools such as OCR. With seeing on, interpretation follows REQ-CF-8. With seeing off, the image bytes are not sent.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -67,5 +67,35 @@
 - **Origin:** User, 2026-11-06 (quote: "Im Terminal würde ich erwarten, dass man … eine Datei … referenzieren kann … ok, dann lass uns auch ein @ nutzen, um Dateien zu referenzieren").
 - **Rationale:** One mark is enough when the name and the path are different.
 - **Fit criterion:** `@NOTES.md` on an existing file refers to that file and leaves it in place. `@Entertainer` still addresses the agent of that name. A token inside a word, such as an email address, is neither.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-CF-8 An image is interpreted aside from the main conversation
+
+- **Bin:** explicit requirement
+- **Statement:** The main conversation shall keep a reference to an attached image and shall not keep the image bytes. A question about that image shall be answered by a separate request that receives the question and the image and returns only text. The same reference shall be enough to ask again.
+- **Origin:** User, 2026-11-07 (quote: "das Bild weiterhin, also eine Referenz auf das Bild weiterhin in unserem Kontext bleibt, damit wir auch eine zweite Anfrage an das gleiche Bild stellen können … aber dass der eigentlichen Bilddaten aus dem Kontext bleiben" and "der Vision-Teil, also das Interpretieren des Bildes immer … durch einen Delegate … sodass quasi unser Hauptmodell eine Anfrage definiert, was möchte ich aus diesem Bild erfahren").
+- **Rationale:** Image bytes are large and would be sent again on every later turn. A later question still needs to name the same image.
+- **Fit criterion:** After a message attaches an image and seeing is on, the main model input contains the path and does not contain the image bytes. One delegate call with that path sends the bytes on that call only and the text answer is what the main conversation keeps. A later main model input still contains the path and still does not contain the bytes, so a second delegate call can use the same path. With seeing off, a delegate call with an image sends no bytes.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-CF-9 Image interpretation uses delegate
+
+- **Bin:** explicit constraint
+- **Statement:** Interpreting an attached image shall go through the existing delegate, extended so that call can carry the image.
+- **Origin:** User, 2026-11-07 (quote: "ok, dann bitte delegate entsprechend erweitern und auf verarbeitung über delegate umstellen").
+- **Rationale:** The separate look should be the delegate the product already has, not a second kind of side request.
+- **Fit criterion:** The call that receives the image bytes is a delegate call. Its arguments name the path and the question. The tool result contains the text answer and does not contain the image bytes.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-CF-10 The user's question is the question that is answered
+
+- **Bin:** explicit requirement
+- **Statement:** The delegate shall be asked the user's question in the user's words. Facts from the conversation that the question depends on shall be included. The question shall not be replaced by a broader description of the image.
+- **Origin:** User, 2026-11-07 (quote: "die Anfrage über delegate verfälscht die Abfrage" and "Was siehst Du auf dem Bild?" became "Describe everything visible in this image in detail…". "es ist wichtig, dass die Anfrage des Users auch richtig an Delegate mit allem relevanten Kontext übergeben wird", example: "Meine Lieblingsfarbe ist blau" and then "Wieviele Sachen in meiner Lieblingsfarbe siehst Du?").
+- **Rationale:** A rewritten question produces a different answer. A short question expects that level of answer, and a later question can depend on something said earlier.
+- **Fit criterion:** When the user asks "Was siehst Du auf dem Bild?" the delegate request carries that question and does not carry a replacement request to describe every detail. When an earlier user message states a fact the new question depends on, that fact is in the same delegate request.
 - **Priority:** shall
 - **Status:** confirmed

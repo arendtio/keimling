@@ -24,6 +24,9 @@ const (
 	chatUploadLimit = 32 << 20
 )
 
+// imageDelegateHint tells the chat model how to look at an attached picture.
+const imageDelegateHint = "Call delegate with image set to this path. task is the user's question in the user's words. Do not rewrite it into a detailed description. context is the earlier conversation that question depends on, or empty. This conversation does not include the image bytes. Call delegate again with the same path for another question."
+
 // chatFile is a file a user message refers to. The path is what tools open.
 type chatFile struct {
 	ID     string `json:"id,omitempty"`
@@ -388,7 +391,8 @@ func chatFileNames(files []chatFile) []string {
 }
 
 // expandChatFiles turns attached-file trailers into model input.
-// Text is included. Images and audio bytes are included only when the model can take them.
+// Text is included. Audio bytes are included only when the model can hear.
+// An image stays as its path. The bytes go out only on a delegate call.
 func expandChatFiles(items []json.RawMessage, images, audio bool) []json.RawMessage {
 	out := make([]json.RawMessage, len(items))
 	for i, raw := range items {
@@ -440,6 +444,14 @@ func chatFileModelContent(body string, files []chatFile, images, audio bool) (st
 		b.WriteString(") ")
 		b.WriteString(f.Path)
 		b.WriteByte('\n')
+		if chatFileKind(f.Path) == "image" {
+			if images {
+				b.WriteString("  ")
+				b.WriteString(imageDelegateHint)
+				b.WriteByte('\n')
+			}
+			continue
+		}
 		kind, data := readChatFile(f.Path)
 		switch kind {
 		case "text":
@@ -451,13 +463,6 @@ func chatFileModelContent(body string, files []chatFile, images, audio bool) (st
 				b.WriteByte('\n')
 			}
 			b.WriteString("</file>\n")
-		case "image":
-			if images && len(data) > 0 && len(data) <= chatImageLimit {
-				parts = append(parts, map[string]any{
-					"type":      "input_image",
-					"image_url": "data:" + imageMIME(f.Path) + ";base64," + base64.StdEncoding.EncodeToString(data),
-				})
-			}
 		case "audio":
 			format := audioFormat(f.Path)
 			if audio && format != "" && len(data) > 0 && len(data) <= chatAudioLimit {

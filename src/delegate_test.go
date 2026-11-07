@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,12 +47,175 @@ func TestDelegateIsolatedAndCounted(t *testing.T) {
 	defer server.Close()
 	c := NewClient("test-key")
 	c.HTTP = &http.Client{Transport: rewriteTransport{endpoint: server.URL, base: http.DefaultTransport}}
-	answer, err := c.Delegate(context.Background(), "mock-model", "medium", DelegateArgs{Task: "Review config", Context: "unit content", Profile: "balanced"})
+	answer, err := c.Delegate(context.Background(), "mock-model", "medium", DelegateArgs{Task: "Review config", Context: "unit content", Profile: "balanced"}, nil)
 	if err != nil || answer != "Found two issues" {
 		t.Fatalf("answer %q err %v", answer, err)
 	}
 	if c.InputTokens != 120 || c.OutputTokens != 22 {
 		t.Fatalf("usage %d %d", c.InputTokens, c.OutputTokens)
+	}
+}
+
+func TestDelegateImageUsesTheSeeingModelOnce(t *testing.T) {
+	dir := t.TempDir()
+	img := filepath.Join(dir, "shot.png")
+	pixels := []byte("pixel-unique-vision-bytes")
+	if err := os.WriteFile(img, pixels, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(note, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(pixels)
+	var hits int
+	var lastAuth string
+	var lastBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		body, _ := io.ReadAll(r.Body)
+		lastAuth = r.Header.Get("Authorization")
+		lastBody = string(body)
+		var p map[string]json.RawMessage
+		if json.Unmarshal(body, &p) != nil {
+			t.Error("invalid JSON")
+		}
+		if _, ok := p["tools"]; ok {
+			t.Error("delegate must not have tools")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"A green sprout"}]}],"usage":{"input_tokens":3,"output_tokens":2}}`))
+	}))
+	defer server.Close()
+	a := &Agent{
+		Client: NewClient("settings-key"),
+		Cfg:    Config{DelegateFast: "text-model", DelegateBalanced: "balanced-model", DelegateDeep: "deep-model"},
+	}
+	a.Client.BaseURL = "http://127.0.0.1:1/v1"
+	a.runChat = &chatTarget{ProviderID: "chat", Model: "see-model", BaseURL: server.URL, APIKey: "chat-key", Reasoning: "low", SeeImages: true}
+
+	answer, err := a.runDelegate(context.Background(), DelegateArgs{Task: "What is shown?", Context: "none", Profile: "fast", Image: img})
+	if err != nil || answer != "A green sprout" {
+		t.Fatalf("answer %q err %v", answer, err)
+	}
+	if hits != 1 || !strings.Contains(lastBody, encoded) || !strings.Contains(lastBody, "input_image") || !strings.Contains(lastBody, "What is shown?") {
+		t.Fatalf("hits %d body %s", hits, lastBody)
+	}
+	if strings.Contains(lastBody, "text-model") || lastAuth != "Bearer chat-key" || strings.Contains(lastBody, "old conversation") {
+		t.Fatalf("auth %s body %s", lastAuth, lastBody)
+	}
+	if strings.Contains(answer, encoded) {
+		t.Fatal("the text answer contains the image")
+	}
+	if a.Client.APIKey != "settings-key" || a.Client.BaseURL != "http://127.0.0.1:1/v1" {
+		t.Fatalf("client endpoint not restored: %s %s", a.Client.BaseURL, a.Client.APIKey)
+	}
+
+	if _, err := a.runDelegate(context.Background(), DelegateArgs{Task: "read this", Profile: "fast", Image: note}); err == nil || hits != 1 {
+		t.Fatalf("text file err %v hits %d", err, hits)
+	}
+	a.runChat.SeeImages = false
+	if _, err := a.runDelegate(context.Background(), DelegateArgs{Task: "What is shown?", Profile: "fast", Image: img}); err == nil || hits != 1 {
+		t.Fatalf("seeing off err %v hits %d", err, hits)
+	}
+
+	a.Client.BaseURL = server.URL
+	text, err := a.runDelegate(context.Background(), DelegateArgs{Task: "Add one and one", Context: "digits", Profile: "fast"})
+	if err != nil || text != "A green sprout" || hits != 2 {
+		t.Fatalf("text delegate %q err %v hits %d", text, err, hits)
+	}
+	if strings.Contains(lastBody, "input_image") || strings.Contains(lastBody, encoded) || !strings.Contains(lastBody, "text-model") || lastAuth != "Bearer settings-key" {
+		t.Fatalf("auth %s body %s", lastAuth, lastBody)
+	}
+
+	raw, _ := json.Marshal(map[string]any{"role": "user", "content": joinChatFiles("look", []chatFile{{Name: "shot.png", Path: img, Source: "temp"}})})
+	main := expandChatFiles([]json.RawMessage{raw}, true, false)
+	mainText := string(main[0])
+	if strings.Contains(mainText, encoded) || strings.Contains(mainText, "input_image") || !strings.Contains(mainText, img) || !strings.Contains(mainText, imageDelegateHint) {
+		t.Fatalf("main input: %s", mainText)
+	}
+	label := delegateLabel(`{"task":"What is shown?","image":"` + img + `","context":"","profile":"fast"}`)
+	if !strings.Contains(label, "image="+img) || !strings.Contains(label, "What is shown?") {
+		t.Fatal(label)
+	}
+}
+
+func TestDelegateImageKeepsTheUserQuestion(t *testing.T) {
+	dir := t.TempDir()
+	img := filepath.Join(dir, "shot.png")
+	if err := os.WriteFile(img, []byte("pixel-unique-vision-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Ein Ladebildschirm"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+	ask := "Wieviele Sachen in meiner Lieblingsfarbe siehst Du?"
+	a := &Agent{Client: NewClient("settings-key")}
+	a.runChat = &chatTarget{ProviderID: "chat", Model: "see-model", BaseURL: server.URL, APIKey: "chat-key", Reasoning: "low", SeeImages: true}
+	a.History = []json.RawMessage{
+		mustMessage("user", "Meine Lieblingsfarbe ist blau."),
+		mustMessage("assistant", "Verstanden."),
+		mustMessage("user", joinChatFiles(ask, []chatFile{{Name: "shot.png", Path: img, Source: "temp"}})),
+	}
+	rewritten := "Describe everything visible in this image in detail, including any text, UI elements, subjects, numbers, and layout."
+	answer, err := a.runDelegate(context.Background(), DelegateArgs{Task: rewritten, Context: "the title is DRG", Profile: "fast", Image: img})
+	if err != nil || answer != "Ein Ladebildschirm" {
+		t.Fatalf("answer %q err %v", answer, err)
+	}
+	if !strings.Contains(body, ask) || !strings.Contains(body, "Meine Lieblingsfarbe ist blau.") || !strings.Contains(body, "the title is DRG") {
+		t.Fatalf("delegate missed the question or the context: %s", body)
+	}
+	if strings.Contains(body, rewritten) {
+		t.Fatal("the rewritten description replaced the user question")
+	}
+	if !strings.Contains(body, "at the level it was asked") {
+		t.Fatal("delegate was not told to keep the question's scope")
+	}
+}
+
+func mustMessage(role, content string) json.RawMessage {
+	raw, err := json.Marshal(map[string]string{"role": role, "content": content})
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+func TestDelegateToolRequiresAnImageArgument(t *testing.T) {
+	var found bool
+	for _, tool := range definitions(false) {
+		if tool["name"] != "delegate" {
+			continue
+		}
+		found = true
+		params, _ := tool["parameters"].(map[string]any)
+		props, _ := params["properties"].(map[string]any)
+		if _, ok := props["image"]; !ok {
+			t.Fatal("image argument missing")
+		}
+		required, _ := params["required"].([]string)
+		got := map[string]bool{}
+		for _, name := range required {
+			got[name] = true
+		}
+		if !got["image"] || !got["task"] {
+			t.Fatalf("required %#v", required)
+		}
+		desc, _ := tool["description"].(string)
+		if !strings.Contains(desc, "user's words") || !strings.Contains(desc, "Do not rewrite") {
+			t.Fatal(desc)
+		}
+	}
+	if !found {
+		t.Fatal("delegate tool missing")
+	}
+	if !strings.Contains(sharedWorkInstructions(), "An image is not included as bytes") {
+		t.Fatal("work prompt still treats an image as inline content")
 	}
 }
 

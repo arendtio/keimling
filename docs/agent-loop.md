@@ -112,12 +112,18 @@ pair when Settings change. Choosing the pair Settings currently use clears the
 thread choice. Reasoning and context limit come from the model in effect; a
 model with no context limit still uses the global fallback. A run already
 started keeps the model it started with. The next sent message uses the new
-choice. Compaction, autopilot, delegates, and review stay on their Settings
-models.
+choice. Compaction, autopilot, text delegates, and review stay on their Settings
+models. A delegate call that looks at an attached image uses the chat model
+that can see, and that call does not include the conversation.
 
 ## Delegation
 
 `delegate` solves one bounded, self-contained reasoning task with an independent
 model that has no tools and no access to the main conversation. It is meant for
 isolated reviews, extraction, synthesis, and second opinions. Results are
-unverified evidence, not approvals, and no secrets are passed to it.
+unverified evidence, not approvals, and no secrets are passed to it. An attached
+image stays as a path in the conversation. Interpreting it is a delegate call
+with that path and the user's question in the user's words, plus earlier
+conversation that question depends on. The picture is sent only on that call,
+and the conversation keeps the text answer. Another question uses the same path
+again.

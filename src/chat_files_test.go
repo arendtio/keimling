@@ -221,16 +221,23 @@ func TestExpandChatFilesInlinesTextAndGatesSenses(t *testing.T) {
 		t.Fatal(err)
 	}
 	parts, ok := item["content"].([]any)
-	if !ok || len(parts) < 3 {
+	if !ok || len(parts) < 2 {
 		t.Fatalf("content %#v", item["content"])
 	}
 	blob, _ := json.Marshal(parts)
 	s := string(blob)
-	if !strings.Contains(s, "input_image") || !strings.Contains(s, "input_audio") || !strings.Contains(s, "# hello") {
+	if strings.Contains(s, "input_image") || strings.Contains(s, "iVBORw") {
+		t.Fatalf("image bytes belong on the delegate call: %s", s)
+	}
+	if !strings.Contains(s, "input_audio") || !strings.Contains(s, "# hello") || !strings.Contains(s, imageDelegateHint) {
 		t.Fatalf("native parts: %s", s)
 	}
 	if !strings.Contains(s, img) {
 		t.Fatal("path missing while seeing is on")
+	}
+	again := expandChatFiles([]json.RawMessage{raw}, true, true)
+	if !strings.Contains(string(again[0]), img) || strings.Contains(string(again[0]), "input_image") {
+		t.Fatal("a later turn lost the path or gained the bytes")
 	}
 }
 

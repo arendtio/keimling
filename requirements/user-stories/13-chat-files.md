@@ -16,4 +16,10 @@
 
 **As** a user, **I want** seeing and hearing to turn on when the model catalog says the model can do that, **so that** I can switch them off and still ask for OCR.
 
-**Acceptance:** traces REQ-CF-4, REQ-CF-5, and REQ-CF-6. A text file is included as text. An image is included only while seeing is on. The path remains either way. A model with no reported capability has no switch.
+**Acceptance:** traces REQ-CF-4, REQ-CF-5, and REQ-CF-6. A text file is included as text. An image path remains either way. While seeing is on, the bytes are not in the main input; interpretation is US-50. A model with no reported capability has no switch.
+
+## US-50 — Ask about an image without keeping the pixels
+
+**As** a user, **I want** the agent to look at an attached image through a delegate and keep only the answer, **so that** the picture can be asked about again without its bytes staying in the conversation.
+
+**Acceptance:** traces REQ-CF-8, REQ-CF-9, and REQ-CF-10. The main input shows the path and no image bytes. A delegate call with that path answers the user's question in the user's words and includes an earlier fact the question depends on. It does not replace the question with a request to describe every detail. A second call can use the same path. With seeing off, that call sends no bytes and the path remains for tools.

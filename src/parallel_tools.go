@@ -392,12 +392,12 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 			if e := decodeArgs(item.Arguments, &args); e != nil {
 				return "delegate error: " + e.Error(), ""
 			}
-			model, effort, e := delegateProfile(a.Cfg, args.Profile)
-			if e != nil {
-				return "delegate error: " + e.Error(), ""
+			label := args.Profile
+			if strings.TrimSpace(args.Image) != "" {
+				label = "image"
 			}
-			a.printf("\033[35m◇ Delegate\033[0m · %s · %s\n", args.Profile, truncate(args.Task, 160))
-			answer, e := a.Client.Delegate(ctx, model, effort, args)
+			a.printf("\033[35m◇ Delegate\033[0m · %s · %s\n", label, truncate(args.Task, 160))
+			answer, e := a.runDelegate(ctx, args)
 			if e != nil {
 				return "delegate error: " + e.Error(), ""
 			}
