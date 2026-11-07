@@ -26,8 +26,13 @@ static void keimling_allow_media(void *webview) {
 	}
 	WebKitWebView *view = WEBKIT_WEB_VIEW(webview);
 	WebKitSettings *settings = webkit_web_view_get_settings(view);
+	// WebRTC defaults to off. The microphone capture uses WebAudio.
+	// Playback starts again when you interrupt, outside the original click.
+	webkit_settings_set_enable_webrtc(settings, TRUE);
+	webkit_settings_set_enable_webaudio(settings, TRUE);
+	webkit_settings_set_enable_media(settings, TRUE);
 	webkit_settings_set_enable_media_stream(settings, TRUE);
-	webkit_settings_set_enable_mediasource(settings, TRUE);
+	webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE);
 	g_signal_connect(view, "permission-request",
 	                 G_CALLBACK(keimling_on_permission_request), NULL);
 }

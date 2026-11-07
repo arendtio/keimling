@@ -41,6 +41,13 @@ type appServer struct {
 	pendingProviders      []modelProvider
 	pendingActiveProvider string
 	budgetCache           providerBudgetCache
+	realtimeOn            bool
+	realtimeGen           uint64
+	realtimeCtx           context.Context
+	realtimeCancel        context.CancelFunc
+	speakerMu             sync.Mutex
+	speaker               *speakerPipe
+	speakerDrop           bool
 }
 
 func newAppServer(opts appServerOpts) *appServer {
@@ -195,6 +202,13 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/credentials/", s.requireSecret(http.HandlerFunc(s.handleCredentialsItem)))
 	s.mux.Handle("/api/approve", s.requireSecret(http.HandlerFunc(s.handleApprove)))
 	s.mux.Handle("/api/transcribe", s.requireSecret(http.HandlerFunc(s.handleTranscribe)))
+	s.mux.Handle("/api/realtime/session", s.requireSecret(http.HandlerFunc(s.handleRealtimeSession)))
+	s.mux.Handle("/api/realtime/sdp", s.requireSecret(http.HandlerFunc(s.handleRealtimeSDP)))
+	s.mux.Handle("/api/realtime/ws", s.requireSecret(http.HandlerFunc(s.handleRealtimeWS)))
+	s.mux.Handle("/api/realtime/speaker", s.requireSecret(http.HandlerFunc(s.handleRealtimeSpeaker)))
+	s.mux.Handle("/api/realtime/end", s.requireSecret(http.HandlerFunc(s.handleRealtimeEnd)))
+	s.mux.Handle("/api/realtime/line", s.requireSecret(http.HandlerFunc(s.handleRealtimeLine)))
+	s.mux.Handle("/api/realtime/tool", s.requireSecret(http.HandlerFunc(s.handleRealtimeTool)))
 	s.mux.Handle("/events", s.requireSecret(http.HandlerFunc(s.handleEvents)))
 	s.mux.HandleFunc("/files/", s.handleFileShare)
 	return s
@@ -316,6 +330,8 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"max_steps":             s.agent.Cfg.MaxSteps,
 		"context_limit":         limit,
 		"voice_model":           s.agent.Cfg.VoiceModel,
+		"realtime_ready":        s.realtimeReady(),
+		"realtime_call":         s.realtimeCallOpen(),
 		"needs_provider":        !s.agent.Cfg.HasModelProvider,
 		"workspace_id":          s.agent.Cfg.WorkspaceID,
 		"workspace_root":        s.agent.Cfg.WorkspaceRoot,
@@ -543,6 +559,10 @@ func (s *appServer) handleThreads(w http.ResponseWriter, r *http.Request) {
 			"threads":      list,
 		})
 	case http.MethodPost:
+		if s.realtimeCallOpen() {
+			http.Error(w, "hang up the call first", http.StatusConflict)
+			return
+		}
 		s.mu.Lock()
 		busy := s.busy
 		s.mu.Unlock()
@@ -625,6 +645,10 @@ func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
 		http.Error(w, "agent instances use a fixed main thread", http.StatusBadRequest)
+		return
+	}
+	if s.realtimeCallOpen() {
+		http.Error(w, "hang up the call first", http.StatusConflict)
 		return
 	}
 	var body struct {
@@ -1644,6 +1668,9 @@ type agentSettings struct {
 	ContextLimit               *int            `json:"context_limit,omitempty"`
 	VoiceModel                 string          `json:"voice_model,omitempty"`
 	VoiceProviderID            *string         `json:"voice_provider_id,omitempty"`
+	RealtimeModel              string          `json:"realtime_model,omitempty"`
+	RealtimeProviderID         *string         `json:"realtime_provider_id,omitempty"`
+	RealtimeVoice              string          `json:"realtime_voice,omitempty"`
 	SearchKind                 *string         `json:"search_kind,omitempty"`
 	SearchURL                  *string         `json:"search_url,omitempty"`
 	SearchAPIKey               *string         `json:"search_api_key,omitempty"`
@@ -1687,6 +1714,9 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"context_limit":                 limit,
 		"voice_model":                   s.agent.Cfg.VoiceModel,
 		"voice_provider_id":             s.agent.Cfg.VoiceProviderID,
+		"realtime_model":                s.agent.Cfg.RealtimeModel,
+		"realtime_provider_id":          s.agent.Cfg.RealtimeProviderID,
+		"realtime_voice":                s.agent.Cfg.RealtimeVoice,
 		"needs_provider":                !s.agent.Cfg.HasModelProvider,
 		"search_kind":                   s.agent.Cfg.Search.Kind,
 		"search_url":                    s.agent.Cfg.Search.URL,
@@ -1874,6 +1904,32 @@ func (s *appServer) applySettings(body agentSettings) error {
 		}
 	} else if v := strings.TrimSpace(body.VoiceModel); v != "" {
 		cfg.VoiceModel = v
+	}
+	if body.RealtimeProviderID != nil {
+		id := strings.TrimSpace(*body.RealtimeProviderID)
+		cfg.RealtimeProviderID = id
+		if id == "" {
+			cfg.RealtimeModel = ""
+		} else if m := strings.TrimSpace(body.RealtimeModel); m != "" {
+			cfg.RealtimeModel = m
+		} else if strings.TrimSpace(cfg.RealtimeModel) == "" {
+			return fmt.Errorf("choose a realtime model")
+		}
+		voice, err := normalizeRealtimeVoice(body.RealtimeVoice)
+		if err != nil {
+			return err
+		}
+		cfg.RealtimeVoice = voice
+		if id != "" && modelProviderByID(s.pendingProviders, id) == nil {
+			fc, err := readConfiguration(cfg.ConfigPath)
+			if err != nil {
+				return err
+			}
+			fc.ensureModelProviders()
+			if modelProviderByID(fc.ModelProviders, id) == nil {
+				return fmt.Errorf("realtime provider is not configured")
+			}
+		}
 	}
 	if body.SearchKind != nil {
 		kind := strings.TrimSpace(*body.SearchKind)
@@ -2247,6 +2303,9 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 		fc.Reasoning = cfg.Reasoning
 		fc.VoiceModel = cfg.VoiceModel
 		fc.VoiceProviderID = cfg.VoiceProviderID
+		fc.RealtimeModel = cfg.RealtimeModel
+		fc.RealtimeProviderID = cfg.RealtimeProviderID
+		fc.RealtimeVoice = cfg.RealtimeVoice
 		fc.Search = cfg.Search
 		fc.ServicesChosen = true
 		fc.MaxSteps = cfg.MaxSteps
@@ -2277,7 +2336,22 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	if !s.busy || s.cancel == nil {
+		on := s.realtimeOn
+		cancel := s.realtimeCancel
 		s.mu.Unlock()
+		if on && cancel != nil {
+			cancel()
+			s.mu.Lock()
+			if s.realtimeOn {
+				ctx, next := context.WithCancel(context.Background())
+				s.realtimeCtx = ctx
+				s.realtimeCancel = next
+			}
+			s.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "stopped": true})
+			return
+		}
 		http.Error(w, "agent not running", http.StatusConflict)
 		return
 	}
@@ -2396,6 +2470,16 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "queued": false, "delivered": delivered, "text": strings.TrimSpace(shownBody), "wake": bodyText, "files": chatFileNames(attachedBody), "thread_id": view})
 			return
 		}
+	}
+	if s.realtimeCallOpen() {
+		if err := s.agent.add(map[string]any{"role": "user", "content": text}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "realtime": true, "text": text})
+		return
 	}
 	if !s.agent.Cfg.HasModelProvider {
 		http.Error(w, "no model provider is configured", http.StatusConflict)
@@ -2683,6 +2767,9 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 }
 
 func (s *appServer) startAgentRun(text string) bool {
+	if s.realtimeCallOpen() {
+		return s.injectRealtimeWake(text)
+	}
 	s.mu.Lock()
 	if s.busy || s.agent == nil {
 		s.mu.Unlock()
@@ -2938,6 +3025,11 @@ func accessSecretFromRequest(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if len(auth) >= 7 && strings.EqualFold(auth[:7], "Bearer ") {
 		return strings.TrimSpace(auth[7:])
+	}
+	// The audio element and the call socket cannot set headers. The page URL
+	// already carries this secret, and the host accepts it the same way.
+	if q := strings.TrimSpace(r.URL.Query().Get("access_secret")); q != "" {
+		return q
 	}
 	return ""
 }

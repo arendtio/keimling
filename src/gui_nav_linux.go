@@ -62,7 +62,13 @@ static gboolean keimling_on_decide_policy(WebKitWebView *web_view,
 	gboolean open_out = (type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) ||
 	                    (ntype == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED);
 	if (!open_out) {
-		return FALSE;
+		// The default policy plays a moment, then marks the audio session
+		// interrupted. A call needs the whole spoken reply.
+		WebKitWebsitePolicies *policies = webkit_website_policies_new_with_policies(
+			"autoplay", WEBKIT_AUTOPLAY_ALLOW, NULL);
+		webkit_policy_decision_use_with_policies(decision, policies);
+		g_object_unref(policies);
+		return TRUE;
 	}
 	if (g_str_has_prefix(uri, "http://") || g_str_has_prefix(uri, "https://")) {
 		keimlingGoOpenExternal((char *)uri);

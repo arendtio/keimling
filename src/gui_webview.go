@@ -29,7 +29,6 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 		Width:  width,
 		Height: height,
 		Hint:   webview.HintNone,
-		URL:    url,
 		Debug:  false,
 	})
 	if err != nil {
@@ -37,8 +36,14 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 	}
 	defer w.Destroy()
 	applyWindowIcon(w)
+	// Before the first page load, so the document is created with WebRTC and the mic.
 	allowMediaPermissions(w)
 	interceptExternalLinks(w)
+	if strings.TrimSpace(url) != "" {
+		if err := w.Navigate(url); err != nil {
+			return err
+		}
+	}
 	_ = w.Bind("keimlingSaveGuiGeometry", func(width, height int) {
 		_ = saveGuiWindowSize(configPath, width, height)
 	})

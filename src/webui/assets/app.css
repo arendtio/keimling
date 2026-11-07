@@ -1674,6 +1674,10 @@ button.wide { width: 100%; max-width: 100%; }
   border-color: var(--danger);
   color: var(--danger);
 }
+#call.live {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 .autopilot-instructions {
   min-height: 10rem;

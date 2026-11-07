@@ -210,6 +210,31 @@
           <input id="set-voice-model" type="text" autocomplete="off" placeholder="gpt-transcribe">
         </label>
         <p class="hint">Type the transcription model id. For OpenAI, gpt-transcribe is a sensible choice.</p>
+
+        <p class="settings-section-title">Live call</p>
+        <p class="hint">A voice conversation on a provider that speaks the Realtime API. OpenAI and a LiteLLM proxy do. The microphone above still only records a message.</p>
+        <label>Provider
+          <select id="set-realtime-provider">
+            <option value="">Off</option>
+          </select>
+        </label>
+        <label>Model
+          <input id="set-realtime-model" type="text" autocomplete="off" placeholder="gpt-realtime-2.1">
+        </label>
+        <label>Voice
+          <select id="set-realtime-voice">
+            <option value="marin">marin</option>
+            <option value="cedar">cedar</option>
+            <option value="alloy">alloy</option>
+            <option value="ash">ash</option>
+            <option value="ballad">ballad</option>
+            <option value="coral">coral</option>
+            <option value="echo">echo</option>
+            <option value="sage">sage</option>
+            <option value="shimmer">shimmer</option>
+            <option value="verse">verse</option>
+          </select>
+        </label>
         <input id="set-openai-api-key" type="hidden" value="">
         <p id="openai-key-hint" class="hint" hidden></p>
 
@@ -804,6 +829,8 @@
               <div class="composer-actions">
                 <button id="attach-file" type="button" class="ghost" disabled title="Add a file">File</button>
                 <input id="attach-input" type="file" multiple hidden>
+                <button id="call" type="button" class="ghost" disabled hidden title="Live voice call">Call</button>
+                <button id="call-mute" type="button" class="ghost" hidden title="Mute the microphone">Mute</button>
                 <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
                 <button id="stop" type="button" class="ghost danger" disabled title="Interrupt the running agent">Interrupt</button>
                 <button id="send" type="submit" disabled title="Send message">Send</button>

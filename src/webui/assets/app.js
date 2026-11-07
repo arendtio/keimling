@@ -217,6 +217,9 @@
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
   var setVoiceProvider = document.getElementById("set-voice-provider");
+  var setRealtimeProvider = document.getElementById("set-realtime-provider");
+  var setRealtimeModel = document.getElementById("set-realtime-model");
+  var setRealtimeVoice = document.getElementById("set-realtime-voice");
   var setSearchKind = document.getElementById("set-search-kind");
   var setSearchURL = document.getElementById("set-search-url");
   var setSearchKey = document.getElementById("set-search-key");
@@ -319,6 +322,11 @@
   var approvalCmd = document.getElementById("approval-cmd");
   var approvalPreview = document.getElementById("approval-preview");
   var voiceBtn = document.getElementById("voice");
+  var callBtn = document.getElementById("call");
+  var callMuteBtn = document.getElementById("call-mute");
+  var realtimeReady = false;
+  var callLive = false;
+  var callMuted = false;
   var stopBtn = document.getElementById("stop");
   var voiceStatus = document.getElementById("voice-status");
 
@@ -1718,6 +1726,29 @@
     syncSearchFields();
   }
 
+  function fillRealtime(j) {
+    j = j || {};
+    if (setRealtimeProvider) {
+      var current = setRealtimeProvider.value;
+      setRealtimeProvider.innerHTML = '<option value="">Off</option>';
+      providersCache.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name || p.id;
+        setRealtimeProvider.appendChild(opt);
+      });
+      setRealtimeProvider.value = j.realtime_provider_id || current || "";
+      if (setRealtimeProvider.value !== (j.realtime_provider_id || "")) setRealtimeProvider.value = j.realtime_provider_id || "";
+    }
+    if (setRealtimeModel) setRealtimeModel.value = j.realtime_model || "";
+    if (setRealtimeVoice) setRealtimeVoice.value = j.realtime_voice || "marin";
+    var on = !!(setRealtimeProvider && setRealtimeProvider.value);
+    if (setRealtimeModel) setRealtimeModel.disabled = !on;
+    if (setRealtimeVoice) setRealtimeVoice.disabled = !on;
+    realtimeReady = !!(j.realtime_provider_id && j.realtime_model);
+    setState(agentState);
+  }
+
   function fillVoiceModels(selected) {
     if (!setVoiceModel) return;
     setVoiceModel.value = selected || "";
@@ -1784,6 +1815,7 @@
     if (openaiKeyHint) openaiKeyHint.hidden = true;
     setMode.value = j.mode || "auto";
     fillVoiceAndSearch(j);
+    fillRealtime(j);
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
     applyAutopilotSettingsFields(j);
@@ -1837,6 +1869,9 @@
       body.web = setWeb ? setWeb.checked : false;
       body.voice_model = setVoiceModel ? setVoiceModel.value.trim() : "";
       body.voice_provider_id = setVoiceProvider ? setVoiceProvider.value : "";
+      body.realtime_model = setRealtimeModel ? setRealtimeModel.value.trim() : "";
+      body.realtime_provider_id = setRealtimeProvider ? setRealtimeProvider.value : "";
+      body.realtime_voice = setRealtimeVoice ? setRealtimeVoice.value : "marin";
       body.search_kind = setSearchKind ? setSearchKind.value : "";
       body.search_url = setSearchURL ? setSearchURL.value.trim() : "";
       body.active_model_provider_id = activeProviderID;
@@ -2057,7 +2092,19 @@
     if (attachFileBtn) attachFileBtn.disabled = !connected || needsProvider;
     if (msg) msg.placeholder = needsProvider ? "Add a model provider before sending" : "Message Keimling…";
     if (modelEl) modelEl.disabled = !connected || needsProvider;
-    voiceBtn.disabled = !connected || !voiceOK;
+    voiceBtn.disabled = !connected || !voiceOK || callLive;
+    if (callBtn) {
+      callBtn.hidden = !realtimeReady;
+      callBtn.disabled = !connected || !realtimeReady || recording;
+      callBtn.textContent = callLive ? "Hang up" : "Call";
+      callBtn.classList.toggle("live", callLive);
+      callBtn.title = callLive ? "Hang up. The transcript stays in the chat." : "Live voice call";
+    }
+    if (callMuteBtn) {
+      callMuteBtn.hidden = !callLive;
+      callMuteBtn.textContent = callMuted ? "Unmute" : "Mute";
+      callMuteBtn.title = callMuted ? "Turn the microphone back on" : "Mute the microphone";
+    }
     newChatBtn.disabled = !connected;
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
     if (send) {
@@ -2080,9 +2127,9 @@
     if (stopBtn) {
       var hereStopping = composerIsStopping();
       var workspaceStopping = !currentAgentInstanceID && !!stoppingThreadID && (busyish || backgroundBusy);
-      stopBtn.disabled = !connected || !(busyish || backgroundBusy) || hereStopping || (workspaceStopping && !hereStopping);
+      stopBtn.disabled = !connected || !(busyish || backgroundBusy || callLive) || hereStopping || (workspaceStopping && !hereStopping);
       stopBtn.textContent = hereStopping ? "Stopping…" : "Interrupt";
-      stopBtn.title = hereStopping ? "This one is stopping" : "Interrupt the running agent";
+      stopBtn.title = hereStopping ? "This one is stopping" : (callLive && !busyish ? "Stop the current spoken reply" : "Interrupt the running agent");
     }
     if (voiceBtn && recording) {
       voiceBtn.textContent = "Done";
@@ -4589,6 +4636,10 @@
     if (thread) thread.dataset.rebuild = "1";
     voiceOK = !!j.voice;
     voiceBtn.hidden = !voiceOK;
+    realtimeReady = !!j.realtime_ready;
+    if (j.realtime_call && !callLive) {
+      fetch(apiURL("/api/realtime/end"), { method: "POST", headers: headers() }).catch(function () {});
+    }
     if (j.workspace_id) currentWorkspaceID = j.workspace_id;
     if (j.background_busy || j.busy) runningThreadID = j.running_thread || j.thread_id || runningThreadID;
     else if (!j.busy) runningThreadID = "";
@@ -4665,6 +4716,7 @@
               try { payload = JSON.parse(data); } catch (e) {}
               // Agent "line" events are for CLI attach; GUI uses structured message/tool.
               if (ev === "message") handleStructuredMessage(payload);
+              if (ev === "realtime_inject") speakText(payload && payload.text);
               if (ev === "tool") handleStructuredTool(payload);
               if (ev === "approval" && eventsForThisView()) showApproval(payload);
               if (ev === "progress") updateProgress(payload);
@@ -7249,6 +7301,8 @@
                 ? "Queued — steers the current run or runs when idle."
                 : "Queued — will run when the agent is idle."),
           });
+        } else if (j && j.realtime) {
+          speakText(j.text || text);
         } else {
           setState("running");
         }
@@ -7296,6 +7350,570 @@
         renderThreadListFromCache();
         appendLive("\n[stop] " + err + "\n");
       });
+  }
+
+  var callPC = null;
+  var callDC = null;
+  var callAudio = null;
+  var callMic = null;
+  var callQueue = [];
+  var callConfigured = false;
+  var callSeeded = false;
+  var callDCOpen = false;
+  var callSessionReady = false;
+  var callSetup = null;
+  var callSpeak = 0;
+  var callGen = 0;
+  var callSeen = {};
+  var callUserSaved = {};
+  var assistantLive = "";
+  var assistantSaved = false;
+  var userLive = "";
+  var callLimitTimer = 0;
+  var callTransport = "";
+  var callCapCtx = null;
+  var callSpeakEl = null;
+  var callAudioItem = "";
+  var callAudioIndex = 0;
+  var callRespAt = 0;
+  var callUserItem = "";
+
+  function startCall() {
+    if (callLive || !realtimeReady) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceStatus("This window cannot open a call. The microphone is unavailable.");
+      return;
+    }
+    var socketMode = typeof RTCPeerConnection !== "function";
+    if (socketMode && typeof WebSocket !== "function") {
+      setVoiceStatus("This window cannot open a call. WebSocket is unavailable.");
+      return;
+    }
+    if (socketMode) primeCallSpeaker();
+    callLive = true;
+    callMuted = false;
+    callConfigured = false;
+    callSeeded = false;
+    callDCOpen = false;
+    callSessionReady = false;
+    callGen += 1;
+    var gen = callGen;
+    setState(agentState);
+    setVoiceStatus("Connecting…");
+    navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    }).then(function (stream) {
+      if (gen !== callGen) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        return;
+      }
+      callMic = stream;
+      return fetch(apiURL("/api/realtime/session"), { method: "POST", headers: headers() })
+        .then(readJSONResponse)
+        .then(function (setup) {
+          if (gen !== callGen) return;
+          callSetup = setup;
+          if (socketMode) return openCallSocket(setup, gen);
+          return openCallPeer(setup, gen);
+        });
+    }).catch(function (err) {
+      if (gen !== callGen) return;
+      hangUpCall(String((err && err.message) || err || "Call failed"));
+    });
+  }
+
+  function callSocketURL() {
+    var u = new URL(apiURL("/api/realtime/ws"), window.location.href);
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    var sec = pageAccessSecret();
+    if (sec) u.searchParams.set("access_secret", sec);
+    return u.toString();
+  }
+
+  function openCallSocket(setup, gen) {
+    callTransport = "ws";
+    var ws = new WebSocket(callSocketURL());
+    var ch = {
+      readyState: "connecting",
+      send: function (s) { if (ws.readyState === 1) ws.send(s); },
+      close: function () { try { ws.close(); } catch (e) {} },
+    };
+    callDC = ch;
+    ws.onopen = function () {
+      if (gen !== callGen) { try { ws.close(); } catch (e) {} return; }
+      ch.readyState = "open";
+      callDCOpen = true;
+      maybeConfigureCall(gen);
+      setTimeout(function () {
+        if (gen !== callGen || callSessionReady) return;
+        callSessionReady = true;
+        maybeConfigureCall(gen);
+      }, 1200);
+      startPCMCapture(gen);
+      setVoiceStatus("Live");
+      setState(agentState);
+      if (callLimitTimer) clearTimeout(callLimitTimer);
+      callLimitTimer = setTimeout(function () {
+        if (callLive) hangUpCall("The call ended after 60 minutes. The transcript stays in the chat.");
+      }, 59 * 60 * 1000);
+    };
+    ws.onmessage = function (e) { onCallEvent(typeof e.data === "string" ? e.data : "", gen); };
+    ws.onerror = function () {
+      if (gen !== callGen) return;
+      setVoiceStatus("The call could not connect.");
+    };
+    ws.onclose = function () {
+      if (gen !== callGen) return;
+      hangUpCall("The call disconnected.");
+    };
+    return Promise.resolve();
+  }
+
+  function resampleTo24k(input, rate) {
+    if (!rate || rate === 24000) return input;
+    var ratio = rate / 24000;
+    var outLen = Math.max(0, Math.floor(input.length / ratio));
+    var out = new Float32Array(outLen);
+    for (var i = 0; i < outLen; i++) {
+      var start = Math.floor(i * ratio);
+      var end = Math.min(input.length, Math.floor((i + 1) * ratio));
+      if (end <= start) end = Math.min(input.length, start + 1);
+      var sum = 0;
+      var n = 0;
+      for (var j = start; j < end; j++) { sum += input[j]; n++; }
+      out[i] = n ? sum / n : 0;
+    }
+    return out;
+  }
+
+  function pcm16Base64(samples) {
+    var bytes = new Uint8Array(samples.length * 2);
+    var view = new DataView(bytes.buffer);
+    for (var i = 0; i < samples.length; i++) {
+      var s = samples[i];
+      if (s > 1) s = 1;
+      if (s < -1) s = -1;
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    var bin = "";
+    for (var o = 0; o < bytes.length; o += 1024) {
+      var slice = bytes.subarray(o, Math.min(bytes.length, o + 1024));
+      bin += String.fromCharCode.apply(null, slice);
+    }
+    return btoa(bin);
+  }
+
+  function ensureCallAudio() {
+    if (!window.AudioContext) return null;
+    if (!callCapCtx) callCapCtx = new AudioContext();
+    if (callCapCtx.resume) callCapCtx.resume();
+    return callCapCtx;
+  }
+
+  function startPCMCapture(gen) {
+    var ctx = ensureCallAudio();
+    if (!callMic || !ctx || !ctx.createScriptProcessor) return;
+    var source = ctx.createMediaStreamSource(callMic);
+    var micProc = ctx.createScriptProcessor(4096, 1, 1);
+    var mute = ctx.createGain();
+    mute.gain.value = 0;
+    source.connect(micProc);
+    micProc.connect(mute);
+    mute.connect(ctx.destination);
+    micProc.onaudioprocess = function (e) {
+      if (gen !== callGen || callMuted || !callDC || callDC.readyState !== "open") return;
+      var input = e.inputBuffer.getChannelData(0);
+      var pcm = resampleTo24k(input, ctx.sampleRate);
+      if (!pcm.length) return;
+      callDC.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm16Base64(pcm) }));
+    };
+  }
+
+  function callSpeakerURL() {
+    var u = new URL(apiURL("/api/realtime/speaker"), window.location.href);
+    var sec = pageAccessSecret();
+    if (sec) u.searchParams.set("access_secret", sec);
+    u.searchParams.set("t", String(Date.now()));
+    return u.toString();
+  }
+
+  function primeCallSpeaker() {
+    if (!callSpeakEl) callSpeakEl = new Audio();
+    callSpeakEl.preload = "auto";
+    callSpeakEl.src = callSpeakerURL();
+    var started = callSpeakEl.play();
+    if (started && started.catch) started.catch(function (e) {
+      setVoiceStatus("Playback: " + ((e && e.message) || e));
+    });
+  }
+
+  function stopCallPlayback() {
+    if (!callSpeakEl) return;
+    callSpeakEl.pause();
+    callSpeakEl.removeAttribute("src");
+    try { callSpeakEl.load(); } catch (e) {}
+  }
+
+  function stopCallAudio() {
+    stopCallPlayback();
+    callSpeakEl = null;
+    if (callCapCtx) { try { callCapCtx.close(); } catch (e) {} }
+    callCapCtx = null;
+  }
+
+  function openCallPeer(setup, gen) {
+    callTransport = "webrtc";
+    var pc = new RTCPeerConnection();
+    callPC = pc;
+    callAudio = document.createElement("audio");
+    callAudio.autoplay = true;
+    pc.ontrack = function (e) { callAudio.srcObject = e.streams[0]; };
+    callMic.getTracks().forEach(function (t) { pc.addTrack(t, callMic); });
+    var dc = pc.createDataChannel("oai-events");
+    callDC = dc;
+    dc.onopen = function () {
+      callDCOpen = true;
+      maybeConfigureCall(gen);
+      setTimeout(function () {
+        if (gen !== callGen || callSessionReady) return;
+        callSessionReady = true;
+        maybeConfigureCall(gen);
+      }, 1200);
+    };
+    dc.onmessage = function (e) { onCallEvent(e.data, gen); };
+    return pc.createOffer().then(function (offer) {
+      return pc.setLocalDescription(offer);
+    }).then(function () {
+      return waitForIce(pc);
+    }).then(function () {
+      if (gen !== callGen) return;
+      return fetch(apiURL("/api/realtime/sdp"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ sdp: pc.localDescription.sdp }),
+      }).then(readJSONResponse);
+    }).then(function (j) {
+      if (!j || gen !== callGen) return;
+      return pc.setRemoteDescription({ type: "answer", sdp: j.sdp });
+    }).then(function () {
+      if (gen !== callGen) return;
+      setVoiceStatus("Live");
+      setState(agentState);
+      if (callLimitTimer) clearTimeout(callLimitTimer);
+      callLimitTimer = setTimeout(function () {
+        if (callLive) hangUpCall("The call ended after 60 minutes. The transcript stays in the chat.");
+      }, 59 * 60 * 1000);
+    });
+  }
+
+  function waitForIce(pc) {
+    if (pc.iceGatheringState === "complete") return Promise.resolve();
+    return new Promise(function (resolve) {
+      function done() {
+        if (pc.iceGatheringState === "complete") {
+          pc.removeEventListener("icegatheringstatechange", done);
+          resolve();
+        }
+      }
+      pc.addEventListener("icegatheringstatechange", done);
+      setTimeout(function () {
+        pc.removeEventListener("icegatheringstatechange", done);
+        resolve();
+      }, 2500);
+    });
+  }
+
+  function maybeConfigureCall(gen) {
+    if (gen !== callGen || !callSessionReady || !callDC || callDC.readyState !== "open" || !callSetup) return;
+    var setup = callSetup;
+    var audioIn = {
+      transcription: { model: setup.transcription_model || "gpt-4o-mini-transcribe" },
+      turn_detection: { type: "semantic_vad", eagerness: "medium", interrupt_response: true, create_response: true },
+    };
+    var audioOut = { voice: setup.voice || "marin" };
+    if (callTransport === "ws") {
+      audioIn.format = { type: "audio/pcm", rate: 24000 };
+      audioOut.format = { type: "audio/pcm", rate: 24000 };
+    }
+    callDC.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        type: "realtime",
+        instructions: setup.instructions || "",
+        output_modalities: ["audio"],
+        audio: { input: audioIn, output: audioOut },
+        tools: setup.tools || [],
+        tool_choice: "auto",
+      },
+    }));
+    if (callSeeded) return;
+    callSeeded = true;
+    callConfigured = true;
+    (setup.history || []).forEach(function (row) {
+      if (!row || !row.text) return;
+      var contentType = row.role === "assistant" ? "output_text" : "input_text";
+      var role = row.role === "assistant" ? "assistant" : (row.role === "system" ? "system" : "user");
+      callDC.send(JSON.stringify({
+        type: "conversation.item.create",
+        item: { type: "message", role: role, content: [{ type: contentType, text: row.text }] },
+      }));
+    });
+    var queued = callQueue;
+    callQueue = [];
+    queued.forEach(function (text) { sendCallText(text); });
+  }
+
+  function speakText(text) {
+    text = String(text || "").trim();
+    if (!text || !callLive) return;
+    if (!callConfigured || !callDC || callDC.readyState !== "open") {
+      callQueue.push(text);
+      return;
+    }
+    sendCallText(text);
+  }
+
+  function sendCallText(text) {
+    if (!callDC || callDC.readyState !== "open") return;
+    callDC.send(JSON.stringify({
+      type: "conversation.item.create",
+      item: { type: "message", role: "user", content: [{ type: "input_text", text: text }] },
+    }));
+    callDC.send(JSON.stringify({ type: "response.create" }));
+  }
+
+  function onCallEvent(raw, gen) {
+    if (gen !== callGen) return;
+    var ev = {};
+    try { ev = JSON.parse(raw); } catch (e) { return; }
+    var type = ev.type || "";
+    if (type === "session.created" || type === "session.started") {
+      callSessionReady = true;
+      maybeConfigureCall(gen);
+    }
+    if (type === "error") {
+      var msg = (ev.error && (ev.error.message || ev.error.code)) || "Call error";
+      setVoiceStatus(String(msg));
+      return;
+    }
+    if (type === "response.created") {
+      finishLiveLine("assistant");
+      assistantLive = "";
+      assistantSaved = false;
+      callAudioItem = "";
+      callRespAt = callSpeakEl && isFinite(callSpeakEl.currentTime) ? callSpeakEl.currentTime : 0;
+    }
+    if (ev.item_id && (type === "response.output_audio.delta" || type === "response.audio.delta" || type === "response.output_audio_transcript.delta")) {
+      callAudioItem = ev.item_id;
+      if (typeof ev.content_index === "number") callAudioIndex = ev.content_index;
+    }
+    if (type === "response.output_item.added" && ev.item && ev.item.id) callAudioItem = ev.item.id;
+    if (type === "input_audio_buffer.speech_started") bargeInCall();
+    if (type === "conversation.item.input_audio_transcription.delta") {
+      if (ev.item_id && ev.item_id !== callUserItem) {
+        finishLiveLine("user");
+        callUserItem = ev.item_id;
+        userLive = "";
+      }
+      var piece = ev.delta || "";
+      if (!piece && ev.transcript) userLive = ev.transcript;
+      else if (piece && userLive && piece.indexOf(userLive) === 0) userLive = piece;
+      else userLive += piece;
+      showCallLine("user", userLive, false);
+    }
+    if (type === "conversation.item.input_audio_transcription.completed") {
+      if (ev.item_id) callUserItem = ev.item_id;
+      saveUserTranscript(ev.item_id, ev.transcript || userLive);
+    }
+    if (type === "response.output_audio_transcript.delta") {
+      assistantLive += ev.delta || "";
+      showCallLine("assistant", assistantLive, false);
+    }
+    if (type === "response.output_audio_transcript.done") {
+      assistantLive = ev.transcript || assistantLive;
+      showCallLine("assistant", assistantLive, true);
+      persistCallLine("assistant", assistantLive);
+      assistantSaved = true;
+      assistantLive = "";
+    }
+    if (type === "response.done") {
+      var resp = ev.response || {};
+      if (!assistantSaved) {
+        var said = "";
+        (resp.output || []).forEach(function (item) {
+          (item.content || []).forEach(function (part) {
+            if (part.transcript) said = part.transcript;
+            if (part.type === "output_text" && part.text) said = part.text;
+          });
+        });
+        if (said) {
+          showCallLine("assistant", said, true);
+          persistCallLine("assistant", said);
+        }
+      }
+      var calls = [];
+      (resp.output || []).forEach(function (item) {
+        if (item && item.type === "function_call" && item.call_id && !callSeen[item.call_id]) calls.push(item);
+      });
+      if (calls.length) runCallTools(calls, gen);
+    }
+  }
+
+  function saveUserTranscript(itemID, text) {
+    text = String(text || "").trim();
+    if (!text) return;
+    if (itemID && callUserSaved[itemID]) return;
+    if (itemID) callUserSaved[itemID] = true;
+    var last = messages[messages.length - 1];
+    if (last && last.role === "user" && last.live && String(last.text || "").trim() === text && last.liveDone) return;
+    userLive = "";
+    showCallLine("user", text, true);
+    persistCallLine("user", text);
+  }
+
+  function finishLiveLine(role) {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      var m = messages[i];
+      if (m.live && m.role === role && !m.liveDone) {
+        m.liveDone = true;
+        m.streaming = false;
+        return;
+      }
+    }
+  }
+
+  function showCallLine(role, text, done) {
+    text = String(text || "");
+    if (!text.trim()) return;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      var m = messages[i];
+      if (m.live && m.role === role && !m.liveDone) {
+        m.text = text;
+        m.streaming = !done;
+        m.liveDone = !!done;
+        renderThread();
+        return;
+      }
+    }
+    messages.push({ role: role, text: text, live: true, streaming: !done, liveDone: !!done });
+    renderThread();
+  }
+
+  function persistCallLine(role, text) {
+    text = String(text || "").trim();
+    if (!text) return;
+    fetch(apiURL("/api/realtime/line"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ role: role, text: text }),
+    }).catch(function (err) {
+      setVoiceStatus(String((err && err.message) || err || "Could not save the transcript"));
+    });
+  }
+
+  function runCallTools(calls, gen) {
+    var i = 0;
+    var speakGen = callSpeak;
+    function next(speak) {
+      if (gen !== callGen) return;
+      if (i >= calls.length) {
+        if (speak && callDC && callDC.readyState === "open") callDC.send(JSON.stringify({ type: "response.create" }));
+        return;
+      }
+      var item = calls[i++];
+      callSeen[item.call_id] = true;
+      fetch(apiURL("/api/realtime/tool"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ name: item.name, call_id: item.call_id, arguments: item.arguments || "{}" }),
+      }).then(readJSONResponse).then(function (j) {
+        if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
+        callDC.send(JSON.stringify({
+          type: "conversation.item.create",
+          item: { type: "function_call_output", call_id: item.call_id, output: (j && j.output) || "" },
+        }));
+        next(true);
+      }).catch(function (err) {
+        if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
+        callDC.send(JSON.stringify({
+          type: "conversation.item.create",
+          item: { type: "function_call_output", call_id: item.call_id, output: "INTERRUPTED: " + String((err && err.message) || err) },
+        }));
+        next(speakGen === callSpeak);
+      });
+    }
+    next(true);
+  }
+
+  function truncateHeardAudio() {
+    if (callTransport !== "ws" || !callAudioItem || !callDC || callDC.readyState !== "open") return;
+    var played = 0;
+    if (callSpeakEl && isFinite(callSpeakEl.currentTime)) played = Math.max(0, callSpeakEl.currentTime - (callRespAt || 0));
+    callDC.send(JSON.stringify({
+      type: "conversation.item.truncate",
+      item_id: callAudioItem,
+      content_index: callAudioIndex || 0,
+      audio_end_ms: Math.max(0, Math.round(played * 1000)),
+    }));
+    callAudioItem = "";
+  }
+
+  // The server stops generating when you speak. This window has to stop the
+  // file it already buffered, or the rest of the sentence keeps playing.
+  function bargeInCall() {
+    truncateHeardAudio();
+    if (callTransport !== "ws") return;
+    stopCallPlayback();
+    callRespAt = 0;
+    if (callLive) primeCallSpeaker();
+  }
+
+  function cancelCallSpeech() {
+    callSpeak += 1;
+    truncateHeardAudio();
+    if (callDC && callDC.readyState === "open") callDC.send(JSON.stringify({ type: "response.cancel" }));
+    stopCallPlayback();
+    if (callTransport === "ws" && callLive) primeCallSpeaker();
+    fetch(apiURL("/api/stop"), { method: "POST", headers: headers() }).catch(function () {});
+  }
+
+  function toggleCallMute() {
+    if (!callMic) return;
+    callMuted = !callMuted;
+    callMic.getAudioTracks().forEach(function (t) { t.enabled = !callMuted; });
+    setVoiceStatus(callMuted ? "Muted" : "Live");
+    setState(agentState);
+  }
+
+  function hangUpCall(note) {
+    callGen += 1;
+    callLive = false;
+    callMuted = false;
+    callConfigured = false;
+    callSeeded = false;
+    callDCOpen = false;
+    callSessionReady = false;
+    callSetup = null;
+    callQueue = [];
+    callSeen = {};
+    callUserSaved = {};
+    assistantLive = "";
+    userLive = "";
+    if (callLimitTimer) clearTimeout(callLimitTimer);
+    callLimitTimer = 0;
+    callTransport = "";
+    stopCallAudio();
+    if (callDC) { try { callDC.close(); } catch (e) {} }
+    if (callPC) { try { callPC.close(); } catch (e) {} }
+    if (callMic) callMic.getTracks().forEach(function (t) { t.stop(); });
+    if (callAudio) callAudio.srcObject = null;
+    callDC = null;
+    callPC = null;
+    callMic = null;
+    callAudio = null;
+    fetch(apiURL("/api/realtime/end"), { method: "POST", headers: headers() }).catch(function () {});
+    setVoiceStatus(note || "");
+    setState(agentState);
   }
 
   var composerForm = document.getElementById("composer");
@@ -7359,7 +7977,21 @@
   }
   approve.addEventListener("click", function () { decide(true); });
   deny.addEventListener("click", function () { decide(false); });
-  if (stopBtn) stopBtn.addEventListener("click", function () { stopCurrentRun(); });
+  if (stopBtn) stopBtn.addEventListener("click", function () {
+    if (callLive) cancelCallSpeech();
+    var busyish = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
+    if (busyish || backgroundBusy) stopCurrentRun();
+  });
+  if (callBtn) callBtn.addEventListener("click", function () {
+    if (callLive) hangUpCall();
+    else startCall();
+  });
+  if (callMuteBtn) callMuteBtn.addEventListener("click", function () { toggleCallMute(); });
+  if (setRealtimeProvider) setRealtimeProvider.addEventListener("change", function () {
+    var on = !!setRealtimeProvider.value;
+    if (setRealtimeModel) setRealtimeModel.disabled = !on;
+    if (setRealtimeVoice) setRealtimeVoice.disabled = !on;
+  });
 
   function pickMime() {
     var types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
