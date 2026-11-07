@@ -8,12 +8,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/mark3labs/mcp-go/server/servertest"
 )
+
+func TestMCPCallTimeoutCoversALongJob(t *testing.T) {
+	if mcpCallTimeout < 60*time.Minute {
+		t.Fatalf("mcp call timeout %s cuts off a long server job", mcpCallTimeout)
+	}
+}
 
 func TestMCPExposedName(t *testing.T) {
 	got := mcpExposedName("my server", "list-files!")

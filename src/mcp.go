@@ -374,6 +374,11 @@ func (m *MCPManager) Status() []MCPServerStatus {
 	return out
 }
 
+// mcpCallTimeout is the harness limit for one MCP tool call. A server job may
+// run for many minutes; a shorter deadline cancels it before the server does.
+// Stopping the run still cancels the call through the parent context.
+const mcpCallTimeout = 60 * time.Minute
+
 func (m *MCPManager) Call(ctx context.Context, exposedName, argumentsJSON string) string {
 	display, _, _, _ := m.callStored(ctx, exposedName, argumentsJSON)
 	return display
@@ -402,7 +407,7 @@ func (m *MCPManager) callStored(ctx context.Context, exposedName, argumentsJSON 
 	req := mcp.CallToolRequest{}
 	req.Params.Name = route.Tool
 	req.Params.Arguments = args
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	cctx, cancel := context.WithTimeout(ctx, mcpCallTimeout)
 	defer cancel()
 	result, err := sess.client.CallTool(cctx, req)
 	if err != nil {
