@@ -663,6 +663,17 @@ button.wide { width: 100%; max-width: 100%; }
   border-left: 2px solid var(--accent);
   padding-left: 0.65rem;
 }
+.msg.watch {
+  border-left: 2px solid var(--muted);
+  padding-left: 0.65rem;
+  background: transparent;
+}
+.msg.watch .who { color: var(--muted); }
+.msg.watch .body {
+  white-space: pre-wrap;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
 .profile-list {
   list-style: none;
   margin: 0 0 0.5rem;

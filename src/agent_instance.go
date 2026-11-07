@@ -433,6 +433,7 @@ func deleteAgentInstance(id string) error {
 		}
 		return err
 	}
+	stopInstanceWatches(id)
 	return os.RemoveAll(dir)
 }
 

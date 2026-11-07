@@ -2695,7 +2695,9 @@ func (s *appServer) startAgentRun(text string) bool {
 	s.mu.Unlock()
 
 	s.hub.Broadcast("line", map[string]string{"text": "\n› " + text + "\n"})
-	if name, body, ok := parsePeerUserText(text); ok {
+	if notice, ok := watchDisplayText(text); ok {
+		s.hub.Broadcast("message", map[string]any{"role": "watch", "name": "Watch", "text": notice, "thread_id": agent.Cfg.ThreadID})
+	} else if name, body, ok := parsePeerUserText(text); ok {
 		s.hub.Broadcast("message", map[string]any{"role": "peer", "name": "From " + name, "text": body})
 	}
 	s.hub.Broadcast("status", map[string]string{"state": "running", "thread_id": agent.Cfg.ThreadID})
@@ -2740,7 +2742,19 @@ func (s *appServer) pumpAgentWakes() {
 		return
 	}
 	inst := strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
-	if inst == "" || agentWakesHeld(inst) {
+	if inst != "" {
+		if agentWakesHeld(inst) {
+			return
+		}
+		now := time.Now()
+		if due, err := dueAgentAlarms(inst, now); err == nil {
+			for _, al := range due {
+				_ = enqueueAgentMessage(inst, al.Message, "watch", "watch")
+			}
+		}
+		s.agent.runDueIntervalWatches(context.Background(), now)
+		s.agent.ensureLiveWatches()
+	} else {
 		return
 	}
 	s.mu.Lock()
@@ -2748,11 +2762,6 @@ func (s *appServer) pumpAgentWakes() {
 	s.mu.Unlock()
 	if busy {
 		return
-	}
-	if due, err := dueAgentAlarms(inst, time.Now()); err == nil {
-		for _, al := range due {
-			_ = enqueueAgentMessage(inst, al.Message, "alarm", "alarm")
-		}
 	}
 	items, err := dequeueAgentMessages(inst)
 	if err != nil || len(items) == 0 {

@@ -2592,7 +2592,7 @@
       var reset = document.createElement("button");
       reset.type = "button";
       reset.textContent = "Reset";
-      reset.title = "Clear this conversation. Contacts, tools, and alarms stay.";
+      reset.title = "Clear this conversation. Contacts, tools, and watches stay.";
       reset.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -2875,7 +2875,7 @@
   function resetAgent(id, label) {
     if (!id) return;
     var name = label || id;
-    askConfirm("Reset “" + name + "” to a fresh context?\n\nThe conversation and charter are cleared. The old transcript is kept as a backup file. Contacts, tools, and alarms stay.", "Reset").then(function (yes) {
+    askConfirm("Reset “" + name + "” to a fresh context?\n\nThe conversation and charter are cleared. The old transcript is kept as a backup file. Contacts, tools, and watches stay.", "Reset").then(function (yes) {
       if (!yes) return;
     fetch(apiURL("/api/agents/instances/reset"), {
       method: "POST",
@@ -2897,7 +2897,7 @@
   function deleteAgent(id, label) {
     if (!id) return;
     var name = label || id;
-    askConfirm("Delete agent “" + name + "” permanently?\n\nThis removes the instance and its main thread. The definition stays.", "Delete").then(function (yes) {
+    askConfirm("Delete agent “" + name + "” permanently?\n\nThis removes the instance, its chat, and its watches. The definition stays.", "Delete").then(function (yes) {
       if (!yes) return;
     fetch(apiURL("/api/agents/instances/delete"), {
       method: "POST",
@@ -3841,6 +3841,13 @@
       } else {
         el.innerHTML = '<div class="body">' + esc(m.text || "") + "</div>";
       }
+      stampMessageEl(el, m, role);
+      parent.appendChild(el);
+      return role;
+    }
+    if (role === "watch") {
+      el.className = "msg watch";
+      el.innerHTML = '<p class="who">Watch</p><div class="body">' + esc(m.text || "") + "</div>";
       stampMessageEl(el, m, role);
       parent.appendChild(el);
       return role;

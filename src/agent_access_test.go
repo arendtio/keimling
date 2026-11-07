@@ -201,7 +201,7 @@ func TestAgentPromptNamesItself(t *testing.T) {
 	}
 	a := &Agent{Cfg: Config{AgentInstanceID: ada.ID, AgentInstructions: "Watch the alarm."}}
 	block := a.modelInstructions()
-	for _, want := range []string{"You are an agent instance", ada.Name, ada.ID, "Your task:\nWatch the alarm.", "not the workspace assistant", "message_agent", "own context", "set_alarm wakes only you", "[Alarm]", "via message_agent", "It is not the human.", "text is a joke you invent", "text is not the request sentence.", "call list_agents"} {
+	for _, want := range []string{"You are an agent instance", ada.Name, ada.ID, "Your task:\nWatch the alarm.", "not the workspace assistant", "message_agent", "own context", "create_watch wakes only you", "[Watch]", "via message_agent", "It is not the human.", "text is a joke you invent", "text is not the request sentence.", "call list_agents"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("prompt missing %q\n%s", want, block)
 		}
@@ -319,7 +319,7 @@ func TestAgentToolGroupsCoverCatalogOnce(t *testing.T) {
 		if g.ID == "files" {
 			filesWrite = append([]string(nil), g.Write...)
 		}
-		if g.ID == "alarms" {
+		if g.ID == "watches" {
 			alarmRead = append([]string(nil), g.Read...)
 			alarmWrite = append([]string(nil), g.Write...)
 		}
@@ -330,7 +330,7 @@ func TestAgentToolGroupsCoverCatalogOnce(t *testing.T) {
 	if strings.Join(filesWrite, ",") != "edit_file,write_file" {
 		t.Fatalf("file writing: %v", filesWrite)
 	}
-	if strings.Join(alarmRead, ",") != "list_alarms" || strings.Join(alarmWrite, ",") != "set_alarm,cancel_alarm" {
+	if strings.Join(alarmRead, ",") != "list_watches" || strings.Join(alarmWrite, ",") != "create_watch,cancel_watch" {
 		t.Fatalf("alarms read %v write %v", alarmRead, alarmWrite)
 	}
 	for _, tool := range agentToolCatalog() {

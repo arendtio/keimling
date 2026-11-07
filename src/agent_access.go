@@ -40,9 +40,9 @@ func agentToolCatalog() []agentTool {
 		{Name: "web_search", Label: "Search the web"},
 		{Name: "list_credentials", Label: "List credentials"},
 		{Name: "change_workspace", Label: "Switch workspace"},
-		{Name: "set_alarm", Label: "Set an alarm"},
-		{Name: "list_alarms", Label: "List alarms"},
-		{Name: "cancel_alarm", Label: "Cancel an alarm"},
+		{Name: "create_watch", Label: "Create a watch"},
+		{Name: "list_watches", Label: "List watches"},
+		{Name: "cancel_watch", Label: "Cancel a watch"},
 		{Name: "list_agents", Label: "List agents"},
 		{Name: "message_agent", Label: "Message an agent"},
 		{Name: "agent_instructions", Label: "Read the starting prompt"},
@@ -66,7 +66,7 @@ func agentToolGroups() []agentToolGroup {
 		{ID: "web", Label: "Web", Read: []string{"web_search"}, Write: []string{}},
 		{ID: "credentials", Label: "Credentials", Read: []string{"list_credentials"}, Write: []string{}},
 		{ID: "workspace", Label: "Workspace", Read: []string{}, Write: []string{"change_workspace"}},
-		{ID: "alarms", Label: "Alarms", Read: []string{"list_alarms"}, Write: []string{"set_alarm", "cancel_alarm"}},
+		{ID: "watches", Label: "Watches", Read: []string{"list_watches"}, Write: []string{"create_watch", "cancel_watch"}},
 		{ID: "agents", Label: "Agents", Read: []string{"list_agents"}, Write: []string{"message_agent"}},
 		{ID: "define", Label: "Define agents", Read: []string{"agent_instructions"}, Write: []string{"save_agent", "spawn_agent", "save_team", "spawn_team"}},
 		{ID: "models", Label: "Models", Read: []string{}, Write: []string{"delegate"}},
@@ -96,8 +96,9 @@ func knownAgentTool(name string) bool {
 	if isMCPServerGrant(name) {
 		return true
 	}
+	name = canonicalTool(name)
 	for _, t := range agentToolCatalog() {
-		if t.Name == name {
+		if canonicalTool(t.Name) == name {
 			return true
 		}
 	}
@@ -110,8 +111,9 @@ func definitionAllowsName(def *[]string, name string) bool {
 	if def == nil {
 		return knownAgentTool(name)
 	}
+	name = canonicalTool(name)
 	for _, g := range *def {
-		if g == name {
+		if canonicalTool(g) == name {
 			return true
 		}
 		if g == "mcp" && isMCPServerGrant(name) {
@@ -219,10 +221,10 @@ func sameToolSet(a, b []string) bool {
 	}
 	got := map[string]bool{}
 	for _, n := range a {
-		got[n] = true
+		got[canonicalTool(n)] = true
 	}
 	for _, n := range b {
-		if !got[n] {
+		if !got[canonicalTool(n)] {
 			return false
 		}
 	}
@@ -233,6 +235,19 @@ func (a *Agent) instanceToolGranted(name string) bool {
 	return toolNameGranted(a.instanceToolGrant(), name)
 }
 
+func canonicalTool(name string) string {
+	switch strings.TrimSpace(name) {
+	case "set_alarm", "create_watch":
+		return "create_watch"
+	case "list_alarms", "list_watches":
+		return "list_watches"
+	case "cancel_alarm", "cancel_watch":
+		return "cancel_watch"
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
 func toolNameGranted(grant []string, name string) bool {
 	if name == "data_processing" || name == "data_processing_help" {
 		return true
@@ -240,9 +255,9 @@ func toolNameGranted(grant []string, name string) bool {
 	if grant == nil {
 		return true
 	}
-	name = strings.TrimSpace(name)
+	name = canonicalTool(name)
 	for _, g := range grant {
-		if g == name {
+		if canonicalTool(g) == name {
 			return true
 		}
 		if g == "mcp" && strings.HasPrefix(name, "mcp__") {
@@ -267,6 +282,18 @@ func filterGrantedTools(tools []map[string]any, grant []string) []map[string]any
 		}
 	}
 	return out
+}
+
+func (a *Agent) threadIdentityPrompt() string {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) != "" || strings.TrimSpace(a.Cfg.WorkspaceID) == "" {
+		return ""
+	}
+	line := "You can list_agents for instances in this workspace, message_agent one of them, stop_agent to halt one, and delete_agent to remove one."
+	id := strings.TrimSpace(a.Cfg.ThreadID)
+	if !isWorkspaceThreadID(id) {
+		return line
+	}
+	return line + " This thread's id is " + id + ". When an agent should message this thread, pass that id unchanged to message_agent."
 }
 
 func (a *Agent) agentIdentityPrompt() string {
@@ -304,27 +331,32 @@ func (a *Agent) agentToolPrompt() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("You work in your own context. Another agent or a workspace thread does not see this chat, your alarms, your tool results, or what just happened to you. They have their own context. When you message one, name the thing, the fact, and what you want, so they can act without your context.\n")
+	b.WriteString("You work in your own context. Another agent or a workspace thread does not see this chat, your watches, your tool results, or what just happened to you. They have their own context. When you message one, name the thing, the fact, and what you want, so they can act without your context.\n")
 	b.WriteString("A received line that names a thread_id or an instance_id and says via message_agent was delivered by message_agent. You never write that line. It is not the user.\n")
 	if a.instanceToolGranted("message_agent") {
 		b.WriteString("You do not have to answer. Reasoning may stay in your thinking. An assistant message in this chat does not deliver a reply.\n")
 	}
-	if a.instanceToolGranted("set_alarm") {
-		b.WriteString("set_alarm wakes only you. When the user asks you to do something later or again, call set_alarm yourself. Do not ask another agent to set that alarm, and do not set an alarm because another agent asked you to wake them. A line [Alarm] is a reminder you wrote for yourself, not a new instruction from the user.\n")
+	if a.instanceToolGranted("create_watch") {
+		b.WriteString("create_watch wakes only you. When the user asks you to do something later, again, or when a command or file matches, call create_watch yourself. Do not ask another agent to create that watch, and do not create a watch because another agent asked you to wake them. A line [Watch] is a reminder you wrote for yourself, not a new instruction from the user.\n")
 	}
 	grant := a.instanceToolGrant()
-	names := grant
-	if names == nil {
+	var names []string
+	if grant == nil {
 		names = make([]string, 0, len(agentToolCatalog()))
 		for _, t := range agentToolCatalog() {
 			names = append(names, t.Name)
+		}
+	} else {
+		names = make([]string, len(grant))
+		for i, n := range grant {
+			names[i] = canonicalTool(n)
 		}
 	}
 	list := "(none)"
 	if len(names) > 0 {
 		list = strings.Join(names, ", ")
 	}
-	fmt.Fprintf(&b, "Tools this agent instance may use: %s. Other tools are not available. When the user asks which tools you have, answer in text with these names. For a later or repeating wake, call set_alarm when it is in the list. Do not invent a shell script or a file for that.", list)
+	fmt.Fprintf(&b, "Tools this agent instance may use: %s. Other tools are not available. When the user asks which tools you have, answer in text with these names. For a later or repeating wake, call create_watch when it is in the list. Do not invent a shell script or a file for that.", list)
 	if a.instanceToolGranted("message_agent") {
 		b.WriteString("\n")
 		b.WriteString(agentReplyRules(a.instanceToolGranted("list_agents")))
@@ -377,6 +409,9 @@ func (a *Agent) modelInstructions() string {
 		base := keimlingBaseInstructions()
 		if a == nil {
 			return base
+		}
+		if line := strings.TrimSpace(a.threadIdentityPrompt()); line != "" {
+			base += "\n\n" + line
 		}
 		if cat := strings.TrimSpace(a.skillsCatalogBlock()); cat != "" {
 			return base + "\n\n" + cat

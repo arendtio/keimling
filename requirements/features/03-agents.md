@@ -30,7 +30,7 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 ~/.local/share/keimling/
   agent-instances/<instance-id>/
     meta.json          # recipe_id, workspaces[], peers[], …
-    alarms.json
+    watches.json
     queue.jsonl
     thread/session.jsonl
 ```
@@ -46,7 +46,7 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 
 1. Create/edit/delete **definitions**; optional **teams**.
 2. Create **instance** from definition (or spawn team).
-3. Messages / peer messages / alarms → queue → run when idle.
+3. Messages / peer messages / watches → queue → run when idle.
 4. Stop cancels; delete instance removes dir + worker.
 
 ## UI
@@ -62,8 +62,8 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 | Tool | Purpose |
 | --- | --- |
 | `change_workspace` | Switch CWD within workspace ACL |
-| `set_alarm` | Relative or absolute alarm + wake message |
-| `list_alarms` / `cancel_alarm` | Inspect / remove |
+| `create_watch` | Wake this agent. A time and no condition is the former alarm. A condition, a tool chain, or an event source runs without the model until it matches. See REQ-WC-6. |
+| `list_watches` / `cancel_watch` | Inspect / remove |
 | `list_agents` | Discover instances that share a workspace, and which contacts the user allowed |
 | `message_agent` | Enqueue text on a contact’s main channel. Contact is set by the user and works both ways |
 
@@ -351,7 +351,7 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Statement:** When the user tells an agent to ask another agent for something on a schedule, that agent shall set its own alarm and shall ask the other agent for the thing. The other agent shall not be asked to set that alarm. A reply shall go back to the agent who asked. It shall not be rewritten as a delivery to the user.
 - **Origin:** User, 2026-10-31 (quote: "alle fünf Minuten sollst du dem Entertain Agent auffordern, dir einen Witz zu schicken" and "How stupid is that to set an alarms yourself and also let the other agent set an alarms?!?" and "Please deliver a joke to the user" and "the joke should be just an exchange between the agents. Why do they decide it should be for the user?!?").
 - **Rationale:** The user named who asks, who answers, and where the answer goes. Turning that into two alarms and a delivery to the user drops the request.
-- **Fit criterion:** The instructions say that set_alarm wakes only this agent, that another agent is not asked to create that alarm, and that a reply to another agent goes back to that agent rather than to the user. An alarm line is described as this agent's own reminder.
+- **Fit criterion:** The instructions say that create_watch wakes only this agent, that another agent is not asked to create that watch, and that a reply to another agent goes back to that agent rather than to the user. A watch line is described as this agent's own reminder. The tool name follows REQ-WC-6.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -432,6 +432,26 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Origin:** User, 2026-11-04 (quote: "kann von überall aus ausgeführt werden, so wie das andere Werkzeug auch" and "Agenten haben ja bereits eine Mechanik, mit der man Tools abschalten kann, wenn man das möchte oder anschalten und die können wir ganz normal nutzen").
 - **Rationale:** Agents already have a per-definition tool switch. A second switch for this action would split the same decision.
 - **Fit criterion:** A workspace thread is offered the tools. An agent whose definition grants every tool is offered them. An agent whose definition lists tools and omits these is not offered them. Adding them to that list offers them.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-35 A workspace thread can reach and stop an instance
+
+- **Bin:** explicit requirement
+- **Statement:** A workspace thread shall be able to message an agent instance in that workspace, stop that instance, and delete that instance. Stopping shall not ask for confirmation. Deleting an instance shall ask for confirmation. In yolo, neither shall ask.
+- **Origin:** User, 2026-11-07 (quote: "der Thread selber konnte dann nicht den Agenten, den er eben gestartet hat, kontaktieren" and "ein Thread sollte die Fähigkeit bekommen, auch Agenten zu stoppen" and "Agenten Instanzen stoppen sollte ein Thread ohne Bestätigung können" and "auch im Modus Ask nicht" and "Agenten löschen sollte eine Bestätigung haben" and "nur im Modus YOLO … braucht er für keine dieser Sachen irgend eine Bestätigung. Also auch fürs Agenten löschen dann nicht").
+- **Rationale:** The thread that started an instance is the place the user says to stop or change that work. Asking again for a stop blocks that. Deleting the instance removes it, so that step stays a confirmation except when the mode asks for nothing.
+- **Fit criterion:** From a workspace thread, `list_agents` shows instances that may use that workspace. `message_agent` delivers the text to one of those instances as a message from this thread. `stop_agent` holds that instance in ask, auto, and yolo without a confirmation. `delete_agent` asks in ask and auto, and does not ask in yolo. An instance outside the workspace is not addressed.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-36 Auto allows a call the confirmed purpose already names
+
+- **Bin:** explicit requirement
+- **Statement:** When an agent runs in auto, a tool call whose concrete action is named in the job the user confirmed shall be allowed. The check shall see the command inside a watch, not only the tool name. A job that does not name the action shall not allow it. A call that names a different command or target shall not be allowed by that job.
+- **Origin:** User, 2026-11-07 (quote: "wenn die Befehle dem Zweck entsprechen, dann kann der Auto-Modus es automatisch freigeben" and "dafür muss er sich aber natürlich auch angucken, was da bei CreateWatch genau ausgeführt wird" and "die transitiven Freigaben noch nicht zuverlässig genug funktionieren").
+- **Rationale:** The user already confirmed the job by starting the agent. Asking again, and then refusing because an agent cannot wait, blocks the job that was just confirmed.
+- **Fit criterion:** An agent in auto whose job names `ping -c 1 -W 2 192.168.0.101` is allowed to create a watch that runs that command, with no review and no refusal. A watch whose command is not in that job is still reviewed. A vague job does not allow the ping. A workspace thread gets no such grant.
 - **Priority:** shall
 - **Status:** confirmed
 

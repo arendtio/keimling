@@ -192,13 +192,7 @@ func firstUserTextInRange(events []json.RawMessage, start, end int) string {
 	}
 	for i := start - 1; i < end && i < len(events); i++ {
 		label := eventLabel(events[i])
-		if label == "" || label == "[task finished]" {
-			continue
-		}
-		if strings.HasPrefix(label, "[AUTOPILOT") || strings.HasPrefix(label, "Continue the current plan") {
-			continue
-		}
-		if strings.HasPrefix(label, "<compacted_conversation_memory>") {
+		if internalUserLabel(label) {
 			continue
 		}
 		return label

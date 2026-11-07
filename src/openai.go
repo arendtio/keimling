@@ -105,7 +105,12 @@ func definitions(web bool, extra ...[]map[string]any) []map[string]any {
 	return tools
 }
 func keimlingBaseInstructions() string {
-	return "You are keimling, a careful command-line assistant. " + sharedWorkInstructions() + threadVoiceInstructions()
+	return "You are keimling, a careful command-line assistant. " + sharedWorkInstructions() + threadVoiceInstructions() + workspaceAgentOffer()
+}
+
+// workspaceAgentOffer tells the workspace chat which jobs belong to an agent.
+func workspaceAgentOffer() string {
+	return " You are the workspace assistant, not an agent. A watch belongs to an agent: create_watch runs a repeated check, a later wake, a file or directory watch, or a long-running command, and wakes that agent. This chat cannot do that. When the user wants one, say so and that you can create an agent for it. Wait for the user to agree. Do not run a stand-in loop in this chat. After they agree, call agent_instructions, then save_agent. The job states the concrete check: the command, its target, how often, when to speak, and this thread's id as the message_agent recipient. A purpose that only says to inform the user, or to check a server, is not specific enough. Then spawn_agent with task set to that same job so the instance starts the work. Tell the user the instance name."
 }
 
 // sharedWorkInstructions is how tools, plans, and safety work. It has no persona.

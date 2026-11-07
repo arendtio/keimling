@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -66,6 +67,41 @@ var errReviewDown = errString("down")
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestConfirmedPurposeAllowsTheNamedWatch(t *testing.T) {
+	job := "Monitor server 192.168.0.101 using a recurring watch every 20 seconds running `ping -c 1 -W 2 192.168.0.101`. After each check, if the command succeeds, use message_agent to send a short German message that the server is reachable to thread 20261107-110041-595951692."
+	inner, _ := json.Marshal(map[string]any{"command": "ping -c 1 -W 2 192.168.0.101", "interactive": false})
+	watchBytes, _ := json.Marshal(map[string]any{
+		"command": "", "condition": "", "message": "Bei exit_code 0 melden.", "path": "", "source": "",
+		"steps": []map[string]string{{"name": "exec", "arguments": string(inner)}},
+		"value": "", "when": "every 20s",
+	})
+	watch := string(watchBytes)
+	if !agentPurposeClears(true, "auto", job, "create_watch", watch) {
+		t.Fatal("named ping was not allowed")
+	}
+	other := strings.ReplaceAll(watch, "192.168.0.101", "10.0.0.8")
+	if agentPurposeClears(true, "auto", job, "create_watch", other) {
+		t.Fatal("a different host was allowed")
+	}
+	if agentPurposeClears(true, "auto", "Monitor the network and inform the user.", "create_watch", watch) {
+		t.Fatal("a vague job allowed the ping")
+	}
+	if agentPurposeClears(false, "auto", job, "create_watch", watch) {
+		t.Fatal("a workspace thread was granted the job")
+	}
+	if agentPurposeClears(true, "ask", job, "create_watch", watch) {
+		t.Fatal("ask mode skipped the question")
+	}
+	rules, user := reviewRequest("", "create_watch", watch, "/tmp", job, nil, false)
+	if !strings.Contains(rules, "AGENT PURPOSE is present") || !strings.Contains(user, "192.168.0.101") {
+		t.Fatal("review did not receive the job")
+	}
+	plain, _ := reviewRequest("", "create_watch", watch, "/tmp", "", nil, false)
+	if strings.Contains(plain, "AGENT PURPOSE is present") {
+		t.Fatal("a review without a job was given the purpose rule")
+	}
+}
 
 func TestReviewRulesReplaceTheFactoryPrompt(t *testing.T) {
 	if reviewRules("", false) != defaultPolicy {

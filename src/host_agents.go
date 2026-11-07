@@ -623,7 +623,7 @@ func (h *Host) wakeQueuedAgentsOnce() {
 		h.waking = map[string]bool{}
 	}
 	for _, m := range list {
-		if h.waking[m.ID] || m.WakesHeld || (!agentQueuePending(m.ID) && !agentAlarmDue(m.ID, time.Now())) {
+		if h.waking[m.ID] || m.WakesHeld || (!agentQueuePending(m.ID) && !agentAlarmDue(m.ID, time.Now()) && !agentWatchNeedsProcess(m.ID)) {
 			continue
 		}
 		h.waking[m.ID] = true

@@ -15,7 +15,7 @@ import (
 // Anything that writes, takes the terminal, or injects a secret runs alone.
 func toolCallParallel(name, args string) bool {
 	switch name {
-	case "read_file", "search_history", "read_history", "web_search", "list_agents", "list_alarms", "agent_instructions":
+	case "read_file", "search_history", "read_history", "web_search", "list_agents", "list_watches", "agent_instructions":
 		return true
 	case "exec":
 		if toolNeedsTerminal(name, args) {
@@ -78,17 +78,25 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 			sus = &hit
 			a.println("◌ Soft rule", hit.ID, "— reviewer checking for false positive…")
 		}
-		verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, sus, a.Cfg.ApprovalPolicyReplace)
-		why := verdict.Reason
-		if e == nil {
-			if sus != nil && why == "" {
-				why = sus.Reason
+		if agentPurposeClears(agentRun, a.Cfg.Mode, a.Cfg.AgentInstructions, item.Name, item.Arguments) {
+			g = toolGate{Allow: true}
+		} else {
+			purpose := ""
+			if agentRun {
+				purpose = a.Cfg.AgentInstructions
 			}
-			if why == "" && verdict.Decision != "approve" {
-				why = "review asked for approval"
+			verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, purpose, sus, a.Cfg.ApprovalPolicyReplace)
+			why := verdict.Reason
+			if e == nil {
+				if sus != nil && why == "" {
+					why = sus.Reason
+				}
+				if why == "" && verdict.Decision != "approve" {
+					why = "review asked for approval"
+				}
 			}
+			g = settleReview(agentRun, verdict.Decision, why, e)
 		}
-		g = settleReview(agentRun, verdict.Decision, why, e)
 		reason = g.Reason
 	}
 	if g.Ask && reason != "" {
@@ -234,8 +242,8 @@ func (a *Agent) parallelToolBody(ctx context.Context, name, args string) string 
 		return a.readHistory(args)
 	case "list_agents":
 		return a.listAgentsTool(args)
-	case "list_alarms":
-		return a.listAlarmsTool(args)
+	case "list_watches":
+		return a.listWatchesTool(args)
 	case "agent_instructions":
 		return a.runDefineAgentTool(name, args)
 	case "web_search":
@@ -328,18 +336,22 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 		return result, ""
 	case "change_workspace":
 		return a.changeWorkspace(item.Arguments), ""
-	case "set_alarm":
-		return a.setAlarm(item.Arguments), ""
-	case "list_alarms":
-		return a.listAlarmsTool(item.Arguments), ""
-	case "cancel_alarm":
-		return a.cancelAlarm(item.Arguments), ""
+	case "create_watch":
+		return a.createWatch(item.Arguments), ""
+	case "list_watches":
+		return a.listWatchesTool(item.Arguments), ""
+	case "cancel_watch":
+		return a.cancelWatch(item.Arguments), ""
 	case "list_agents":
 		return a.listAgentsTool(item.Arguments), ""
 	case "allow_peer":
 		return a.allowPeer(item.Arguments), ""
 	case "message_agent":
 		return a.messageAgent(item.Arguments), ""
+	case "stop_agent":
+		return a.stopAgentTool(item.Arguments), ""
+	case "delete_agent":
+		return a.deleteAgentTool(item.Arguments), ""
 	case "list_credentials":
 		return a.listCredentialsTool(item.Arguments), ""
 	default:

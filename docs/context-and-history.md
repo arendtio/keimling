@@ -32,6 +32,10 @@ segment by meaning and assess relevance, then distill or hide selected content.
 
 ### Section tree
 
+- A chapter is a storyline. A later user message stays in the open chapter
+  when it continues that storyline. A new chapter starts when the storyline
+  was closed, or when the new message opens a different one. A watch report
+  is not a user message and does not open a chapter.
 - The model identifies semantic section and subsection boundaries using event
   IDs, not line numbers or fixed-size blocks.
 - The tree is recursive with **at most three levels** (often one or two); depth

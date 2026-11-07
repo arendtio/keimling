@@ -25,7 +25,7 @@ func TestAgentAlarmDueDoesNotConsume(t *testing.T) {
 	if err := writeAgentAlarms(inst.ID, []AgentAlarm{{ID: "a", FireAt: past, Message: "wake"}}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(agentInstanceAlarmsPath(inst.ID))
+	before, err := os.ReadFile(agentInstanceWatchesPath(inst.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestAgentAlarmDueDoesNotConsume(t *testing.T) {
 	if agentAlarmDue(inst.ID, past.Add(-time.Second)) {
 		t.Fatal("a future alarm is not due")
 	}
-	after, err := os.ReadFile(agentInstanceAlarmsPath(inst.ID))
+	after, err := os.ReadFile(agentInstanceWatchesPath(inst.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

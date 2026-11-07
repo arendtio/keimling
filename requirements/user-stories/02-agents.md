@@ -22,7 +22,7 @@
 
 **As** an agent, **I want** relative and absolute alarms, **so that** I can wake myself later.
 
-**Acceptance:** `set_alarm` / `list_alarms` / `cancel_alarm`; persist across worker restart; a due alarm starts the instance when its process is not running, then the wake runs when idle.
+**Acceptance:** traces REQ-WC-6. `create_watch` / `list_watches` / `cancel_watch`. A time and no condition persists across a worker restart, starts the instance when it is due and the process is not running, then the wake runs when idle.
 
 ## US-14 — Inter-agent messaging
 
@@ -146,13 +146,13 @@
 
 **As** a user, **I want** the approval mode and the auto review prompt on the agent definition, **so that** its instances keep working without a prompt I am not watching.
 
-**Acceptance:** traces REQ-AG-27, REQ-AG-28, and REQ-AG-29. The instance has neither a mode nor a review prompt. Auto judges uncleared calls with the definition prompt, refuses when that judgment would ask, and continues. Ask asks in the main channel and warns that this can block. Reset binds the prompt back to the factory text. A workspace thread is unchanged.
+**Acceptance:** traces REQ-AG-27, REQ-AG-28, REQ-AG-29, and REQ-AG-36. The instance has neither a mode nor a review prompt. Auto judges uncleared calls with the definition prompt, refuses when that judgment would ask, and continues. A call whose command is named in the confirmed job is allowed without that judgment. Ask asks in the main channel and warns that this can block. Reset binds the prompt back to the factory text. A workspace thread is unchanged.
 
 ## US-40 — Develop an agent from the conversation
 
 **As** a user, **I want** a conversation to read the starting prompt, save an agent or a team, and start it here, **so that** the prompt is developed in the chat and an agent can start another one when its tools allow that.
 
-**Acceptance:** traces REQ-AG-30, REQ-AG-31, REQ-AG-32, REQ-AG-33, and REQ-AG-34. The read returns the instructions a blank definition stores. Save from a thread or an agent creates or updates that definition. Start binds the instance to the workspace the call is running in, and an agent cannot start one in a workspace it cannot use. A team save and start does the same, one instance per definition. A definition that grants every tool is offered these tools. A fixed tool list is offered them only when they are on that list.
+**Acceptance:** traces REQ-AG-30, REQ-AG-31, REQ-AG-32, REQ-AG-33, REQ-AG-34, and REQ-AG-35. A workspace thread can message an instance in that workspace, stop it without a confirmation, and delete it with a confirmation. Yolo asks for none of these. The read returns the instructions a blank definition stores. Save from a thread or an agent creates or updates that definition. Start binds the instance to the workspace the call is running in, and an agent cannot start one in a workspace it cannot use. A team save and start does the same, one instance per definition. A definition that grants every tool is offered these tools. A fixed tool list is offered them only when they are on that list.
 
 ## US-37 — An agent prompt that is about that agent
 

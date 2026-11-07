@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+func TestWatchReportIsNotTheUser(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{"role": "user", "content": "[Watch]\nexit_code=0\nERREICHBAR\n\nOnly report when it is up."})
+	msgs := sessionMessages([]json.RawMessage{raw}, 10)
+	if len(msgs) != 1 || msgs[0].Role != "watch" || msgs[0].Name != "Watch" || msgs[0].Text != "exit_code=0\nERREICHBAR" {
+		t.Fatalf("%#v", msgs)
+	}
+}
+
 func TestSessionMessagesRoles(t *testing.T) {
 	u, _ := json.Marshal(map[string]any{"role": "user", "content": "hello"})
 	a, _ := json.Marshal(map[string]any{

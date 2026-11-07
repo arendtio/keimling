@@ -33,6 +33,10 @@ type HistoryIndex struct {
 	Version      int              `json:"version"`
 	Sections     []HistorySection `json:"sections"`
 	WorkingState string           `json:"working_state,omitempty"`
+	// StoryBreaks are event indexes where a later user message opened a new storyline.
+	StoryBreaks []int `json:"story_breaks,omitempty"`
+	// Continued are user-message indexes that stay in the open storyline.
+	Continued []int `json:"continued,omitempty"`
 }
 
 const historyIndexVersion = 2
@@ -86,6 +90,59 @@ func trimLabel(s string) string {
 	}
 	return s
 }
+func internalUserLabel(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" || label == "[task finished]" {
+		return true
+	}
+	for _, prefix := range []string{
+		"[AUTOPILOT",
+		"Continue the current plan",
+		"<compacted_conversation_memory>",
+		"[Watch]",
+		"[User steering",
+		"[From ",
+	} {
+		if strings.HasPrefix(label, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHumanChapterTurn(label string) bool {
+	return strings.TrimSpace(label) != "" && !internalUserLabel(label)
+}
+
+func strandClosed(events []json.RawMessage) bool {
+	for _, raw := range events {
+		var call struct {
+			Type      string `json:"type"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}
+		if json.Unmarshal(raw, &call) != nil || call.Type != "function_call" || call.Name != "finish_task" {
+			continue
+		}
+		var args struct {
+			Status string `json:"status"`
+		}
+		if json.Unmarshal([]byte(call.Arguments), &args) == nil && (args.Status == "done" || args.Status == "blocked") {
+			return true
+		}
+	}
+	return false
+}
+
+func storyBreakAt(previous HistoryIndex, index int) bool {
+	for _, n := range previous.StoryBreaks {
+		if n == index {
+			return true
+		}
+	}
+	return false
+}
+
 func buildHistoryIndex(events []json.RawMessage, previous HistoryIndex) HistoryIndex {
 	idx := HistoryIndex{Version: historyIndexVersion, WorkingState: previous.WorkingState}
 	if len(events) == 0 {
@@ -95,8 +152,9 @@ func buildHistoryIndex(events []json.RawMessage, previous HistoryIndex) HistoryI
 	count := 0
 	for i, e := range events {
 		label := eventLabel(e)
-		// New human turns start top-level tasks. Internal supervisor messages do not.
-		if label != "" && label != "[task finished]" && !strings.HasPrefix(label, "[AUTOPILOT") && !strings.HasPrefix(label, "Continue the current plan autonomously.") && !strings.HasPrefix(label, "<compacted_conversation_memory>") && i > taskStart {
+		// A chapter stays open across follow-ups and watch reports. It splits when
+		// the storyline was closed, or when this user message was judged a new one.
+		if i > taskStart && isHumanChapterTurn(label) && (strandClosed(events[taskStart:i]) || storyBreakAt(previous, i)) {
 			addTaskSections(&idx, events, taskStart, i, count)
 			count++
 			taskStart = i
@@ -225,6 +283,9 @@ func (a *Agent) updateHistoryIndex(summary string) error {
 	}
 	prev := loadHistoryIndex(a.Cfg.SessionPath)
 	idx := buildHistoryIndex(events, prev)
+	idx.StoryBreaks = append([]int(nil), prev.StoryBreaks...)
+	idx.Continued = append([]int(nil), prev.Continued...)
+	a.classifyLatestStoryline(context.Background(), &idx, events)
 	if summary != "" {
 		idx.WorkingState = summary
 		applyMemoryFromCompaction(&idx, summary)
@@ -232,6 +293,98 @@ func (a *Agent) updateHistoryIndex(summary string) error {
 	}
 	a.ensureChapterTitles(context.Background(), &idx, events)
 	return saveHistoryIndex(a.Cfg.SessionPath, idx)
+}
+
+// classifyLatestStoryline asks whether the newest real user message continues
+// the open chapter. A watch report is not a user message. A decision is kept
+// so a later watch does not ask again.
+func (a *Agent) classifyLatestStoryline(ctx context.Context, idx *HistoryIndex, events []json.RawMessage) {
+	if a == nil || idx == nil {
+		return
+	}
+	last := -1
+	for i, event := range events {
+		if isHumanChapterTurn(eventLabel(event)) {
+			last = i
+		}
+	}
+	if last <= 0 {
+		return
+	}
+	for _, section := range idx.Sections {
+		if section.Level == "task" && section.Start == last+1 && section.Start != 1 {
+			return
+		}
+	}
+	for _, n := range idx.Continued {
+		if n == last {
+			return
+		}
+	}
+	if a.Client == nil || storylineContinues(ctx, a, idx, events, last) {
+		idx.Continued = append(idx.Continued, last)
+		return
+	}
+	idx.StoryBreaks = append(idx.StoryBreaks, last)
+	rebuilt := buildHistoryIndex(events, HistoryIndex{Version: historyIndexVersion, WorkingState: idx.WorkingState, StoryBreaks: idx.StoryBreaks})
+	rebuilt.StoryBreaks = idx.StoryBreaks
+	rebuilt.Continued = idx.Continued
+	*idx = rebuilt
+}
+
+func storylineContinues(ctx context.Context, a *Agent, idx *HistoryIndex, events []json.RawMessage, at int) bool {
+	askCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	title := "the open chapter"
+	if idx != nil {
+		for _, section := range idx.Sections {
+			if section.Level != "task" || section.Hidden || section.Start > at+1 || section.End < at+1 {
+				continue
+			}
+			if t := strings.TrimSpace(section.Title); t != "" && !isProvisionalChapterTitle(t) {
+				title = t
+			}
+		}
+	}
+	if title == "the open chapter" {
+		if seed := firstUserTextInRange(events, 1, at); seed != "" {
+			title = seed
+		}
+	}
+	reply := lastAssistantTextBefore(events, at)
+	answer, err := a.Client.compactionAsk(askCtx, a.compactionModel(),
+		"Reply with exactly CONTINUE or NEW. CONTINUE when the new message carries the same storyline on, including a follow-up, a correction, or another check of the same job. NEW when the previous storyline is done and this message opens a different one.",
+		"Current storyline:\n"+truncate(title, 400)+"\n\nLast reply:\n"+truncate(reply, 400)+"\n\nNew message:\n"+truncate(eventLabel(events[at]), 800), 16)
+	if err != nil {
+		return true
+	}
+	return !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(answer)), "NEW")
+}
+
+func lastAssistantTextBefore(events []json.RawMessage, at int) string {
+	if at > len(events) {
+		at = len(events)
+	}
+	for i := at - 1; i >= 0; i-- {
+		var item struct {
+			Type    string          `json:"type"`
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(events[i], &item) != nil || item.Type != "message" {
+			continue
+		}
+		var text string
+		if json.Unmarshal(item.Content, &text) == nil && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+		var parts []any
+		if json.Unmarshal(item.Content, &parts) == nil {
+			if text = strings.TrimSpace(messageText(parts)); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
 }
 
 // ensureChapterTitles replaces provisional "Chapter N" labels with a short generated title.
@@ -415,7 +568,7 @@ func pendingTask(session string) (string, bool) {
 		}
 		if v.Role == "user" {
 			var text string
-			if json.Unmarshal(v.Content, &text) == nil && !strings.HasPrefix(text, "[AUTOPILOT") && !strings.HasPrefix(text, "Continue the current plan autonomously.") && !strings.HasPrefix(text, "<compacted_conversation_memory>") {
+			if json.Unmarshal(v.Content, &text) == nil && isHumanChapterTurn(text) {
 				last = text
 				finished = false
 			}

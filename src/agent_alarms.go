@@ -10,30 +10,100 @@ import (
 	"time"
 )
 
-// AgentAlarm is a persisted wake for an agent instance.
-type AgentAlarm struct {
-	ID       string        `json:"id"`
-	FireAt   time.Time     `json:"fire_at"`
-	Message  string        `json:"message"`
-	Every    time.Duration `json:"every_ns,omitempty"` // if >0, reschedule after each fire
-	EveryRaw string        `json:"every,omitempty"`    // human duration e.g. "30s"
+// AgentWatch is a persisted wake for an agent instance.
+// A time watch fires on the clock. An interval watch runs its steps.
+// A file or command watch waits for an event.
+type AgentWatch struct {
+	ID        string        `json:"id"`
+	Kind      string        `json:"kind,omitempty"` // time, interval, file, command; empty is time
+	FireAt    time.Time     `json:"fire_at"`
+	Message   string        `json:"message"`
+	Every     time.Duration `json:"every_ns,omitempty"`
+	EveryRaw  string        `json:"every,omitempty"`
+	Condition string        `json:"condition,omitempty"` // equals, changed, or empty
+	Value     string        `json:"value,omitempty"`
+	Steps     []WatchStep   `json:"steps,omitempty"`
+	Path      string        `json:"path,omitempty"`
+	Command   string        `json:"command,omitempty"`
+	Last      string        `json:"last,omitempty"`
+	Seen      bool          `json:"seen,omitempty"`
+	Exited    string        `json:"exited,omitempty"`
 }
 
-func agentInstanceAlarmsPath(id string) string {
-	return filepath.Join(agentInstanceDir(id), "alarms.json")
+// WatchStep is one tool call in a watch chain.
+type WatchStep struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// AgentAlarm is the old name of a time watch.
+type AgentAlarm = AgentWatch
+
+func agentInstanceWatchesPath(id string) string {
+	return filepath.Join(agentInstanceDir(id), "watches.json")
+}
+
+// watchPlace is where one chat stores its watches and where a match is delivered.
+type watchPlace struct {
+	key      string
+	path     string
+	instance string
+	ws       string
+	thread   string
+}
+
+func (a *Agent) watchPlace() (watchPlace, bool) {
+	if a == nil {
+		return watchPlace{}, false
+	}
+	id := strings.TrimSpace(a.Cfg.AgentInstanceID)
+	if id == "" {
+		return watchPlace{}, false
+	}
+	return watchPlace{key: id, path: agentInstanceWatchesPath(id), instance: id}, true
+}
+
+func (p watchPlace) held() bool {
+	return p.instance != "" && agentWakesHeld(p.instance)
+}
+
+func (p watchPlace) enqueue(message, body string) {
+	text := strings.TrimSpace(body)
+	message = strings.TrimSpace(message)
+	if message != "" {
+		if text != "" {
+			text += "\n\n"
+		}
+		text += message
+	}
+	if len(text) > 4000 {
+		text = text[:4000]
+	}
+	if text == "" {
+		return
+	}
+	if p.instance != "" {
+		_ = enqueueAgentMessage(p.instance, text, "watch", "watch")
+		return
+	}
+	_ = enqueueThreadMessage(p.ws, p.thread, text, "watch", "watch")
 }
 
 var agentAlarmsMu sync.Mutex
 
 func readAgentAlarms(instanceID string) ([]AgentAlarm, error) {
-	b, err := os.ReadFile(agentInstanceAlarmsPath(instanceID))
+	return readWatches(agentInstanceWatchesPath(instanceID))
+}
+
+func readWatches(path string) ([]AgentWatch, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var list []AgentAlarm
+	var list []AgentWatch
 	if err := json.Unmarshal(b, &list); err != nil {
 		return nil, err
 	}
@@ -41,18 +111,28 @@ func readAgentAlarms(instanceID string) ([]AgentAlarm, error) {
 }
 
 func writeAgentAlarms(instanceID string, list []AgentAlarm) error {
-	if err := os.MkdirAll(agentInstanceDir(instanceID), 0o700); err != nil {
+	return writeWatches(agentInstanceWatchesPath(instanceID), list)
+}
+
+func writeWatches(path string, list []AgentWatch) error {
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("agent instance is gone")
+		}
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	if list == nil {
-		list = []AgentAlarm{}
+		list = []AgentWatch{}
 	}
 	b, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
 		return err
 	}
 	b = append(b, '\n')
-	path := agentInstanceAlarmsPath(instanceID)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
@@ -78,7 +158,8 @@ func addAgentAlarm(instanceID string, fireAt time.Time, message string, every ti
 		return AgentAlarm{}, err
 	}
 	al := AgentAlarm{
-		ID:      newStampedID("alarm"),
+		ID:      newStampedID("watch"),
+		Kind:    "time",
 		FireAt:  fireAt.UTC(),
 		Message: message,
 		Every:   every,
@@ -123,7 +204,7 @@ func agentAlarmDue(instanceID string, now time.Time) bool {
 		return false
 	}
 	for _, a := range list {
-		if !a.FireAt.After(now) {
+		if watchIsTime(a) && !a.FireAt.After(now) {
 			return true
 		}
 	}
@@ -131,16 +212,20 @@ func agentAlarmDue(instanceID string, now time.Time) bool {
 }
 
 func dueAgentAlarms(instanceID string, now time.Time) ([]AgentAlarm, error) {
+	return dueWatches(agentInstanceWatchesPath(instanceID), now)
+}
+
+func dueWatches(path string, now time.Time) ([]AgentWatch, error) {
 	agentAlarmsMu.Lock()
 	defer agentAlarmsMu.Unlock()
-	list, err := readAgentAlarms(instanceID)
+	list, err := readWatches(path)
 	if err != nil {
 		return nil, err
 	}
 	var due []AgentAlarm
 	remain := make([]AgentAlarm, 0, len(list))
 	for _, a := range list {
-		if a.FireAt.After(now) {
+		if !watchIsTime(a) || a.FireAt.After(now) {
 			remain = append(remain, a)
 			continue
 		}
@@ -157,11 +242,32 @@ func dueAgentAlarms(instanceID string, now time.Time) ([]AgentAlarm, error) {
 		}
 	}
 	if len(due) > 0 {
-		if err := writeAgentAlarms(instanceID, remain); err != nil {
+		if err := writeWatches(path, remain); err != nil {
 			return nil, err
 		}
 	}
 	return due, nil
+}
+
+func watchIsTime(w AgentWatch) bool {
+	return w.Kind == "" || w.Kind == "time"
+}
+
+// agentWatchNeedsProcess reports a watch that runs only while this worker is up.
+func agentWatchNeedsProcess(instanceID string) bool {
+	list, err := readAgentAlarms(instanceID)
+	if err != nil {
+		return false
+	}
+	for _, w := range list {
+		switch w.Kind {
+		case "interval", "file", "command":
+			if w.Exited == "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // parseAlarmWhen accepts:

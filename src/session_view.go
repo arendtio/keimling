@@ -60,6 +60,10 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 		switch {
 		case item.Role == "user":
 			if s, ok := item.Content.(string); ok {
+				if shown, watch := watchDisplayText(s); watch {
+					out = append(out, sessionMessage{Role: "watch", Name: "Watch", Text: shown, Event: ev})
+					continue
+				}
 				body, files := splitChatFiles(s)
 				s = strings.TrimSpace(body)
 				names := chatFileNames(files)

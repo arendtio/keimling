@@ -198,10 +198,43 @@ func readThreadQueueLocked(workspaceID, threadID string) ([]AgentQueueItem, erro
 	return items, sc.Err()
 }
 
+func formatWatchWake(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "[Watch]"
+	}
+	if strings.HasPrefix(text, "[Watch]") {
+		return text
+	}
+	return "[Watch]\n" + text
+}
+
+// watchDisplayText is the result a watch shows. The reminder under the blank
+// line stays in the journal for the model and is not the visible line.
+func watchDisplayText(text string) (string, bool) {
+	raw := strings.TrimSpace(text)
+	if !strings.HasPrefix(raw, "[Watch]") {
+		return "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(raw, "[Watch]"))
+	if result, reminder, ok := strings.Cut(rest, "\n\n"); ok {
+		result = strings.TrimSpace(result)
+		if result != "" {
+			return result, true
+		}
+		return strings.TrimSpace(reminder), true
+	}
+	lines := strings.Split(rest, "\n")
+	if len(lines) > 1 {
+		return strings.TrimSpace(strings.Join(lines[1:], "\n")), true
+	}
+	return rest, true
+}
+
 func formatQueueWake(it AgentQueueItem) string {
 	switch it.Kind {
-	case "alarm":
-		return "[Alarm] " + it.Text
+	case "alarm", "watch":
+		return formatWatchWake(it.Text)
 	case "peer":
 		label := agentInstanceDisplayName(it.From)
 		if id := strings.TrimSpace(it.From); id != "" && label != id {

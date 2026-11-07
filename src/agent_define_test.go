@@ -56,6 +56,21 @@ func TestDefineAgentToolsFollowApproval(t *testing.T) {
 	if g := gateToolCall(false, "yolo", "spawn_team", `{}`, false); !g.Allow {
 		t.Fatalf("yolo: %+v", g)
 	}
+	if g := gateToolCall(false, "ask", "stop_agent", `{}`, false); !g.Allow {
+		t.Fatalf("stop ask: %+v", g)
+	}
+	if g := gateToolCall(false, "auto", "stop_agent", `{}`, false); !g.Allow {
+		t.Fatalf("stop auto: %+v", g)
+	}
+	if g := gateToolCall(false, "ask", "delete_agent", `{}`, false); !g.Ask || g.Allow {
+		t.Fatalf("delete ask: %+v", g)
+	}
+	if g := gateToolCall(false, "auto", "delete_agent", `{}`, false); !g.Ask || g.Allow {
+		t.Fatalf("delete auto: %+v", g)
+	}
+	if g := gateToolCall(false, "yolo", "delete_agent", `{}`, false); !g.Allow {
+		t.Fatalf("delete yolo: %+v", g)
+	}
 }
 
 func TestSaveAgentStartsFromTheKnownInstructions(t *testing.T) {
@@ -98,6 +113,33 @@ func TestSaveAgentStartsFromTheKnownInstructions(t *testing.T) {
 	final, err := readAgentRecipe(list[0].ID)
 	if err != nil || final.Instructions != "Look at the diff." || final.Name != "Checker" {
 		t.Fatalf("kept: %+v %v", final, err)
+	}
+}
+
+func TestSpawnAgentQueuesTheFirstTask(t *testing.T) {
+	withTempAgentHomes(t)
+	t.Setenv("KEIMLING_HOST", "")
+	t.Setenv("KEIMLING_SECRET", "")
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
+	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Watcher","instructions":"Watch the server."}`)
+	if strings.Contains(saved, "error") {
+		t.Fatal(saved)
+	}
+	started := thread.runDefineAgentTool("spawn_agent", `{"definition":"Watcher","name":"","task":"Ping 192.168.0.101 every 10s."}`)
+	if strings.Contains(started, "error") || !strings.Contains(started, "task queued") {
+		t.Fatal(started)
+	}
+	list, err := listAgentInstances()
+	if err != nil || len(list) != 1 {
+		t.Fatal(err, len(list))
+	}
+	items, err := dequeueAgentMessages(list[0].ID)
+	if err != nil || len(items) != 1 || items[0].Text != "Ping 192.168.0.101 every 10s." {
+		t.Fatalf("%+v %v", items, err)
 	}
 }
 
@@ -242,5 +284,75 @@ func TestSpawnAgentAsksTheHostToStart(t *testing.T) {
 	list, err := listAgentInstances()
 	if err != nil || len(list) != 0 {
 		t.Fatalf("local instances: %+v %v", list, err)
+	}
+}
+
+func TestThreadReachesTheAgentItStarted(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Ping", "Ping.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := createAgentInstance(recipe, ws.ID, "Ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(recipe, other.ID, "Elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+	thread := &Agent{Cfg: Config{WorkspaceID: ws.ID, ThreadID: "thread-1"}}
+	names := map[string]bool{}
+	for _, tool := range thread.agentExtraTools() {
+		name, _ := tool["name"].(string)
+		names[name] = true
+	}
+	for _, name := range []string{"list_agents", "message_agent", "stop_agent", "delete_agent"} {
+		if !names[name] {
+			t.Fatalf("thread missing %s", name)
+		}
+	}
+	listed := thread.listAgentsTool("")
+	if !strings.Contains(listed, inst.ID) || strings.Contains(listed, "Elsewhere") {
+		t.Fatalf("list: %s", listed)
+	}
+	sent := thread.messageAgent(`{"instance_id":"` + inst.ID + `","text":"please stop the watch"}`)
+	if strings.Contains(sent, "error") {
+		t.Fatal(sent)
+	}
+	queued, err := dequeueAgentMessages(inst.ID)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("%+v %v", queued, err)
+	}
+	if woke := formatQueueWake(queued[0]); woke != "[From thread_id=thread-1 via message_agent] please stop the watch" {
+		t.Fatal(woke)
+	}
+	if got := thread.stopAgentTool(`{"instance_id":"Ping"}`); got != "stopped Ping" {
+		t.Fatal(got)
+	}
+	if !agentWakesHeld(inst.ID) {
+		t.Fatal("stop did not hold wakes")
+	}
+	if got := thread.messageAgent(`{"instance_id":"` + inst.ID + `","text":"resume"}`); strings.Contains(got, "error") {
+		t.Fatal(got)
+	}
+	if agentWakesHeld(inst.ID) {
+		t.Fatal("a thread message left the hold")
+	}
+	if got := thread.deleteAgentTool(`{"instance_id":"` + inst.ID + `"}`); got != "deleted Ping" {
+		t.Fatal(got)
+	}
+	if _, err := readAgentInstanceMeta(inst.ID); err == nil {
+		t.Fatal("instance still present")
+	}
+	if got := thread.stopAgentTool(`{"instance_id":"Elsewhere"}`); !strings.Contains(got, "unknown agent") {
+		t.Fatal(got)
 	}
 }

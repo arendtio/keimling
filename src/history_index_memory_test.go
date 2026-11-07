@@ -19,8 +19,8 @@ func TestBuildHistoryIndexDoesNotUseUserMessageAsTitle(t *testing.T) {
 			tasks = append(tasks, s)
 		}
 	}
-	if len(tasks) != 2 {
-		t.Fatalf("tasks: %d", len(tasks))
+	if len(tasks) != 1 {
+		t.Fatalf("a follow-up stays in the open chapter, tasks: %d", len(tasks))
 	}
 	if tasks[0].Title == "Investigate PTY deadlock in detail please" {
 		t.Fatalf("title must not be the user message: %q", tasks[0].Title)
@@ -30,6 +30,28 @@ func TestBuildHistoryIndexDoesNotUseUserMessageAsTitle(t *testing.T) {
 	}
 	if tasks[0].Memory != memoryRaw {
 		t.Fatalf("memory: %q", tasks[0].Memory)
+	}
+}
+
+func TestChaptersSplitWhenTheStorylineCloses(t *testing.T) {
+	events := []json.RawMessage{
+		json.RawMessage(`{"role":"user","content":"Watch the server"}`),
+		json.RawMessage(`{"type":"function_call","name":"finish_task","call_id":"1","arguments":"{\"status\":\"done\"}"}`),
+		json.RawMessage(`{"role":"user","content":"[Watch]\nERREICHBAR\n\nOnly report when it is up."}`),
+		json.RawMessage(`{"role":"user","content":"Now look at the disk"}`),
+	}
+	idx := buildHistoryIndex(events, HistoryIndex{Version: historyIndexVersion})
+	var tasks []HistorySection
+	for _, s := range idx.Sections {
+		if s.Level == "task" {
+			tasks = append(tasks, s)
+		}
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("closed storyline then a new request: %d", len(tasks))
+	}
+	if tasks[1].Start != 4 {
+		t.Fatalf("watch must stay in the first chapter, second starts at %d", tasks[1].Start)
 	}
 }
 
