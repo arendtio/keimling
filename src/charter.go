@@ -239,5 +239,8 @@ func (a *Agent) persistCharter() error {
 	if a.Cfg.SessionPath == "" {
 		return nil
 	}
-	return saveCharter(a.Cfg.SessionPath, c)
+	if err := saveCharter(a.Cfg.SessionPath, c); err != nil {
+		return err
+	}
+	return a.recordCharterTip()
 }

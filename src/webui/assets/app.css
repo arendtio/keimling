@@ -1186,6 +1186,48 @@ button.wide { width: 100%; max-width: 100%; }
   background: var(--user);
   border: 1px solid var(--line);
 }
+.branch-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.45rem;
+  white-space: normal;
+}
+.branch-nav button {
+  padding: 0.12rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.branch-nav .branch-pos {
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 3.2rem;
+  text-align: center;
+}
+.branch-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  white-space: normal;
+}
+.branch-edit textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+}
+.branch-edit .row {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
 .msg.assistant {
   padding: 0.15rem 0.2rem;
   background: transparent;

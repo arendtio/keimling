@@ -4142,7 +4142,7 @@
     if (m.role === "tool_group") {
       return ["tool", m.name || "", m.command || "", m.pending ? "1" : "0", m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
     }
-    return [m.role || "", m.text || "", m.name || "", (m.files || []).join(","), m.streaming ? "1" : "0", m.collapsed ? "1" : "0"].join("\u0001");
+    return [m.role || "", m.text || "", m.name || "", (m.files || []).join(","), m.streaming ? "1" : "0", m.collapsed ? "1" : "0", m.line || 0, m.branch_line || 0, m.branch_index || 0, m.branch_count || 0].join("\u0001");
   }
 
   function stampMessageEl(el, m, role) {
@@ -4218,20 +4218,171 @@
     var continuation = role === "assistant" && (prevRole === "assistant" || prevRole === "tool_group");
     el.className = "msg " + role + (continuation ? " continuation" : "") + (m.streaming ? " streaming" : "");
     var who = role === "user" ? "You" : role === "system" ? "System" : "Keimling";
-    var body = role === "assistant" ? renderAssistantHTML(m.text) : esc(m.text || "");
-    if (role === "user" && m.files && m.files.length) {
-      body += '<ul class="msg-files">' + m.files.map(function (name) {
-        return "<li>" + esc(name) + "</li>";
-      }).join("") + "</ul>";
+    var body;
+    if (role === "user") {
+      body = '<span class="msg-text">' + esc(m.text || "") + "</span>";
+      if (m.files && m.files.length) {
+        body += '<ul class="msg-files">' + m.files.map(function (name) {
+          return "<li>" + esc(name) + "</li>";
+        }).join("") + "</ul>";
+      }
+    } else {
+      body = role === "assistant" ? renderAssistantHTML(m.text) : esc(m.text || "");
     }
     if (continuation) {
       el.innerHTML = '<div class="body">' + body + "</div>";
     } else {
       el.innerHTML = '<p class="who">' + esc(who) + '</p><div class="body">' + body + "</div>";
     }
+    if (role === "user" && m.line) attachBranchControls(el, m);
     stampMessageEl(el, m, role);
     parent.appendChild(el);
     return role;
+  }
+
+  function agentBusy() {
+    return agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
+  }
+
+  function postJSON(url, body) {
+    return fetch(apiURL(url), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+        return j;
+      });
+    });
+  }
+
+  function attachBranchControls(el, m) {
+    var body = el.querySelector(".body");
+    if (!body) return;
+    var source = m.branch_line || m.line;
+    var count = m.branch_count || 1;
+    var index = m.branch_index || 0;
+    var nav = document.createElement("div");
+    nav.className = "branch-nav";
+    if (count > 1) {
+      var prev = document.createElement("button");
+      prev.type = "button";
+      prev.className = "ghost";
+      prev.textContent = "‹";
+      prev.setAttribute("aria-label", "Previous continuation");
+      prev.disabled = index <= 0;
+      prev.addEventListener("click", function () { selectContinuation(source, index - 1); });
+      var pos = document.createElement("span");
+      pos.className = "branch-pos";
+      pos.textContent = (index + 1) + " of " + count;
+      var next = document.createElement("button");
+      next.type = "button";
+      next.className = "ghost";
+      next.textContent = "›";
+      next.setAttribute("aria-label", "Next continuation");
+      next.disabled = index >= count - 1;
+      next.addEventListener("click", function () { selectContinuation(source, index + 1); });
+      nav.appendChild(prev);
+      nav.appendChild(pos);
+      nav.appendChild(next);
+    }
+    var edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "ghost";
+    edit.textContent = "Edit";
+    edit.setAttribute("aria-label", "Edit message");
+    edit.disabled = agentBusy();
+    edit.addEventListener("click", function () { openBranchEditor(el, m, source); });
+    nav.appendChild(edit);
+    body.appendChild(nav);
+  }
+
+  function openBranchEditor(el, m, source) {
+    if (agentBusy()) {
+      appendLive("\n[branch] The agent is still working.\n");
+      return;
+    }
+    var body = el.querySelector(".body");
+    if (!body || body.querySelector(".branch-edit")) return;
+    var textEl = body.querySelector(".msg-text");
+    var files = body.querySelector(".msg-files");
+    var nav = body.querySelector(".branch-nav");
+    if (textEl) textEl.hidden = true;
+    if (files) files.hidden = true;
+    if (nav) nav.hidden = true;
+    var box = document.createElement("div");
+    box.className = "branch-edit";
+    var ta = document.createElement("textarea");
+    ta.value = m.text || "";
+    ta.setAttribute("aria-label", "Edit message");
+    var row = document.createElement("div");
+    row.className = "row";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ghost";
+    cancel.textContent = "Cancel";
+    var send = document.createElement("button");
+    send.type = "button";
+    send.textContent = "Send";
+    function closeEditor() {
+      box.remove();
+      if (textEl) textEl.hidden = false;
+      if (files) files.hidden = false;
+      if (nav) nav.hidden = false;
+    }
+    cancel.addEventListener("click", closeEditor);
+    send.addEventListener("click", function () {
+      var text = ta.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      cancel.disabled = true;
+      sendEditedMessage(source, text).catch(function (err) {
+        send.disabled = false;
+        cancel.disabled = false;
+        appendLive("\n[branch] " + ((err && err.message) || err) + "\n");
+      });
+    });
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeEditor();
+      } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        send.click();
+      }
+    });
+    row.appendChild(cancel);
+    row.appendChild(send);
+    box.appendChild(ta);
+    box.appendChild(row);
+    body.appendChild(box);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
+
+  function sendEditedMessage(line, text) {
+    if (agentBusy()) return Promise.reject(new Error("The agent is still working."));
+    return postJSON("/api/branch", { line: line, text: text }).then(function () {
+      if (agentState === "idle") resetSideSamples();
+      setState("running");
+      return loadSession();
+    }).then(function () { return refreshSideContext(); });
+  }
+
+  function selectContinuation(line, index) {
+    if (agentBusy()) {
+      appendLive("\n[branch] The agent is still working.\n");
+      return;
+    }
+    postJSON("/api/branch/select", { line: line, index: index })
+      .then(function () { return loadSession(); })
+      .then(function () { return refreshSideContext(); })
+      .catch(function (err) {
+        appendLive("\n[branch] " + ((err && err.message) || err) + "\n");
+      });
   }
 
   function appendMessageList(parent, list) {

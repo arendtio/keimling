@@ -54,6 +54,10 @@ type Agent struct {
 	// toolData holds tool results the model can name without receiving the bytes.
 	toolData        *dataStore
 	toolDataPending *dataPending
+	// branchHold is the parent tail for a continuation that has not been written yet.
+	branchHold      *tailSnap
+	branchPending   int
+	branchUserReady bool
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -191,7 +195,9 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 		go a.maybeGenerateThreadTitle(ctx, shown)
 	}
 	if message != "" {
-		if err := a.add(map[string]any{"role": "user", "content": message}); err != nil {
+		if a.branchUserReady {
+			a.branchUserReady = false
+		} else if err := a.addBranchableUser(message); err != nil {
 			return err
 		}
 		if c := a.ensureCharter(); strings.TrimSpace(c.Goal) == "" {
@@ -566,7 +572,10 @@ func (a *Agent) NewChat() error {
 		a.Cfg.ThreadID = th.ID
 	} else if err := a.Journal.NewChat(); err != nil {
 		return err
+	} else {
+		a.discardBranchFiles()
 	}
+	a.resetBranchMemory()
 	a.History = nil
 	a.Plan = nil
 	a.Charter = &Charter{Version: charterVersion}
@@ -595,6 +604,8 @@ func (a *Agent) resetInstanceContext() error {
 			return err
 		}
 	}
+	a.discardBranchFiles()
+	a.resetBranchMemory()
 	a.History = nil
 	a.Plan = nil
 	a.Charter = &Charter{Version: charterVersion}
@@ -706,6 +717,10 @@ func (a *Agent) SwitchThread(threadID string) error {
 	}
 	a.Plan = nil
 	a.TaskActive = false
+	a.branchHold = nil
+	a.branchPending = 0
+	a.branchUserReady = false
+	a.restoreActiveBranch()
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(session)
 	if a.Shares != nil {
 		a.Shares.Clear()

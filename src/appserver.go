@@ -188,6 +188,8 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle(mcpOAuthMetaPath, http.HandlerFunc(s.handleOAuthClientMetadata))
 	s.mux.Handle("/api/artifacts", s.requireSecret(http.HandlerFunc(s.handleArtifacts)))
 	s.mux.Handle("/api/message", s.requireSecret(http.HandlerFunc(s.handleMessage)))
+	s.mux.Handle("/api/branch", s.requireSecret(http.HandlerFunc(s.handleBranch)))
+	s.mux.Handle("/api/branch/select", s.requireSecret(http.HandlerFunc(s.handleBranchSelect)))
 	s.mux.Handle("/api/attachments", s.requireSecret(http.HandlerFunc(s.handleAttachment)))
 	s.mux.Handle("/api/files", s.requireSecret(http.HandlerFunc(s.handleWorkspaceFiles)))
 	s.mux.Handle("/api/stop", s.requireSecret(http.HandlerFunc(s.handleStop)))
@@ -274,19 +276,21 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	background := viewID != "" && viewID != runningID && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
 	path := s.agent.Cfg.SessionPath
 	uiHistory := s.agent.History
+	var branchLines []int
 	threadID := runningID
 	if background {
 		path = threadSessionPath(s.agent.Cfg.WorkspaceID, viewID)
-		if events, err := originalEvents(path); err == nil {
-			uiHistory = events
-		} else {
-			uiHistory = nil
-		}
+		uiHistory = nil
 		threadID = viewID
+	}
+	if items, lines, err := visibleJournal(path); err == nil && len(items) > 0 {
+		uiHistory = items
+		branchLines = lines
 	} else if events, err := originalEvents(path); err == nil && len(events) > 0 {
 		uiHistory = events
 	}
 	msgs := sessionMessages(uiHistory, 120)
+	annotateBranchMessages(path, msgs, branchLines)
 	if background {
 		if queued, err := peekThreadMessages(s.agent.Cfg.WorkspaceID, viewID); err == nil {
 			for _, q := range queued {
@@ -342,7 +346,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"agent_instance_id":     s.agent.Cfg.AgentInstanceID,
 		"lines":                 sessionTranscript(uiHistory, 200),
 		"messages":              msgs,
-		"chapters":              sessionChapters(path),
+		"chapters":              sessionChaptersFor(path),
 		"working_state":         sessionWorkingState(path),
 		"busy":                  s.isBusy() && !background,
 		"voice":                 s.voiceAvailable(),
@@ -2405,6 +2409,70 @@ func drainApproval(a *Agent) {
 			return
 		}
 	}
+}
+
+func (s *appServer) handleBranch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	if s.isBusy() || s.realtimeCallOpen() {
+		http.Error(w, "The agent is still working.", http.StatusConflict)
+		return
+	}
+	var body struct {
+		Line int    `json:"line"`
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := s.agent.prepareFork(body.Line, body.Text); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !s.startAgentRun(strings.TrimSpace(body.Text)) {
+		s.agent.branchUserReady = false
+		http.Error(w, "The agent is still working.", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true})
+}
+
+func (s *appServer) handleBranchSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	if s.isBusy() {
+		http.Error(w, "The agent is still working.", http.StatusConflict)
+		return
+	}
+	var body struct {
+		Line  int `json:"line"`
+		Index int `json:"index"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := s.agent.selectContinuation(body.Line, body.Index); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
 func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {

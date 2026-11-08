@@ -563,6 +563,9 @@ func main() {
 	} else {
 		a.Charter = &Charter{Version: charterVersion}
 	}
+	if *resume {
+		a.restoreActiveBranch()
+	}
 	a.Client.BaseURL = resolvedURL
 	if c.PublicURL != "" {
 		a.Shares.SetPublicBase(c.PublicURL)

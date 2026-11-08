@@ -692,18 +692,26 @@ func (h *Host) handleThreadView(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown thread", http.StatusNotFound)
 		return
 	}
-	events, err := originalEvents(path)
+	events, lines, err := visibleJournal(path)
 	if err != nil && !os.IsNotExist(err) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if len(events) == 0 {
+		if fallback, ferr := originalEvents(path); ferr == nil {
+			events = fallback
+			lines = nil
+		}
+	}
+	msgs := sessionMessages(events, 120)
+	annotateBranchMessages(path, msgs, lines)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"thread_id":    id,
 		"workspace_id": wsID,
 		"preview":      true,
-		"messages":     sessionMessages(events, 120),
-		"chapters":     sessionChapters(path),
+		"messages":     msgs,
+		"chapters":     sessionChaptersFor(path),
 	})
 }
 

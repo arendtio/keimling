@@ -6,17 +6,21 @@ import (
 )
 
 type sessionMessage struct {
-	Role      string   `json:"role"` // user | assistant | tool | tool_group | system
-	Name      string   `json:"name,omitempty"`
-	Text      string   `json:"text,omitempty"`
-	Command   string   `json:"command,omitempty"`   // tool_group: visible command / label
-	Result    string   `json:"result,omitempty"`    // display / model-facing output
-	Raw       string   `json:"raw,omitempty"`       // raw shell output only when filtered
-	Filtered  bool     `json:"filtered,omitempty"`  // true when Raw differs from model Result
-	Status    string   `json:"status,omitempty"`    // failed | stopped; empty means ran
-	Collapsed bool     `json:"collapsed,omitempty"` // long system note starts closed
-	Event     int      `json:"event,omitempty"`     // 1-based journal item index
-	Files     []string `json:"files,omitempty"`
+	Role        string   `json:"role"` // user | assistant | tool | tool_group | system
+	Name        string   `json:"name,omitempty"`
+	Text        string   `json:"text,omitempty"`
+	Command     string   `json:"command,omitempty"`   // tool_group: visible command / label
+	Result      string   `json:"result,omitempty"`    // display / model-facing output
+	Raw         string   `json:"raw,omitempty"`       // raw shell output only when filtered
+	Filtered    bool     `json:"filtered,omitempty"`  // true when Raw differs from model Result
+	Status      string   `json:"status,omitempty"`    // failed | stopped; empty means ran
+	Collapsed   bool     `json:"collapsed,omitempty"` // long system note starts closed
+	Event       int      `json:"event,omitempty"`     // 1-based index in the visible transcript
+	Line        int      `json:"line,omitempty"`      // journal file line of a user message
+	BranchLine  int      `json:"branch_line,omitempty"`
+	BranchIndex int      `json:"branch_index,omitempty"`
+	BranchCount int      `json:"branch_count,omitempty"`
+	Files       []string `json:"files,omitempty"`
 }
 
 type sessionChapter struct {

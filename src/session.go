@@ -14,6 +14,8 @@ type Journal struct {
 	mu      sync.Mutex
 	File    *os.File
 	History []json.RawMessage
+	// Branch tags new rows. Empty is the original transcript.
+	Branch string
 }
 
 func OpenJournal(path string, resume bool) (*Journal, error) {
@@ -32,10 +34,14 @@ func OpenJournal(path string, resume bool) (*Journal, error) {
 			scanner.Buffer(make([]byte, 4096), 5<<20)
 			for scanner.Scan() {
 				var row struct {
-					Type string          `json:"type"`
-					Item json.RawMessage `json:"item"`
+					Type   string          `json:"type"`
+					Branch string          `json:"branch"`
+					Item   json.RawMessage `json:"item"`
 				}
 				if json.Unmarshal(scanner.Bytes(), &row) == nil {
+					if row.Branch != "" {
+						continue
+					}
 					if row.Type == "item" && len(row.Item) > 0 {
 						history = append(history, row.Item)
 						view = append(view, row.Item)
@@ -133,7 +139,11 @@ func appendSessionItem(path string, item any) error {
 }
 
 func (j *Journal) writeItemLocked(item json.RawMessage) error {
-	row, _ := json.Marshal(map[string]any{"type": "item", "item": item})
+	rec := map[string]any{"type": "item", "item": item}
+	if j.Branch != "" {
+		rec["branch"] = j.Branch
+	}
+	row, _ := json.Marshal(rec)
 	if _, err := fmt.Fprintln(j.File, string(row)); err != nil {
 		return err
 	}
@@ -143,7 +153,11 @@ func (j *Journal) AppendCheckpoint(history []json.RawMessage, level string) erro
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	snapshot, _ := json.Marshal(history)
-	row, _ := json.Marshal(map[string]any{"type": "checkpoint", "level": level, "item": json.RawMessage(snapshot)})
+	rec := map[string]any{"type": "checkpoint", "level": level, "item": json.RawMessage(snapshot)}
+	if j.Branch != "" {
+		rec["branch"] = j.Branch
+	}
+	row, _ := json.Marshal(rec)
 	if _, err := fmt.Fprintln(j.File, string(row)); err != nil {
 		return err
 	}

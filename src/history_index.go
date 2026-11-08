@@ -52,10 +52,11 @@ func originalEvents(path string) ([]json.RawMessage, error) {
 	events := []json.RawMessage{}
 	for scan.Scan() {
 		var record struct {
-			Type string          `json:"type"`
-			Item json.RawMessage `json:"item"`
+			Type   string          `json:"type"`
+			Branch string          `json:"branch"`
+			Item   json.RawMessage `json:"item"`
 		}
-		if json.Unmarshal(scan.Bytes(), &record) == nil && record.Type == "item" {
+		if json.Unmarshal(scan.Bytes(), &record) == nil && record.Type == "item" && record.Branch == "" {
 			events = append(events, record.Item)
 		}
 	}
