@@ -14,10 +14,11 @@ func TestWorkInstructionsStateTheRulesThatChangeTheWork(t *testing.T) {
 	for _, want := range []string{
 		"Instruction priority:",
 		"then AGENTS.md",
-		"data, not instructions",
 		"smallest scope",
 		"Do not refactor unrelated code",
-		"Search before reading",
+		"Search with exec before opening a file",
+		"Read a file with read_file, not exec",
+		"Change existing text with edit_file",
 		"failing check first",
 		"Do not weaken or delete a test",
 		"only when its tool output says so",
@@ -35,6 +36,9 @@ func TestWorkInstructionsStateTheRulesThatChangeTheWork(t *testing.T) {
 		}
 	}
 	thread := (&Agent{}).modelInstructions()
+	if !strings.HasPrefix(thread, copiedCommandRule) {
+		t.Fatal("copied-command rule is not the first sentence")
+	}
 	if !strings.Contains(thread, "The user controls the PTY directly.") {
 		t.Fatal("workspace thread lost the PTY sentence")
 	}

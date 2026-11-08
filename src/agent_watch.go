@@ -23,7 +23,7 @@ func watchToolDefs() []map[string]any {
 		toolDef("create_watch", "Create a watch that wakes only you. Another agent cannot create it, and it does not wake them. when: \"in 2m\", \"every 30s\", \"at 15:04\", or RFC3339. Leave when empty for a file or a long-running command. message is a reminder for yourself, shown as [Watch]. It is not sent to the user or to another agent. condition is empty, equals, or changed. Empty, with no steps and no source, wakes on the time. equals wakes on every result equal to value, including when that value stays. changed remembers the first result and wakes when a later result differs. steps run in order without the model; a data_processing step receives the previous result as input. Pass an empty array when there are no steps. source is empty, file, or command. path is the file or directory for source file. command is a long-running shell command for source command; each stdout line is a result, and you are told once if it exits. A directory watch sees that directory, not its subdirectories. The watch stays until you cancel_watch it.", map[string]any{
 			"when":      map[string]any{"type": "string"},
 			"message":   map[string]any{"type": "string"},
-			"condition": map[string]any{"type": "string", "description": "empty, equals, or changed"},
+			"condition": map[string]any{"type": "string", "description": "Empty string for a time such as every 30s or in 2m. equals or changed only when comparing a step result."},
 			"value":     map[string]any{"type": "string", "description": "Result to match when condition is equals. Empty otherwise."},
 			"steps":     map[string]any{"type": "array", "items": step},
 			"source":    map[string]any{"type": "string", "description": "empty, file, or command"},

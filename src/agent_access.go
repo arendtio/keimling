@@ -446,7 +446,7 @@ func (a *Agent) agentInstanceInstructions() string {
 	}
 	work := strings.TrimSuffix(sharedWorkInstructions(), "The user controls the PTY directly. ")
 	parts = append(parts, "How to use tools:\n"+strings.TrimSpace(work))
-	return strings.Join(parts, "\n\n")
+	return copiedCommandRule + strings.Join(parts, "\n\n")
 }
 
 // syncInstanceWorkspace reloads the saved workspace grant into the running worker.
