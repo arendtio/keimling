@@ -1,24 +1,42 @@
-/* Light theme aligned to KDE Breeze chrome (#EFF0F1 window decorations).
-   --bg-light / --bg-dark may be overridden from settings (gui-prefs). */
+/* Keimling theme. Light chrome matches KDE Breeze. Dark surfaces stay in that
+   gray-green family. A saved theme overrides the --theme-* slots. */
 :root {
   color-scheme: light dark;
-  --bg-light: #eff0f1;
-  --bg-dark: #202326;
-  --chrome: var(--bg-light);
-  --bg: var(--bg-light);
-  --panel: #fafbfc;
-  --panel-2: #e6e8ea;
-  --line: #d4d6d8;
-  --fg: #232629;
-  --muted: #64686d;
-  --accent: #2f8f6b;
+  --theme-bg-light: #eff0f1;
+  --theme-bg-dark: #202326;
+  --theme-surface-light: #fafbfc;
+  --theme-surface-dark: #151916;
+  --theme-surface2-light: #e6e8ea;
+  --theme-surface2-dark: #1c221e;
+  --theme-line-light: #d4d6d8;
+  --theme-line-dark: #3c453e;
+  --theme-fg-light: #232629;
+  --theme-fg-dark: #e7ece8;
+  --theme-muted-light: #64686d;
+  --theme-muted-dark: #8e998f;
+  --theme-accent-light: #2f8f6b;
+  --theme-accent-dark: #5d9244;
+  --theme-danger-light: #b54b4b;
+  --theme-danger-dark: #d98989;
+  --theme-bubble-light: #e4e6e8;
+  --theme-bubble-dark: #242824;
+  --bg-light: var(--theme-bg-light);
+  --bg-dark: var(--theme-bg-dark);
+  --chrome: var(--theme-bg-light);
+  --bg: var(--theme-bg-light);
+  --panel: var(--theme-surface-light);
+  --panel-2: var(--theme-surface2-light);
+  --line: var(--theme-line-light);
+  --fg: var(--theme-fg-light);
+  --muted: var(--theme-muted-light);
+  --accent: var(--theme-accent-light);
   --accent-ink: #f4fffa;
-  --danger: #b54b4b;
-  --user: #e4e6e8;
+  --danger: var(--theme-danger-light);
+  --user: var(--theme-bubble-light);
   --tool: transparent;
   --system: transparent;
-  --gate-a: #e4ebf2;
-  --gate-b: #e2ebe6;
+  --gate-a: color-mix(in srgb, var(--panel) 78%, var(--accent));
+  --gate-b: color-mix(in srgb, var(--panel) 88%, var(--accent));
   --live-warn: #8a6a1a;
   --live-warn-line: #d9c48a;
   --font-ui: "Segoe UI", "Helvetica Neue", sans-serif;
@@ -30,26 +48,41 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --chrome: var(--bg-dark);
-    --bg: var(--bg-dark);
-    --panel: #151821;
-    --panel-2: #1a1f2b;
-    --line: #2a3142;
-    --fg: #e7eaf0;
-    --muted: #8b93a7;
-    --accent: #6fbf9a;
+  :root[data-scheme="auto"] {
+    --chrome: var(--theme-bg-dark);
+    --bg: var(--theme-bg-dark);
+    --panel: var(--theme-surface-dark);
+    --panel-2: var(--theme-surface2-dark);
+    --line: var(--theme-line-dark);
+    --fg: var(--theme-fg-dark);
+    --muted: var(--theme-muted-dark);
+    --accent: var(--theme-accent-dark);
     --accent-ink: #0c1a14;
-    --danger: #d98989;
-    --user: #1e2433;
-    --tool: transparent;
-    --system: transparent;
-    --gate-a: #1a2433;
-    --gate-b: #16221c;
+    --danger: var(--theme-danger-dark);
+    --user: var(--theme-bubble-dark);
     --live-warn: #e0c07a;
     --live-warn-line: #5a4d2e;
   }
+  :root[data-scheme="auto"] .composer { background: var(--user); }
 }
+:root[data-scheme="dark"] {
+  color-scheme: dark;
+  --chrome: var(--theme-bg-dark);
+  --bg: var(--theme-bg-dark);
+  --panel: var(--theme-surface-dark);
+  --panel-2: var(--theme-surface2-dark);
+  --line: var(--theme-line-dark);
+  --fg: var(--theme-fg-dark);
+  --muted: var(--theme-muted-dark);
+  --accent: var(--theme-accent-dark);
+  --accent-ink: #0c1a14;
+  --danger: var(--theme-danger-dark);
+  --user: var(--theme-bubble-dark);
+  --live-warn: #e0c07a;
+  --live-warn-line: #5a4d2e;
+}
+:root[data-scheme="dark"] .composer { background: var(--user); }
+:root[data-scheme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
@@ -233,6 +266,107 @@ label.color-field input[type="color"] {
   background: transparent;
   cursor: pointer;
 }
+.scheme-switch { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.scheme-switch button {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+.scheme-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.theme-list { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.theme-row button:first-of-type { margin-left: auto; }
+.theme-swatches { display: flex; gap: 0.2rem; }
+.theme-swatches i {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  display: block;
+}
+.theme-editor { display: grid; gap: 0.65rem; }
+.theme-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.theme-cols h3 { margin: 0; font-size: 0.85rem; }
+.theme-preview { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.theme-sample {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid;
+  border-radius: 10px;
+}
+.theme-sample-sheet {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid;
+  border-radius: 8px;
+}
+.theme-sample-row, .theme-sample-bubble {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid;
+  border-radius: 6px;
+  font-size: 0.78rem;
+}
+.theme-sample p { margin: 0; font-size: 0.82rem; }
+.theme-sample-actions { display: flex; align-items: center; gap: 0.45rem; }
+.theme-sample-actions button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+.agent-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 400px));
+  gap: 0.65rem;
+  justify-content: start;
+  align-items: stretch;
+}
+.agent-board-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+  width: 100%;
+  max-width: 400px;
+  min-height: 6.5rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.agent-board-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  flex: 1;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.agent-board-name { font-weight: 600; }
+.agent-board-meta { color: var(--muted); font-size: 0.78rem; }
+.agent-phase {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.agent-phase.running { color: var(--accent); }
+.agent-phase.waiting { color: var(--live-warn); }
 select {
   width: 100%;
   max-width: 100%;
@@ -632,11 +766,6 @@ button.wide { width: 100%; max-width: 100%; }
 }
 #agent-access-peers.agent-check-grid {
   grid-template-columns: 1fr 1fr;
-}
-.agent-manage-danger {
-  margin-top: 0.35rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--line);
 }
 .agent-def-field select {
   font: inherit;

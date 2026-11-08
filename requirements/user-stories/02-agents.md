@@ -16,7 +16,7 @@
 
 **As** a user, **I want** to edit and delete definitions, **so that** I can maintain the catalog.
 
-**Acceptance:** Edit name/instructions; delete fails if instances still use the definition.
+**Acceptance:** Edit name/instructions. Each definition in the list has Delete. Delete asks for confirmation and fails if instances still use the definition.
 
 ## US-13 — Alarms
 

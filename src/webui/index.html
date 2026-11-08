@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-scheme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Keimling</title>
   <link rel="icon" href="/assets/keimling.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/app.css">
-  <link rel="stylesheet" href="/assets/highlight-github.min.css" media="(prefers-color-scheme: light)">
-  <link rel="stylesheet" href="/assets/highlight-github-dark.min.css" media="(prefers-color-scheme: dark)">
+  <link id="hl-light" rel="stylesheet" href="/assets/highlight-github.min.css" media="(prefers-color-scheme: light)">
+  <link id="hl-dark" rel="stylesheet" href="/assets/highlight-github-dark.min.css" media="(prefers-color-scheme: dark)">
 </head>
 <body>
   <div id="provider-dialog" class="provider-dialog" hidden>
@@ -45,6 +45,7 @@
         <button type="button" class="settings-tab" data-tab="skills" role="tab" aria-selected="false">Skills</button>
         <button type="button" class="settings-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
         <button type="button" class="settings-tab" data-tab="plugins" role="tab" aria-selected="false">Plugins</button>
+        <button type="button" class="settings-tab" data-tab="themes" role="tab" aria-selected="false">Themes</button>
       </div>
 
       <div id="pane-connection" class="settings-pane" role="tabpanel">
@@ -91,15 +92,31 @@
         <div id="url-field" hidden></div>
         <div id="secret-field" hidden></div>
 
-        <p class="settings-section-title">Appearance</p>
-        <p class="hint">Page background for light and dark (follows the system color scheme). Defaults match KDE Breeze.</p>
-        <label class="color-field">Light background
-          <input id="bg-light" type="color" value="#eff0f1" title="Light background">
-        </label>
-        <label class="color-field">Dark background
-          <input id="bg-dark" type="color" value="#202326" title="Dark background">
-        </label>
-        <button type="button" id="bg-reset" class="ghost">Reset backgrounds</button>
+        <p class="hint">Page colors are a theme. Open Themes to change the palette for light and dark.</p>
+      </div>
+
+      <div id="pane-themes" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">A theme is a light palette and a dark palette. Keimling is the built-in theme: gray like KDE, with a green accent.</p>
+        <div class="scheme-switch" role="radiogroup" aria-label="Color scheme">
+          <button type="button" data-scheme="auto" aria-pressed="true">Automatic</button>
+          <button type="button" data-scheme="light" aria-pressed="false">Light</button>
+          <button type="button" data-scheme="dark" aria-pressed="false">Dark</button>
+        </div>
+        <ul id="theme-list" class="theme-list"></ul>
+        <button type="button" id="theme-new" class="ghost">New theme</button>
+        <div id="theme-editor" class="theme-editor" hidden>
+          <label>Name
+            <input id="theme-name" type="text" maxlength="40" autocomplete="off">
+          </label>
+          <div id="theme-cols" class="theme-cols"></div>
+          <div id="theme-preview" class="theme-preview" hidden></div>
+          <div class="skills-row">
+            <button type="button" id="theme-cancel" class="ghost">Cancel</button>
+            <button type="button" id="theme-reset" class="ghost" hidden>Reset Keimling</button>
+            <button type="button" id="theme-save">Save theme</button>
+          </div>
+          <p id="theme-reset-hint" class="hint" hidden>Puts the built-in Keimling palettes back. A theme you created is unchanged.</p>
+        </div>
       </div>
 
       <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
@@ -536,9 +553,6 @@
               <button type="button" id="agent-def-edit-back" class="ghost">Back</button>
               <button type="button" id="agent-def-edit-save">Save</button>
             </div>
-            <div class="agent-manage-danger">
-              <button type="button" id="agent-def-edit-delete" class="ghost danger">Delete definition</button>
-            </div>
           </div>
           <div id="agent-def-instance" class="agent-def-pane" hidden>
             <label class="agent-def-field">
@@ -822,6 +836,7 @@
         <header class="artifact-head">
           <nav id="sidebar-tabs" class="sidebar-tabs" aria-label="Sidebar">
             <button type="button" data-side="now" aria-selected="true">Now</button>
+            <button type="button" data-side="agents" aria-selected="false">Agents</button>
             <button type="button" data-side="artifacts" aria-selected="false">Artifacts</button>
             <button type="button" data-side="context" aria-selected="false">Context</button>
             <button type="button" data-side="connections" aria-selected="false">Connections</button>
@@ -851,6 +866,13 @@
               <div class="side-scan" aria-hidden="true"><span class="side-scan-eye"></span></div>
               <p id="side-dash-read" class="side-dash-read">Done</p>
             </div>
+          </section>
+        </div>
+        <div id="side-agents" class="side-panel" data-side="agents" hidden>
+          <section class="side-block">
+            <h2>Agents</h2>
+            <p class="hint">Who is running, paused, or waiting. Open one to use its chat. Focus and Fullscreen enlarge this page.</p>
+            <div id="agent-board" class="agent-board"></div>
           </section>
         </div>
         <div id="side-artifacts" class="side-panel" data-side="artifacts" hidden>

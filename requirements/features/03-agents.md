@@ -130,7 +130,7 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Statement:** The user shall have one place to manage definitions, teams, and instances, including creating an instance, setting its workspaces and tool narrowing, and deleting an instance. The sidebar list of agents in the current workspace shall open an agent’s main channel and shall be able to stop a run. Creating, deleting, and access choices shall not be actions on that sidebar row.
 - **Origin:** User, 2026-10-31 (quote: "irgendwo eine Liste … hier kann ich meine Agenten verwalten … die Definitionen" and "den Button neben Agents nicht New nennen sollte, sondern vielleicht Manage" and "löschens eines Agenten … nur über den Manage Agents Dialog … in der Sidebar … den Agenten stoppen").
 - **Rationale:** Definitions, teams, and instances are maintenance. The sidebar is for opening the channel that is relevant in this workspace.
-- **Fit criterion:** From the agents section the user opens management and can edit a definition’s tools, see every instance, set an instance’s workspaces and narrower tools, create an instance, and delete an instance. The sidebar row for an agent in the current workspace can stop a run and does not offer delete or access.
+- **Fit criterion:** From the agents section the user opens management and can edit a definition’s tools, delete a definition from the definitions list, see every instance, set an instance’s workspaces and narrower tools, create an instance, and delete an instance. The sidebar row for an agent in the current workspace can stop a run and does not offer delete or access.
 - **Priority:** shall
 - **Status:** confirmed
 

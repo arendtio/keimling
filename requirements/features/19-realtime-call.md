@@ -66,6 +66,14 @@ Screen sharing is a later step. The first call does not capture the display.
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-RT-8 A call names its thread
+
+- **Statement:** A new thread that is used as a live call shall receive a topic name from the conversation after the call has been going for a while. It shall not stay on the provisional name only because nobody typed a message.
+- **Origin:** User, 2026-11-08 (paraphrase: a new chat that is only a call stays named New thread; a typed message gets a real name; a call should also get its name after a while).
+- **Fit criterion:** A provisional thread with a call and spoken lines is still provisional immediately. After the wait, its title is a topic taken from what was said. A thread that already has a title keeps it.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Out of scope
 
 Sending a screen share into the call. The live share itself is

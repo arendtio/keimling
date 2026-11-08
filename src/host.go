@@ -400,31 +400,46 @@ func (h *Host) focusWorkspaceID() string {
 	return ""
 }
 
-func (h *Host) workerBusy(ctx context.Context, w *hostWorker) bool {
+type workerPulse struct {
+	Busy bool
+	Call bool
+}
+
+func (h *Host) workerPulse(ctx context.Context, w *hostWorker) workerPulse {
 	if w == nil {
-		return false
+		return workerPulse{}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+w.Addr+"/api/health", nil)
 	if err != nil {
-		return false
+		return workerPulse{}
 	}
 	req.Header.Set("Authorization", "Bearer "+w.Secret)
 	// Short client so sidebar polls stay snappy even if a worker is wedged.
 	client := &http.Client{Timeout: 800 * time.Millisecond}
 	res, err := client.Do(req)
 	if err != nil {
-		return false
+		return workerPulse{}
 	}
 	defer res.Body.Close()
 	var body struct {
 		State string `json:"state"`
+		Call  bool   `json:"call"`
 	}
 	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&body)
-	return body.State == "running"
+	return workerPulse{Busy: body.State == "running", Call: body.Call}
 }
 
 func (h *Host) workersBusy(ctx context.Context, workers map[string]*hostWorker) map[string]bool {
-	out := make(map[string]bool, len(workers))
+	pulse := h.workersPulse(ctx, workers)
+	out := make(map[string]bool, len(pulse))
+	for id, p := range pulse {
+		out[id] = p.Busy
+	}
+	return out
+}
+
+func (h *Host) workersPulse(ctx context.Context, workers map[string]*hostWorker) map[string]workerPulse {
+	out := make(map[string]workerPulse, len(workers))
 	if len(workers) == 0 {
 		return out
 	}
@@ -434,9 +449,9 @@ func (h *Host) workersBusy(ctx context.Context, workers map[string]*hostWorker) 
 		wg.Add(1)
 		go func(id string, w *hostWorker) {
 			defer wg.Done()
-			busy := h.workerBusy(ctx, w)
+			p := h.workerPulse(ctx, w)
 			mu.Lock()
-			out[id] = busy
+			out[id] = p
 			mu.Unlock()
 		}(id, w)
 	}

@@ -112,6 +112,7 @@
   var paneSkills = document.getElementById("pane-skills");
   var paneMcp = document.getElementById("pane-mcp");
   var panePlugins = document.getElementById("pane-plugins");
+  var paneThemes = document.getElementById("pane-themes");
   var vaultStatusEl = document.getElementById("vault-status");
   var vaultUnlockEl = document.getElementById("vault-unlock");
   var vaultBodyEl = document.getElementById("vault-body");
@@ -345,6 +346,7 @@
   var callResponseSpeak = 0;
   var callPictureAt = 0;
   var callPicturePending = false;
+  var callBgComment = "";
   var stopBtn = document.getElementById("stop");
   var composerMoreBtn = document.getElementById("composer-more");
   var composerMoreMenu = document.getElementById("composer-more-menu");
@@ -454,14 +456,67 @@
     return "";
   }
 
-  function applyThemeBg(light, dark) {
+  var THEME_ROLES = [
+    ["bg", "Frame"],
+    ["surface", "Workplace"],
+    ["surface2", "Raised"],
+    ["line", "Line"],
+    ["fg", "Text"],
+    ["muted", "Muted"],
+    ["accent", "Accent"],
+    ["danger", "Danger"],
+    ["bubble", "Bubble"]
+  ];
+  var THEME_KEIMLING = {
+    id: "keimling",
+    name: "Keimling",
+    builtin: true,
+    light: { bg: "#eff0f1", surface: "#fafbfc", surface2: "#e6e8ea", line: "#d4d6d8", fg: "#232629", muted: "#64686d", accent: "#2f8f6b", danger: "#b54b4b", bubble: "#e4e6e8" },
+    dark: { bg: "#202326", surface: "#151916", surface2: "#1c221e", line: "#3c453e", fg: "#e7ece8", muted: "#8e998f", accent: "#5d9244", danger: "#d98989", bubble: "#242824" }
+  };
+  var themeState = { themes: [], active: "keimling", scheme: "auto" };
+  var themeEditID = "";
+
+  function themeCopy(theme) {
+    return JSON.parse(JSON.stringify(theme || THEME_KEIMLING));
+  }
+
+  function themeCatalog() {
+    var byID = { keimling: themeCopy(THEME_KEIMLING) };
+    (themeState.themes || []).forEach(function (t) {
+      if (t && t.id) byID[t.id] = themeCopy(t);
+    });
+    if (!byID.keimling) byID.keimling = themeCopy(THEME_KEIMLING);
+    return Object.keys(byID).map(function (id) { return byID[id]; });
+  }
+
+  function themeActive() {
+    var id = themeState.active || "keimling";
+    var found = null;
+    themeCatalog().forEach(function (t) { if (t.id === id) found = t; });
+    return found || themeCopy(THEME_KEIMLING);
+  }
+
+  function applyThemeRecord(theme) {
+    theme = theme || themeCopy(THEME_KEIMLING);
     var root = document.documentElement;
-    var L = normalizeBgHex(light) || BG_LIGHT_DEFAULT;
-    var D = normalizeBgHex(dark) || BG_DARK_DEFAULT;
-    root.style.setProperty("--bg-light", L);
-    root.style.setProperty("--bg-dark", D);
-    if (bgLightEl) bgLightEl.value = L;
-    if (bgDarkEl) bgDarkEl.value = D;
+    ["light", "dark"].forEach(function (scheme) {
+      var pal = theme[scheme] || {};
+      var base = THEME_KEIMLING[scheme];
+      THEME_ROLES.forEach(function (role) {
+        var hex = normalizeBgHex(pal[role[0]]) || base[role[0]];
+        root.style.setProperty("--theme-" + role[0] + "-" + scheme, hex);
+      });
+    });
+  }
+
+  function applyThemeBg(light, dark) {
+    var theme = themeActive();
+    var L = normalizeBgHex(light);
+    var D = normalizeBgHex(dark);
+    if (L) theme.light.bg = L;
+    if (D) theme.dark.bg = D;
+    applyThemeRecord(theme);
   }
 
   function storeThemePrefs() {
@@ -499,12 +554,19 @@
       })
       .then(function (p) {
         if (!p) return;
+        if (p.themes && p.themes.length) themeState.themes = p.themes;
+        if (p.active_theme) themeState.active = p.active_theme;
+        var active = themeActive();
         var L = normalizeBgHex(p.bg_light);
         var D = normalizeBgHex(p.bg_dark);
-        if (L || D) {
-          applyThemeBg(L || BG_LIGHT_DEFAULT, D || BG_DARK_DEFAULT);
-          storeThemePrefs();
+        if (!(p.themes && p.themes.length)) {
+          if (L) active.light.bg = L;
+          if (D) active.dark.bg = D;
         }
+        if (p.color_scheme === "light" || p.color_scheme === "dark" || p.color_scheme === "auto") themeState.scheme = p.color_scheme;
+        applyThemeRecord(active);
+        applyColorScheme();
+        renderThemeList();
         applySidebarFromGuiPrefs(p);
       })
       .catch(function () {});
@@ -1107,10 +1169,12 @@
     if (paneSkills) paneSkills.hidden = tab !== "skills";
     if (paneMcp) paneMcp.hidden = tab !== "mcp";
     if (panePlugins) panePlugins.hidden = tab !== "plugins";
+    if (paneThemes) paneThemes.hidden = tab !== "themes";
     saveSettingsBtn.hidden = tab !== "models";
     connectBtn.hidden = tab !== "connection";
     if (tab === "secrets" && connected) loadCredentialsUI();
     if (tab === "plugins" && connected) loadPlugins();
+    if (tab === "themes") renderThemeList();
   }
 
   function applyVaultPayload(j) {
@@ -3234,6 +3298,7 @@
     agentsPollTimer = setInterval(function () {
       if (!connected) return;
       loadAgents({ poll: true });
+      if (sideTab === "agents") loadAgentBoard();
     }, 2000);
   }
 
@@ -3795,6 +3860,7 @@
       actions.className = "agent-manage-actions";
       actions.appendChild(manageAction("Edit", "ghost", function () { openEditDefinition(def); }));
       actions.appendChild(manageAction("New instance", "ghost", function () { openNewInstance(def.id); }));
+      actions.appendChild(manageAction("Delete", "ghost danger", function () { deleteDefinition(def); }));
       row.appendChild(name);
       row.appendChild(actions);
       li.appendChild(row);
@@ -4148,24 +4214,27 @@
       });
   }
 
-  function deleteEditDefinition() {
-    if (!editingDefinitionID) return;
-    askConfirm("Delete this definition? Instances using it must be deleted first.", "Delete").then(function (yes) {
+  function deleteDefinition(def) {
+    if (!def || !def.id) return;
+    var name = def.name || def.id;
+    askConfirm("Delete definition “" + name + "”?\n\nInstances using it must be deleted first.", "Delete").then(function (yes) {
       if (!yes) return;
-    fetch(apiURL("/api/agents/recipes/delete"), {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ id: editingDefinitionID }),
-    })
-      .then(readAPIResult)
-      .then(function () {
-        editingDefinitionID = "";
-        setAgentDefPane("pick");
-        return loadDefinitions();
+      fetch(apiURL("/api/agents/recipes/delete"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ id: def.id }),
       })
-      .catch(function (err) {
-        showAgentDefErr(String(err));
-      });
+        .then(readAPIResult)
+        .then(function () {
+          if (editingDefinitionID === def.id) {
+            editingDefinitionID = "";
+            setAgentDefPane("pick");
+          }
+          return loadDefinitions();
+        })
+        .catch(function (err) {
+          showAgentDefErr(String(err));
+        });
     });
   }
 
@@ -6811,7 +6880,7 @@
     if (typeof p.sidebar_width === "number" && p.sidebar_width > 0) {
       saveArtifactWidth(applyArtifactWidth(p.sidebar_width));
     }
-    var known = { now: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
+    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
     if (known[p.sidebar_tab]) sideTab = p.sidebar_tab;
     if (p.sidebar_open === true) {
       selectSidebar(sideTab);
@@ -6853,7 +6922,7 @@
   }
   function selectSidebar(tab, opts) {
     opts = opts || {};
-    var known = { now: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
+    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
     if (!known[tab]) tab = "now";
     sideTab = tab;
     try { localStorage.setItem(STORAGE_SIDEBAR_TAB, tab); } catch (e) {}
@@ -6872,6 +6941,7 @@
     openArtifactPane();
     persistSidebarLayout();
     if (opts.skipFetch || !connected) return;
+    if (tab === "agents") loadAgentBoard();
     if (tab === "now") renderSidePerf();
     if (tab === "now" || tab === "context") refreshSideContext({ report: tab === "context" });
     if (tab === "artifacts") {
@@ -7171,24 +7241,313 @@
     closeGate();
   });
 
-  function onBgColorInput() {
-    applyThemeBg(bgLightEl && bgLightEl.value, bgDarkEl && bgDarkEl.value);
+  function persistThemes() {
+    applyThemeRecord(themeActive());
+    applyColorScheme();
+    renderThemeList();
+    saveGuiPrefs({ themes: themeState.themes, active_theme: themeState.active || "keimling" }).catch(function () {});
   }
-  function onBgColorCommit() {
-    persistThemeBg();
+
+  function applyColorScheme() {
+    var scheme = themeState.scheme || "auto";
+    if (scheme !== "light" && scheme !== "dark") scheme = "auto";
+    document.documentElement.setAttribute("data-scheme", scheme);
+    var light = document.getElementById("hl-light");
+    var dark = document.getElementById("hl-dark");
+    if (scheme === "auto") {
+      if (light) { light.media = "(prefers-color-scheme: light)"; light.disabled = false; }
+      if (dark) { dark.media = "(prefers-color-scheme: dark)"; dark.disabled = false; }
+    } else {
+      if (light) { light.media = "all"; light.disabled = scheme === "dark"; }
+      if (dark) { dark.media = "all"; dark.disabled = scheme === "light"; }
+    }
+    document.querySelectorAll(".scheme-switch button").forEach(function (btn) {
+      var on = btn.getAttribute("data-scheme") === scheme;
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
   }
-  if (bgLightEl) {
-    bgLightEl.addEventListener("input", onBgColorInput);
-    bgLightEl.addEventListener("change", onBgColorCommit);
+
+  document.querySelectorAll(".scheme-switch button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var scheme = btn.getAttribute("data-scheme") || "auto";
+      themeState.scheme = scheme;
+      applyColorScheme();
+      saveGuiPrefs({ color_scheme: scheme }).catch(function () {});
+    });
+  });
+
+  function renderThemeList() {
+    var list = document.getElementById("theme-list");
+    if (!list) return;
+    list.innerHTML = "";
+    themeCatalog().forEach(function (theme) {
+      var li = document.createElement("li");
+      li.className = "theme-row";
+      var swatches = document.createElement("span");
+      swatches.className = "theme-swatches";
+      ["bg", "surface", "accent"].forEach(function (role) {
+        var dot = document.createElement("i");
+        dot.style.background = (theme.dark && theme.dark[role]) || "#000";
+        swatches.appendChild(dot);
+      });
+      var name = document.createElement("span");
+      name.textContent = theme.name || theme.id;
+      if (theme.id === (themeState.active || "keimling")) name.textContent += " · in use";
+      var use = document.createElement("button");
+      use.type = "button";
+      use.className = "ghost";
+      use.textContent = "Use";
+      use.addEventListener("click", function () {
+        themeState.active = theme.id;
+        persistThemes();
+      });
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () { openThemeEditor(theme.id); });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "ghost danger";
+      del.textContent = "Delete";
+      del.hidden = theme.id === "keimling";
+      del.addEventListener("click", function () {
+        askConfirm("Delete theme “" + (theme.name || theme.id) + "”?", "Delete").then(function (yes) {
+          if (!yes) return;
+          themeState.themes = (themeState.themes || []).filter(function (t) { return t.id !== theme.id; });
+          if (themeState.active === theme.id) themeState.active = "keimling";
+          persistThemes();
+        });
+      });
+      li.appendChild(swatches);
+      li.appendChild(name);
+      li.appendChild(use);
+      li.appendChild(edit);
+      li.appendChild(del);
+      list.appendChild(li);
+    });
   }
-  if (bgDarkEl) {
-    bgDarkEl.addEventListener("input", onBgColorInput);
-    bgDarkEl.addEventListener("change", onBgColorCommit);
+
+  function openThemeEditor(id) {
+    var editor = document.getElementById("theme-editor");
+    var cols = document.getElementById("theme-cols");
+    var nameEl = document.getElementById("theme-name");
+    var reset = document.getElementById("theme-reset");
+    if (!editor || !cols) return;
+    var theme = themeCopy(themeCatalog().filter(function (t) { return t.id === id; })[0] || THEME_KEIMLING);
+    themeEditID = theme.id;
+    if (nameEl) nameEl.value = theme.name || "";
+    var resetHint = document.getElementById("theme-reset-hint");
+    if (reset) reset.hidden = theme.id !== "keimling";
+    if (resetHint) resetHint.hidden = theme.id !== "keimling";
+    cols.innerHTML = "";
+    ["light", "dark"].forEach(function (scheme) {
+      var col = document.createElement("div");
+      var h = document.createElement("h3");
+      h.textContent = scheme === "light" ? "Light" : "Dark";
+      col.appendChild(h);
+      THEME_ROLES.forEach(function (role) {
+        var label = document.createElement("label");
+        label.className = "color-field";
+        label.appendChild(document.createTextNode(role[1]));
+        var input = document.createElement("input");
+        input.type = "color";
+        input.dataset.scheme = scheme;
+        input.dataset.role = role[0];
+        input.value = (theme[scheme] && theme[scheme][role[0]]) || THEME_KEIMLING[scheme][role[0]];
+        label.appendChild(input);
+        col.appendChild(label);
+      });
+      cols.appendChild(col);
+    });
+    editor.hidden = false;
+    paintThemePreview();
   }
-  if (bgResetBtn) {
-    bgResetBtn.addEventListener("click", function () {
-      applyThemeBg(BG_LIGHT_DEFAULT, BG_DARK_DEFAULT);
-      persistThemeBg();
+
+  function paintThemePreview() {
+    var host = document.getElementById("theme-preview");
+    if (!host) return;
+    host.hidden = false;
+    host.innerHTML = "";
+    ["light", "dark"].forEach(function (scheme) {
+      var pal = {};
+      THEME_ROLES.forEach(function (role) {
+        var input = document.querySelector('#theme-cols input[data-scheme="' + scheme + '"][data-role="' + role[0] + '"]');
+        pal[role[0]] = (input && normalizeBgHex(input.value)) || THEME_KEIMLING[scheme][role[0]];
+      });
+      var ink = scheme === "dark" ? "#0c1a14" : "#f4fffa";
+      var card = document.createElement("div");
+      card.className = "theme-sample";
+      card.style.background = pal.bg;
+      card.style.color = pal.fg;
+      card.style.borderColor = pal.line;
+      var title = document.createElement("strong");
+      title.textContent = scheme === "light" ? "Light" : "Dark";
+      var sheet = document.createElement("div");
+      sheet.className = "theme-sample-sheet";
+      sheet.style.background = pal.surface;
+      sheet.style.color = pal.fg;
+      sheet.style.borderColor = pal.line;
+      var row = document.createElement("div");
+      row.className = "theme-sample-row";
+      row.style.background = pal.surface2;
+      row.style.color = pal.fg;
+      row.style.borderColor = pal.line;
+      row.textContent = "Raised";
+      var text = document.createElement("p");
+      text.style.color = pal.fg;
+      text.appendChild(document.createTextNode("Text "));
+      var muted = document.createElement("span");
+      muted.style.color = pal.muted;
+      muted.textContent = "Muted";
+      text.appendChild(muted);
+      var bubble = document.createElement("div");
+      bubble.className = "theme-sample-bubble";
+      bubble.style.background = pal.bubble;
+      bubble.style.color = pal.fg;
+      bubble.style.borderColor = pal.line;
+      bubble.textContent = "Bubble";
+      var actions = document.createElement("div");
+      actions.className = "theme-sample-actions";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Button";
+      btn.style.background = pal.accent;
+      btn.style.color = ink;
+      var danger = document.createElement("span");
+      danger.style.color = pal.danger;
+      danger.textContent = "Danger";
+      actions.appendChild(btn);
+      actions.appendChild(danger);
+      sheet.appendChild(row);
+      sheet.appendChild(text);
+      sheet.appendChild(bubble);
+      sheet.appendChild(actions);
+      card.appendChild(title);
+      card.appendChild(sheet);
+      host.appendChild(card);
+    });
+  }
+
+  function readThemeEditor() {
+    var theme = themeCopy(THEME_KEIMLING);
+    var existing = themeCatalog().filter(function (t) { return t.id === themeEditID; })[0];
+    if (existing) theme = themeCopy(existing);
+    var nameEl = document.getElementById("theme-name");
+    theme.name = (nameEl && nameEl.value.trim()) || theme.name || theme.id;
+    document.querySelectorAll("#theme-cols input[type=color]").forEach(function (input) {
+      var hex = normalizeBgHex(input.value);
+      if (!hex || !theme[input.dataset.scheme]) return;
+      theme[input.dataset.scheme][input.dataset.role] = hex;
+    });
+    return theme;
+  }
+
+  var themeNewBtn = document.getElementById("theme-new");
+  var themeSaveBtn = document.getElementById("theme-save");
+  var themeCancelBtn = document.getElementById("theme-cancel");
+  var themeCols = document.getElementById("theme-cols");
+  if (themeCols) themeCols.addEventListener("input", paintThemePreview);
+  var themeResetBtn = document.getElementById("theme-reset");
+  if (themeNewBtn) {
+    themeNewBtn.addEventListener("click", function () {
+      var copy = themeCopy(themeActive());
+      copy.id = "theme-" + Math.random().toString(36).slice(2, 8);
+      copy.name = "New theme";
+      copy.builtin = false;
+      var stored = (themeState.themes || []).filter(function (t) { return t.id !== copy.id; });
+      stored.push(copy);
+      themeState.themes = stored;
+      themeState.active = copy.id;
+      persistThemes();
+      openThemeEditor(copy.id);
+    });
+  }
+  if (themeCancelBtn) {
+    themeCancelBtn.addEventListener("click", function () {
+      var editor = document.getElementById("theme-editor");
+      if (editor) editor.hidden = true;
+    });
+  }
+  if (themeResetBtn) {
+    themeResetBtn.addEventListener("click", function () {
+      themeState.themes = (themeState.themes || []).filter(function (t) { return t.id !== "keimling"; });
+      themeState.active = "keimling";
+      persistThemes();
+      openThemeEditor("keimling");
+    });
+  }
+  if (themeSaveBtn) {
+    themeSaveBtn.addEventListener("click", function () {
+      var theme = readThemeEditor();
+      var next = (themeState.themes || []).filter(function (t) { return t.id !== theme.id; });
+      if (theme.id === "keimling") {
+        var same = JSON.stringify(theme.light) === JSON.stringify(THEME_KEIMLING.light) && JSON.stringify(theme.dark) === JSON.stringify(THEME_KEIMLING.dark) && theme.name === THEME_KEIMLING.name;
+        if (!same) next.push(theme);
+      } else {
+        next.push(theme);
+      }
+      themeState.themes = next;
+      themeState.active = theme.id;
+      persistThemes();
+      var editor = document.getElementById("theme-editor");
+      if (editor) editor.hidden = true;
+    });
+  }
+
+  function loadAgentBoard() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/agents/instances?all=1"), { headers: headers() })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || r.status); return j; }); })
+      .then(function (j) { renderAgentBoard((j && j.instances) || []); })
+      .catch(function () { renderAgentBoard([]); });
+  }
+
+  function agentPhaseLabel(ag) {
+    if (ag.call && ag.phase === "running") return "On a call";
+    if (ag.call) return "On a call";
+    if (ag.phase === "running") return "Running";
+    if (ag.phase === "paused") return "Paused";
+    if (ag.phase === "waiting") {
+      if (ag.waiting === "alarm") return "Waiting for an alarm";
+      if (ag.waiting === "watch") return "Waiting for a watch";
+      return "Waiting for a message";
+    }
+    return "Idle";
+  }
+
+  function renderAgentBoard(list) {
+    var board = document.getElementById("agent-board");
+    if (!board) return;
+    board.innerHTML = "";
+    if (!list.length) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "No agents yet.";
+      board.appendChild(empty);
+      return;
+    }
+    list.forEach(function (ag) {
+      var row = document.createElement("div");
+      row.className = "agent-board-row";
+      var open = document.createElement("button");
+      open.type = "button";
+      open.className = "agent-board-open";
+      var name = document.createElement("span");
+      name.className = "agent-board-name";
+      name.textContent = ag.name || ag.id;
+      var meta = document.createElement("span");
+      meta.className = "agent-board-meta";
+      meta.textContent = ag.recipe_name || ag.recipe_id || "Definition";
+      open.appendChild(name);
+      open.appendChild(meta);
+      open.addEventListener("click", function () { attachAgent(ag.id); });
+      var phase = document.createElement("span");
+      phase.className = "agent-phase" + (ag.phase ? " " + ag.phase : "");
+      phase.textContent = agentPhaseLabel(ag);
+      row.appendChild(open);
+      row.appendChild(phase);
+      board.appendChild(row);
     });
   }
 
@@ -7383,7 +7742,6 @@
   var agentDefCreateSave = document.getElementById("agent-def-create-save");
   var agentDefEditBack = document.getElementById("agent-def-edit-back");
   var agentDefEditSave = document.getElementById("agent-def-edit-save");
-  var agentDefEditDelete = document.getElementById("agent-def-edit-delete");
   var agentDefInstanceBack = document.getElementById("agent-def-instance-back");
   var agentDefInstanceCreate = document.getElementById("agent-def-instance-create");
   var agentTeamNewBtn = document.getElementById("agent-team-new-btn");
@@ -7461,11 +7819,6 @@
         .catch(function (err) { showAgentDefErr(String(err)); })
         .finally(function () { agentDefReviewReset.disabled = false; });
       });
-    });
-  }
-  if (agentDefEditDelete) {
-    agentDefEditDelete.addEventListener("click", function () {
-      deleteEditDefinition();
     });
   }
   if (agentDefInstanceBack) {
@@ -8549,6 +8902,7 @@
     }
     if (type === "input_audio_buffer.speech_stopped") {
       callUserSpeaking = false;
+      flushCallBgComment();
     }
     if (type === "response.cancelled") {
       if (callPicturePending && callUserSpeaking) sendCallPicture();
@@ -8606,6 +8960,7 @@
         if (item && item.type === "function_call" && item.call_id && !callSeen[item.call_id]) calls.push(item);
       });
       if (calls.length && callSpeak === callResponseSpeak) runCallTools(calls, gen);
+      else flushCallBgComment();
     }
   }
 
@@ -8680,39 +9035,85 @@
     callDC.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
   }
 
+  function flushCallBgComment() {
+    if (!callBgComment || !callLive || !callDC || callDC.readyState !== "open") return;
+    if (callUserSpeaking || assistantLive) return;
+    var text = callBgComment;
+    callBgComment = "";
+    callDC.send(JSON.stringify({
+      type: "conversation.item.create",
+      item: { type: "message", role: "user", content: [{ type: "input_text", text: text }] },
+    }));
+    callDC.send(JSON.stringify({ type: "response.create" }));
+  }
+
   function runCallTools(calls, gen) {
-    var i = 0;
-    var speakGen = callSpeak;
-    function next(speak) {
-      if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
-      if (speakGen !== callSpeak) speak = false;
-      if (!speak || i >= calls.length) {
-        callDC.send(JSON.stringify({ type: speak ? "response.create" : "response.cancel" }));
-        return;
-      }
-      var item = calls[i++];
+    var jobs = [];
+    (calls || []).forEach(function (item) {
+      if (!item || !item.call_id || callSeen[item.call_id]) return;
       callSeen[item.call_id] = true;
+      jobs.push({ item: item, done: false, output: "", released: false });
+    });
+    if (!jobs.length || gen !== callGen || !callDC || callDC.readyState !== "open") return;
+    var graceOver = false;
+    var replied = false;
+    function sendOutput(job, output) {
+      if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
+      job.released = true;
+      callDC.send(JSON.stringify({
+        type: "conversation.item.create",
+        item: { type: "function_call_output", call_id: job.item.call_id, output: output },
+      }));
+    }
+    function release() {
+      if (replied || gen !== callGen || !callDC || callDC.readyState !== "open") return;
+      var pending = jobs.filter(function (job) { return !job.done; });
+      if (pending.length && !graceOver) return;
+      replied = true;
+      var later = [];
+      jobs.forEach(function (job) {
+        if (job.done) sendOutput(job, job.output);
+        else {
+          sendOutput(job, "Still running. Keep the conversation going. Do not invent the result. It arrives in a later message.");
+          later.push(job);
+        }
+      });
+      callDC.send(JSON.stringify({ type: "response.create" }));
+      laterLeft = later.length;
+      later.forEach(function (job) { if (job.done) noteLater(job); });
+    }
+    var laterLeft = 0;
+    var laterLines = [];
+    function noteLater(job) {
+      if (!job.released || !job.done || job.noted || gen !== callGen) return;
+      job.noted = true;
+      laterLines.push((job.item.name || "tool") + ":\n" + (job.output || ""));
+      laterLeft--;
+      if (laterLeft > 0) return;
+      callBgComment = "Background tools finished. Comment on these results before you treat the topic as done.\n\n" + laterLines.join("\n\n");
+      flushCallBgComment();
+    }
+    jobs.forEach(function (job) {
       fetch(apiURL("/api/realtime/tool"), {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify({ name: item.name, call_id: item.call_id, arguments: item.arguments || "{}" }),
+        body: JSON.stringify({ name: job.item.name, call_id: job.item.call_id, arguments: job.item.arguments || "{}" }),
       }).then(readJSONResponse).then(function (j) {
-        if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
-        callDC.send(JSON.stringify({
-          type: "conversation.item.create",
-          item: { type: "function_call_output", call_id: item.call_id, output: (j && j.output) || "" },
-        }));
-        next(true);
+        job.done = true;
+        job.output = (j && j.output) || "";
+        if (job.released) noteLater(job);
+        else release();
       }).catch(function (err) {
-        if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
-        callDC.send(JSON.stringify({
-          type: "conversation.item.create",
-          item: { type: "function_call_output", call_id: item.call_id, output: "INTERRUPTED: " + String((err && err.message) || err) },
-        }));
-        next(false);
+        job.done = true;
+        job.output = "INTERRUPTED: " + String((err && err.message) || err);
+        if (job.released) noteLater(job);
+        else release();
       });
-    }
-    next(true);
+    });
+    setTimeout(function () {
+      graceOver = true;
+      release();
+    }, 5000);
   }
 
   function truncateHeardAudio() {

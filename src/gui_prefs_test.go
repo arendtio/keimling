@@ -10,6 +10,36 @@ import (
 	"testing"
 )
 
+func TestNormalizeColorScheme(t *testing.T) {
+	if got, ok := normalizeColorScheme(" Dark "); !ok || got != "dark" {
+		t.Fatalf("%q %v", got, ok)
+	}
+	if got, ok := normalizeColorScheme("automatic"); !ok || got != "" {
+		t.Fatalf("%q %v", got, ok)
+	}
+	if _, ok := normalizeColorScheme("blue"); ok {
+		t.Fatal("blue")
+	}
+	if colorSchemeOrAuto("") != "auto" || colorSchemeOrAuto("light") != "light" {
+		t.Fatal("display")
+	}
+}
+
+func TestCleanThemeRecords(t *testing.T) {
+	full := map[string]string{
+		"bg": "#112233", "surface": "#112233", "surface2": "#112233", "line": "#112233",
+		"fg": "#112233", "muted": "#112233", "accent": "#112233", "danger": "#112233", "bubble": "#112233",
+	}
+	got := cleanThemeRecords([]themeRecord{
+		{ID: "moss", Name: "Moss", Light: full, Dark: full},
+		{ID: "bad", Name: "Bad", Light: map[string]string{"bg": "nope"}, Dark: full},
+		{ID: "keimling", Name: "Keimling", Light: full, Dark: full},
+	})
+	if len(got) != 2 || got[0].ID != "moss" || got[0].Builtin || got[1].ID != "keimling" || !got[1].Builtin {
+		t.Fatalf("%#v", got)
+	}
+}
+
 func TestGuiPrefsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.json")

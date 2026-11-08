@@ -41,6 +41,9 @@ type appServer struct {
 	pendingProviders      []modelProvider
 	pendingActiveProvider string
 	budgetCache           providerBudgetCache
+	callTitleRunning      bool
+	callTitleDone         bool
+	callTitleStarted      time.Time
 	realtimeOn            bool
 	realtimeGen           uint64
 	realtimeCtx           context.Context
@@ -2195,6 +2198,9 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			"active_connection_id": p.ActiveConnectionID,
 			"bg_light":             p.BgLight,
 			"bg_dark":              p.BgDark,
+			"themes":               p.Themes,
+			"active_theme":         p.ActiveTheme,
+			"color_scheme":         colorSchemeOrAuto(p.ColorScheme),
 			"workspace_id":         p.WorkspaceID,
 			"window_width":         p.WindowWidth,
 			"window_height":        p.WindowHeight,
@@ -2210,6 +2216,9 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			ActiveConnectionID *string              `json:"active_connection_id"`
 			BgLight            *string              `json:"bg_light"`
 			BgDark             *string              `json:"bg_dark"`
+			Themes             *[]themeRecord       `json:"themes"`
+			ActiveTheme        *string              `json:"active_theme"`
+			ColorScheme        *string              `json:"color_scheme"`
 			WorkspaceID        *string              `json:"workspace_id"`
 			SidebarOpen        *bool                `json:"sidebar_open"`
 			SidebarTab         *string              `json:"sidebar_tab"`
@@ -2259,6 +2268,26 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 					p.BgDark = c
 				}
 			}
+			if body.Themes != nil {
+				p.Themes = cleanThemeRecords(*body.Themes)
+			}
+			if body.ColorScheme != nil {
+				if scheme, ok := normalizeColorScheme(*body.ColorScheme); ok {
+					p.ColorScheme = scheme
+				}
+			}
+			if body.ActiveTheme != nil {
+				id := strings.TrimSpace(*body.ActiveTheme)
+				ok := id == "" || id == "keimling"
+				for _, t := range p.Themes {
+					if t.ID == id {
+						ok = true
+					}
+				}
+				if ok {
+					p.ActiveTheme = id
+				}
+			}
 			if body.WorkspaceID != nil {
 				p.WorkspaceID = strings.TrimSpace(*body.WorkspaceID)
 			}
@@ -2267,7 +2296,7 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.SidebarTab != nil {
 				switch strings.TrimSpace(*body.SidebarTab) {
-				case "now", "artifacts", "context", "connections", "instructions":
+				case "now", "artifacts", "context", "connections", "instructions", "agents":
 					p.SidebarTab = strings.TrimSpace(*body.SidebarTab)
 				}
 			}

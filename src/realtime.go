@@ -210,7 +210,7 @@ func (a *Agent) realtimeInstructions() string {
 	if a != nil {
 		base = a.modelInstructions()
 	}
-	extra := "You are in a live voice call. The user hears your speech, and the same words are written into the chat. A typed line is the same person. Use tools the same way as in chat. A name that starts with mcp__ is a function. Call that function. Never pass that name to exec. Wait for each tool result. Do not claim a tool ran before its result arrives. When a user message includes an image, that image is the screen or window the user is sharing at that moment. Answer from that picture."
+	extra := "You are in a live voice call. The user hears your speech, and the same words are written into the chat. A typed line is the same person. Use tools the same way as in chat. A name that starts with mcp__ is a function. Call that function. Never pass that name to exec. Tool calls, especially mcp__ calls, run in the background. If the function output is the result, use it and comment on it. If the output says the call is still running, keep the conversation going and do not invent the result. When a later message says background tools finished, comment on those results before you treat the topic as done. When a user message includes an image, that image is the screen or window the user is sharing at that moment. Answer from that picture."
 	return strings.TrimSpace(base + "\n\n" + extra)
 }
 
@@ -664,6 +664,7 @@ func (s *appServer) handleRealtimeLine(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.noteCallThreadTitle()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }

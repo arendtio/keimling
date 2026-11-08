@@ -24,10 +24,32 @@ type guiPrefs struct {
 	WindowHeight       int                 `json:"window_height,omitempty"`
 	BgLight            string              `json:"bg_light,omitempty"` // #rrggbb page background (light)
 	BgDark             string              `json:"bg_dark,omitempty"`  // #rrggbb page background (dark)
+	Themes             []themeRecord       `json:"themes,omitempty"`
+	ActiveTheme        string              `json:"active_theme,omitempty"`
+	ColorScheme        string              `json:"color_scheme,omitempty"` // light, dark, or empty for automatic
 	WorkspaceID        string              `json:"workspace_id,omitempty"`
 	SidebarOpen        *bool               `json:"sidebar_open,omitempty"`
 	SidebarTab         string              `json:"sidebar_tab,omitempty"`
 	SidebarWidth       int                 `json:"sidebar_width,omitempty"`
+}
+
+// normalizeColorScheme accepts automatic, light, or dark. Automatic is stored empty.
+func normalizeColorScheme(s string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "auto", "automatic":
+		return "", true
+	case "light", "dark":
+		return strings.ToLower(strings.TrimSpace(s)), true
+	default:
+		return "", false
+	}
+}
+
+func colorSchemeOrAuto(s string) string {
+	if s == "light" || s == "dark" {
+		return s
+	}
+	return "auto"
 }
 
 // normalizeBgColor accepts #rgb / #rrggbb (case-insensitive); empty clears to default.
@@ -58,6 +80,64 @@ func normalizeBgColor(s string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// themeRecord is one named palette with a light and a dark scheme.
+type themeRecord struct {
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Builtin bool              `json:"builtin,omitempty"`
+	Light   map[string]string `json:"light"`
+	Dark    map[string]string `json:"dark"`
+}
+
+var themeRoles = []string{"bg", "surface", "surface2", "line", "fg", "muted", "accent", "danger", "bubble"}
+
+func cleanThemeRecords(in []themeRecord) []themeRecord {
+	out := make([]themeRecord, 0, len(in))
+	seen := map[string]bool{}
+	for _, t := range in {
+		id := strings.TrimSpace(t.ID)
+		if id == "" || seen[id] || len(id) > 40 || strings.ContainsAny(id, " \t\n/\\") {
+			continue
+		}
+		name := strings.TrimSpace(t.Name)
+		if name == "" {
+			name = id
+		}
+		runes := []rune(name)
+		if len(runes) > 40 {
+			name = string(runes[:40])
+		}
+		light := cleanThemePalette(t.Light)
+		dark := cleanThemePalette(t.Dark)
+		if light == nil || dark == nil {
+			continue
+		}
+		out = append(out, themeRecord{
+			ID: id, Name: name, Builtin: id == "keimling", Light: light, Dark: dark,
+		})
+		seen[id] = true
+		if len(out) >= 24 {
+			break
+		}
+	}
+	return out
+}
+
+func cleanThemePalette(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(themeRoles))
+	for _, role := range themeRoles {
+		c, ok := normalizeBgColor(in[role])
+		if !ok || c == "" {
+			return nil
+		}
+		out[role] = c
+	}
+	return out
 }
 
 func guiPrefsPath(configPath string) string {

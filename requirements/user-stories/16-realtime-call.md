@@ -22,6 +22,12 @@
 - A message sent during the call is stored and handed to the call. The text model does not run until hang up.
 - A tool asked for on the call uses that chat's tools and approval.
 
+## US-47 — A call names the thread
+
+**As** a user, **I want** a thread I only use as a call to get a real name after the conversation has been going, **so that** it does not stay “New thread”.
+
+**Acceptance:** traces REQ-RT-8. Right after the first spoken line the title is still provisional. After the wait it becomes a topic from what was said. An existing title stays.
+
 ## US-46 — The call keeps its chat
 
 **As** a user, **I want** a live call to stay on the thread or agent where I started it, **so that** another chat does not look like it is in that conversation.

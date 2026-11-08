@@ -9,7 +9,67 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestCallTitleSeedUsesSpokenLines(t *testing.T) {
+	user, _ := json.Marshal(map[string]any{"role": "user", "content": "the login token refresh is broken"})
+	asst, _ := json.Marshal(map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": "I can look at the refresh path"}}})
+	call, _ := json.Marshal(map[string]any{"type": "function_call", "name": "read_file", "arguments": "{}"})
+	got := callTitleSeed([]json.RawMessage{user, asst, call})
+	if !strings.Contains(got, "User: the login token refresh is broken") || !strings.Contains(got, "Assistant: I can look") || strings.Contains(got, "read_file") {
+		t.Fatal(got)
+	}
+	if callTitleSeed(nil) != "" {
+		t.Fatal("empty history")
+	}
+}
+
+func TestCallNamesThreadAfterAWhile(t *testing.T) {
+	callTitleDelay = 20 * time.Millisecond
+	callTitleRetry = time.Millisecond
+	t.Cleanup(func() {
+		callTitleDelay = 20 * time.Second
+		callTitleRetry = 5 * time.Second
+	})
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, _, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "completed",
+			"output": []map[string]any{{
+				"type":    "message",
+				"content": []map[string]any{{"type": "output_text", "text": "Login token refresh"}},
+			}},
+		})
+	}))
+	defer srv.Close()
+	user, _ := json.Marshal(map[string]any{"role": "user", "content": "the login token refresh is broken"})
+	a := &Agent{
+		Cfg:     Config{WorkspaceID: ws.ID, ThreadID: th.ID, DelegateFast: "fast-model"},
+		Client:  &Client{BaseURL: srv.URL + "/v1", HTTP: srv.Client()},
+		History: []json.RawMessage{user},
+	}
+	s := &appServer{agent: a}
+	s.noteCallThreadTitle()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		meta, err := readThreadMeta(ws.ID, th.ID)
+		if err == nil && meta.Title == "Login token refresh" {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	meta, _ := readThreadMeta(ws.ID, th.ID)
+	t.Fatalf("title %q", meta.Title)
+}
 
 func TestIsProvisionalThreadTitle(t *testing.T) {
 	if !isProvisionalThreadTitle("") || !isProvisionalThreadTitle("New thread") {

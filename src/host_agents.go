@@ -105,13 +105,23 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		busyBy := h.workersBusy(ctx, workers)
+		pulseBy := h.workersPulse(ctx, workers)
+		recipeName := map[string]string{}
+		if recipes, err := listAgentRecipes(); err == nil {
+			for _, recipe := range recipes {
+				recipeName[recipe.ID] = recipe.Name
+			}
+		}
+		now := time.Now()
 		out := make([]map[string]any, 0, len(list))
 		for _, m := range list {
-			busy := busyBy[m.ID]
+			pulse := pulseBy[m.ID]
+			busy := pulse.Busy
+			phase, wait := agentBoardPhase(m, busy, now)
 			out = append(out, map[string]any{
 				"id":                m.ID,
 				"recipe_id":         m.RecipeID,
+				"recipe_name":       recipeName[m.RecipeID],
 				"name":              m.Name,
 				"workspaces":        m.Workspaces,
 				"tools":             m.Tools,
@@ -119,6 +129,9 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 				"status":            m.Status,
 				"busy":              busy,
 				"running":           busy, // alias: green only while executing
+				"call":              pulse.Call,
+				"phase":             phase,
+				"waiting":           wait,
 				"attached":          m.ID == attached,
 				"updated_at":        m.UpdatedAt,
 			})
@@ -643,6 +656,25 @@ func (h *Host) wakeQueuedAgentsOnce() {
 			_, _ = h.EnsureAgentWorker(ctx, id)
 		}(id)
 	}
+}
+
+func agentBoardPhase(m AgentInstanceMeta, busy bool, now time.Time) (phase, waiting string) {
+	if busy {
+		return "running", ""
+	}
+	if m.WakesHeld {
+		return "paused", ""
+	}
+	if agentQueuePending(m.ID) {
+		return "waiting", "message"
+	}
+	if agentAlarmDue(m.ID, now) {
+		return "waiting", "alarm"
+	}
+	if agentWatchNeedsProcess(m.ID) {
+		return "waiting", "watch"
+	}
+	return "idle", ""
 }
 
 func agentQueuePending(id string) bool {
