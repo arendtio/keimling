@@ -20,8 +20,6 @@
   var choiceLocal = document.getElementById("choice-local");
   var choiceRemote = document.getElementById("choice-remote");
   var openConnection = document.getElementById("open-connection");
-  var openContextBtn = document.getElementById("open-context");
-  var contextDialog = document.getElementById("context-dialog");
   var openSkillsBtn = document.getElementById("open-skills");
   var skillsDialog = document.getElementById("skills-dialog");
   var skillsList = document.getElementById("skills-list");
@@ -62,10 +60,8 @@
   var mcpAddBtn = document.getElementById("mcp-add-btn");
   var mcpReloadBtn = document.getElementById("mcp-reload-btn");
   var mcpErr = document.getElementById("mcp-err");
-  var openArtifactsBtn = document.getElementById("open-artifacts");
   var artifactPane = document.getElementById("artifact-pane");
   var artifactBackdrop = document.getElementById("artifact-backdrop");
-  var artifactTitle = document.getElementById("artifact-title");
   var artifactFrame = document.getElementById("artifact-frame");
   var artifactHistory = document.getElementById("artifact-history");
   var artifactOpenExt = document.getElementById("artifact-open-ext");
@@ -83,6 +79,22 @@
   var artifactViewMode = "dock";
   var STORAGE_ARTIFACT_WIDTH = "keimling.artifact_width";
   var STORAGE_ARTIFACT_MODE = "keimling.artifact_mode";
+  var STORAGE_SIDEBAR_TAB = "keimling.sidebar_tab";
+  var STORAGE_SIDEBAR_OPEN = "keimling.sidebar_open";
+  var sideTab = "now";
+  var sidePhase = "idle";
+  var sideRate = 0;
+  var sideThinkStart = 0;
+  var sideStepResponded = false;
+  var sideLastModel = 0;
+  var sideMcpStatus = "";
+  var sideSamples = [];
+  var sideSampleAt = 0;
+  var sideSpike = 0;
+  var sideClosed = false;
+  var SIDE_TYPICAL = 120;
+  var SIDE_BAR_KEEP = 400;
+  var sideBarWidthCached = 0;
   var STORAGE_BG_LIGHT = "keimling.bg_light";
   var STORAGE_BG_DARK = "keimling.bg_dark";
   var BG_LIGHT_DEFAULT = "#eff0f1";
@@ -140,8 +152,7 @@
   var threadSearchEl = document.getElementById("thread-search");
   var chaptersToggle = document.getElementById("chapters-toggle");
   var chaptersFlyout = document.getElementById("chapters-flyout");
-  var paperMenuToggle = document.getElementById("paper-menu-toggle");
-  var paperMenu = document.getElementById("paper-menu");
+  var sidebarToggle = document.getElementById("sidebar-toggle");
   var workspacesCache = [];
   var threadsCache = [];
   var threadsListState = "idle";
@@ -202,8 +213,6 @@
   var autopilotSettingsCustom = false;
   var autopilotSettingsBaseline = "";
   var autopilotSettingsUndoText = "";
-  var openAutopilotBtn = document.getElementById("open-autopilot");
-  var autopilotDialog = document.getElementById("autopilot-dialog");
   var autopilotInstructionsEl = document.getElementById("autopilot-instructions");
   var autopilotInstructionsStatus = document.getElementById("autopilot-instructions-status");
   var autopilotInstructionsErr = document.getElementById("autopilot-instructions-err");
@@ -488,9 +497,11 @@
         if (!p) return;
         var L = normalizeBgHex(p.bg_light);
         var D = normalizeBgHex(p.bg_dark);
-        if (!L && !D) return;
-        applyThemeBg(L || BG_LIGHT_DEFAULT, D || BG_DARK_DEFAULT);
-        storeThemePrefs();
+        if (L || D) {
+          applyThemeBg(L || BG_LIGHT_DEFAULT, D || BG_DARK_DEFAULT);
+          storeThemePrefs();
+        }
+        applySidebarFromGuiPrefs(p);
       })
       .catch(function () {});
   }
@@ -2037,7 +2048,197 @@
     msg.focus();
   }
 
+  function fmtSideDur(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var h = Math.floor(s / 3600);
+    s = s % 3600;
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    if (h > 0) return h + "h " + m + "m";
+    if (m > 0) return m + "m " + s + "s";
+    return s + "s";
+  }
+
+  function sideWaitingOnModel() {
+    return agentState === "running" || agentState === "compacting";
+  }
+
+  function normalizeSideRate(rate) {
+    if (!(rate > 0) || !isFinite(rate)) {
+      sideSpike = 0;
+      return 0;
+    }
+    var recent = 0;
+    for (var i = 0; i < sideSamples.length; i++) {
+      if (sideSamples[i] > recent) recent = sideSamples[i];
+    }
+    var limit = Math.max(SIDE_TYPICAL, recent) * 2.5;
+    if (rate > limit) {
+      var similar = sideSpike > 0 && rate <= sideSpike * 1.5 && sideSpike <= rate * 1.5;
+      if (similar) {
+        sideSpike = 0;
+        return rate;
+      }
+      sideSpike = rate;
+      return recent;
+    }
+    sideSpike = 0;
+    return rate;
+  }
+
+  function pushSideSample() {
+    if (!sideWaitingOnModel() || !(sideRate > 0)) return;
+    var now = Date.now();
+    if (now - sideSampleAt < 800) return;
+    sideSampleAt = now;
+    sideSamples.push(sideRate);
+    if (sideSamples.length > SIDE_BAR_KEEP) sideSamples.shift();
+  }
+
+  function sideBarWidthPx() {
+    if (sideBarWidthCached > 0) return sideBarWidthCached;
+    var host = document.getElementById("side-dash") || document.body;
+    var probe = document.createElement("span");
+    probe.setAttribute("aria-hidden", "true");
+    probe.textContent = "MM";
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.style.whiteSpace = "nowrap";
+    var cs = getComputedStyle(host);
+    probe.style.font = cs.font;
+    probe.style.letterSpacing = cs.letterSpacing;
+    host.appendChild(probe);
+    var w = probe.getBoundingClientRect().width;
+    probe.remove();
+    if (!(w > 4)) w = 18;
+    sideBarWidthCached = w;
+    return w;
+  }
+
+  function sideBarsThatFit(host) {
+    var cs = getComputedStyle(host);
+    var pad = parseFloat(cs.paddingRight) || 0;
+    var gap = parseFloat(cs.columnGap || cs.gap);
+    if (!(gap >= 0)) gap = 2;
+    var inner = host.clientWidth - pad;
+    var bar = sideBarWidthPx();
+    if (!(inner > 0) || !(bar > 0)) return 0;
+    return Math.max(1, Math.floor((inner + gap) / (bar + gap)));
+  }
+
+  function renderSideBars() {
+    var host = document.getElementById("side-bars");
+    var mark = document.getElementById("side-mark");
+    if (!host) return;
+    var barW = sideBarWidthPx();
+    host.style.setProperty("--side-bar-w", barW.toFixed(1) + "px");
+    var meter = host.parentElement;
+    if (meter && meter.dataset.watched !== "1" && typeof ResizeObserver === "function") {
+      meter.dataset.watched = "1";
+      new ResizeObserver(function () { renderSideBars(); }).observe(meter);
+    }
+    var n = sideBarsThatFit(host);
+    if (!n) return;
+    var scale = SIDE_TYPICAL;
+    for (var i = 0; i < sideSamples.length; i++) {
+      if (sideSamples[i] > scale) scale = sideSamples[i];
+    }
+    var start = Math.max(0, sideSamples.length - n);
+    var html = "";
+    for (var s = start; s < sideSamples.length; s++) {
+      var v = sideSamples[s] || 0;
+      var h = Math.max(0, Math.min(100, v / scale * 100));
+      html += '<i style="height:' + h.toFixed(1) + '%"></i>';
+    }
+    host.innerHTML = html;
+    if (mark) mark.style.top = ((1 - SIDE_TYPICAL / scale) * 100).toFixed(1) + "%";
+  }
+
+  function renderSidePerf() {
+    var dash = document.getElementById("side-dash");
+    var read = document.getElementById("side-dash-read");
+    var waiting = sideWaitingOnModel();
+    pushSideSample();
+    var rate = waiting ? sideRate : 0;
+    var state = "idle";
+    var text = "Done";
+    if (!waiting) {
+      state = "idle";
+      text = "Done";
+    } else if (agentState === "compacting") {
+      state = "thinking";
+      text = "Compacting";
+    } else if (rate > 0) {
+      state = rate >= SIDE_TYPICAL ? "gas" : "flow";
+      text = (rate >= 10 ? rate.toFixed(0) : rate.toFixed(1)) + " tok/s";
+    } else if (sidePhase === "waiting" || sidePhase === "thinking" || !sideStepResponded) {
+      state = "thinking";
+      text = "Thinking · " + fmtSideDur(sideThinkStart ? Date.now() - sideThinkStart : 0);
+    } else {
+      state = "quiet";
+      text = "Still working · " + fmtSideDur(sideLastModel ? Date.now() - sideLastModel : 0);
+    }
+    if (dash) dash.dataset.state = state;
+    if (read) read.textContent = text;
+    renderSideBars();
+  }
+
+  function resetSideSamples() {
+    sideSamples = [];
+    sideSampleAt = 0;
+    sideSpike = 0;
+    sideClosed = false;
+  }
+
+  function closeSideRun() {
+    if (sideClosed) return;
+    sideClosed = true;
+    var has = false;
+    for (var i = 0; i < sideSamples.length; i++) {
+      if (sideSamples[i] > 0) { has = true; break; }
+    }
+    if (!has) return;
+    sideSamples.push(0);
+    if (sideSamples.length > SIDE_BAR_KEEP) sideSamples.shift();
+  }
+
+  function noteSideClear(fromModel) {
+    sideRate = 0;
+    sidePhase = "idle";
+    sideThinkStart = 0;
+    if (fromModel) {
+      sideLastModel = Date.now();
+      sideStepResponded = true;
+    }
+    renderSidePerf();
+  }
+
+  function noteSideProgress(p) {
+    p = p || {};
+    var phase = p.phase || "waiting";
+    var rate = Number(p.tok_per_s) || 0;
+    var starting = sidePhase === "idle" || sideStepResponded;
+    if (phase === "waiting" || phase === "thinking") {
+      if (starting) {
+        sideStepResponded = false;
+        sideThinkStart = Date.now();
+        sideRate = 0;
+      } else if (!sideThinkStart) {
+        sideThinkStart = Date.now();
+      }
+      sideRate = normalizeSideRate(rate);
+    } else {
+      sideStepResponded = true;
+      sideThinkStart = 0;
+      sideLastModel = Date.now();
+      sideRate = normalizeSideRate(rate);
+    }
+    sidePhase = phase;
+    renderSidePerf();
+  }
+
   function clearProgress() {
+    noteSideClear(false);
     if (!progressDetail) return;
     progressDetail.hidden = true;
     progressDetail.textContent = "";
@@ -2045,12 +2246,17 @@
   }
 
   function updateProgress(p) {
-    if (!progressDetail) return;
     p = p || {};
     if (p.clear) {
-      clearProgress();
+      noteSideClear(true);
+      if (!progressDetail) return;
+      progressDetail.hidden = true;
+      progressDetail.textContent = "";
+      progressDetail.className = "progress-detail";
       return;
     }
+    noteSideProgress(p);
+    if (!progressDetail) return;
     var phase = p.phase || "waiting";
     var label =
       phase === "thinking" ? "thinking" :
@@ -2077,7 +2283,10 @@
   }
 
   function setState(s) {
+    var prev = agentState;
     agentState = s || "idle";
+    var wasRun = prev === "running" || prev === "compacting" || prev === "awaiting_approval";
+    if (wasRun && agentState === "idle") closeSideRun();
     stateEl.textContent = agentState;
     stateEl.className = "state " + agentState;
     // Keep the indicator next to new output; hide when idle to free vertical space.
@@ -2274,15 +2483,7 @@
     chaptersToggle.setAttribute("aria-expanded", "false");
   }
 
-  function setPaperMenuOpen(open) {
-    if (!paperMenu || !paperMenuToggle) return;
-    paperMenu.hidden = !open;
-    paperMenuToggle.setAttribute("aria-expanded", open ? "true" : "false");
-  }
-
-  function closePaperMenu() {
-    setPaperMenuOpen(false);
-  }
+  function closePaperMenu() {}
 
   function setWorkspaceMenuOpen(open) {
     if (!workspaceMenu || !workspaceToggle) return;
@@ -4395,6 +4596,7 @@
       return;
     }
     if (payload.phase !== "result") return;
+    if (payload.name === "update_plan") refreshSideContext();
     var resultText = payload.result || "";
     var status = "ran";
     if (String(resultText).indexOf("INTERRUPTED:") === 0) status = "stopped";
@@ -4680,7 +4882,10 @@
     renderBudgetLine(j.budget);
     renderChapters();
     renderThread();
-    setState(j.busy ? "running" : (j.state || "idle"));
+    var next = j.busy ? "running" : (j.state || "idle");
+    // The run can already be idle while this snapshot still says busy.
+    if (next === "running" && sideClosed) next = "idle";
+    setState(next);
     if (!j.busy) clearLive();
   }
 
@@ -4749,12 +4954,13 @@
                       return refreshBudget(false);
                     })
                     .catch(function () {});
-                  if (contextDialog && contextDialog.open) openContextDialog();
+                  refreshSideContext();
                 } else if (otherView && (payload.state === "running" || payload.state === "compacting" || payload.state === "awaiting_approval")) {
                   backgroundBusy = true;
                   setState("idle");
                 } else {
                   backgroundBusy = false;
+                  if (payload.state === "running" && agentState === "idle") resetSideSamples();
                   setState(payload.state);
                 }
               }
@@ -5139,6 +5345,49 @@
     var fill = document.getElementById("budget-fill");
     fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
     fill.classList.toggle("warn", !!b.warn);
+    renderSidePlan(c);
+  }
+  function planStatusLabel(status) {
+    if (status === "in_progress") return "In progress";
+    if (status === "done") return "Done";
+    if (status === "pending") return "Pending";
+    return status || "Pending";
+  }
+  function renderSidePlan(charter) {
+    var list = document.getElementById("side-plan");
+    var empty = document.getElementById("side-plan-empty");
+    if (!list) return;
+    var steps = (charter && charter.plan) || [];
+    list.innerHTML = "";
+    if (empty) empty.hidden = steps.length > 0;
+    steps.forEach(function (step, i) {
+      var li = document.createElement("li");
+      var status = step.status || "pending";
+      li.dataset.status = status;
+      if (charter && charter.position === i + 1) li.setAttribute("aria-current", "step");
+      var st = document.createElement("span");
+      st.className = "side-plan-status";
+      st.textContent = planStatusLabel(status);
+      var tx = document.createElement("span");
+      tx.textContent = step.step || "";
+      li.appendChild(st);
+      li.appendChild(tx);
+      list.appendChild(li);
+    });
+  }
+  function refreshSideContext(opts) {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/context"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) { renderContextDialog(j); })
+      .catch(function (err) {
+        if (opts && opts.report) appendLive("\n[context] " + err + "\n");
+      });
   }
   function updateCompactionProgress(p) {
     p = p || {};
@@ -5156,29 +5405,7 @@
     }
   }
   function openContextDialog() {
-    if (!connected || !contextDialog) return;
-    fetch(apiURL("/api/context"), { headers: headers() })
-      .then(function (r) {
-        return r.json().then(function (j) {
-          if (!r.ok) throw new Error((j && j.error) || r.status);
-          return j;
-        });
-      })
-      .then(function (j) {
-        renderContextDialog(j);
-        if (typeof contextDialog.showModal === "function") {
-          if (!contextDialog.open) contextDialog.showModal();
-        } else contextDialog.setAttribute("open", "");
-      })
-      .catch(function (err) {
-        appendLive("\n[context] " + err + "\n");
-      });
-  }
-  if (openContextBtn) {
-    openContextBtn.addEventListener("click", function () {
-      closePaperMenu();
-      openContextDialog();
-    });
+    selectSidebar("context");
   }
 
   function threadAutopilotStatusText(j) {
@@ -5205,27 +5432,28 @@
     });
   }
 
-  function openAutopilotDialog() {
-    if (!connected || !autopilotDialog) return;
-    fetch(apiURL("/api/threads/autopilot"), { headers: headers() })
+  function loadThreadAutopilot() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/threads/autopilot"), { headers: headers() })
       .then(readJSONResponse)
       .then(function (j) {
         applyThreadAutopilot(j);
         if (autopilotInstructionsUndo) autopilotInstructionsUndo.hidden = true;
-        if (typeof autopilotDialog.showModal === "function") {
-          if (!autopilotDialog.open) autopilotDialog.showModal();
-        } else autopilotDialog.setAttribute("open", "");
       })
       .catch(function (err) {
-        appendLive("\n[autopilot] " + err + "\n");
+        if (autopilotInstructionsErr) {
+          autopilotInstructionsErr.hidden = false;
+          autopilotInstructionsErr.textContent = String(err.message || err);
+        }
       });
   }
 
-  if (openAutopilotBtn) {
-    openAutopilotBtn.addEventListener("click", function () {
-      closePaperMenu();
-      openAutopilotDialog();
-    });
+  function openAutopilotDialog() {
+    selectSidebar("instructions");
+  }
+  var autopilotForm = document.getElementById("autopilot-form");
+  if (autopilotForm) {
+    autopilotForm.addEventListener("submit", function (e) { e.preventDefault(); });
   }
   if (autopilotInstructionsSave) {
     autopilotInstructionsSave.addEventListener("click", function () {
@@ -5916,7 +6144,74 @@
       });
     });
   }
+  function mcpNeedsSignIn(s) {
+    if (!s || !s.url) return false;
+    if (s.oauth === "expired") return true;
+    if (s.oauth === "signed_in" && s.status === "connected") return false;
+    if (s.auth === "oauth" && s.oauth !== "signed_in") return true;
+    return /authorization required|sign-in|oauth/i.test(s.error || "");
+  }
+  function showSideMcpStatus(msg) {
+    sideMcpStatus = msg || "";
+    var el = document.getElementById("side-mcp-status");
+    if (!el) return;
+    el.hidden = !sideMcpStatus;
+    el.textContent = sideMcpStatus;
+  }
+  function renderSideMcp(servers) {
+    var list = document.getElementById("side-mcp");
+    var empty = document.getElementById("side-mcp-empty");
+    if (!list) return;
+    list.innerHTML = "";
+    servers = servers || [];
+    if (empty) empty.hidden = servers.length > 0;
+    var statusEl = document.getElementById("side-mcp-status");
+    if (statusEl) {
+      statusEl.hidden = !sideMcpStatus;
+      statusEl.textContent = sideMcpStatus;
+    }
+    servers.forEach(function (s) {
+      var li = document.createElement("li");
+      var name = document.createElement("div");
+      name.className = "side-mcp-name";
+      name.textContent = s.name || "";
+      var meta = document.createElement("div");
+      meta.className = "side-mcp-meta";
+      var needs = mcpNeedsSignIn(s);
+      var usable = s.status === "connected" && !s.error && !needs;
+      if (s.status === "disabled") meta.textContent = "Off";
+      else if (needs) meta.textContent = "Needs sign-in";
+      else if (usable) meta.textContent = "Usable";
+      else meta.textContent = "Not usable";
+      li.appendChild(name);
+      li.appendChild(meta);
+      if (!usable && s.status !== "disabled" && s.error && !needs) {
+        var err = document.createElement("div");
+        err.className = "side-mcp-err";
+        err.textContent = /authorization required/i.test(s.error) ? "The server requires a bearer token or sign-in." : s.error;
+        li.appendChild(err);
+      }
+      if (needs && s.status !== "disabled") {
+        var sign = document.createElement("button");
+        sign.type = "button";
+        sign.className = "ghost";
+        sign.textContent = "Sign in";
+        sign.addEventListener("click", function () {
+          sign.disabled = true;
+          showSideMcpStatus("Waiting for the browser sign-in…");
+          mcpSignIn(s.name, s.url).then(function () {
+            showSideMcpStatus("");
+          }).catch(function (e) {
+            showSideMcpStatus(String(e.message || e));
+          }).finally(function () { sign.disabled = false; });
+        });
+        li.appendChild(sign);
+      }
+      list.appendChild(li);
+    });
+  }
   function renderMcpServers(servers) {
+    renderSideMcp(servers);
     if (!mcpList) return;
     mcpList.innerHTML = "";
     if (!servers || !servers.length) {
@@ -6074,6 +6369,8 @@
   if (openMcpBtn) {
     openMcpBtn.addEventListener("click", openMcpDialog);
   }
+  var sideMcpManage = document.getElementById("side-mcp-manage");
+  if (sideMcpManage) sideMcpManage.addEventListener("click", openMcpDialog);
 
   function artifactSrc(art) {
     if (!art) return "";
@@ -6097,15 +6394,48 @@
     return w;
   }
   function loadArtifactPrefs() {
+    var savedOpen = false;
     try {
       var savedW = parseInt(localStorage.getItem(STORAGE_ARTIFACT_WIDTH) || "", 10);
       if (savedW > 0) applyArtifactWidth(savedW);
       var savedMode = localStorage.getItem(STORAGE_ARTIFACT_MODE);
       if (savedMode === "overlay" || savedMode === "dock") artifactViewMode = savedMode;
+      var savedTab = localStorage.getItem(STORAGE_SIDEBAR_TAB);
+      if (savedTab) sideTab = savedTab;
+      savedOpen = localStorage.getItem(STORAGE_SIDEBAR_OPEN) === "1";
     } catch (e) {}
+    syncArtifactModeUI();
+    selectSidebar(sideTab, { keepClosed: true });
+    if (savedOpen) openArtifactPane();
   }
   function saveArtifactWidth(px) {
     try { localStorage.setItem(STORAGE_ARTIFACT_WIDTH, String(px)); } catch (e) {}
+  }
+  function persistSidebarLayout() {
+    var open = !!(artifactPane && !artifactPane.hidden);
+    try {
+      localStorage.setItem(STORAGE_SIDEBAR_OPEN, open ? "1" : "0");
+      localStorage.setItem(STORAGE_SIDEBAR_TAB, sideTab);
+    } catch (e) {}
+    saveGuiPrefs({ sidebar_open: open, sidebar_tab: sideTab }).catch(function () {});
+  }
+  function persistSidebarWidth(px) {
+    saveArtifactWidth(px);
+    saveGuiPrefs({ sidebar_width: px }).catch(function () {});
+  }
+  function applySidebarFromGuiPrefs(p) {
+    if (!p) return;
+    if (typeof p.sidebar_width === "number" && p.sidebar_width > 0) {
+      saveArtifactWidth(applyArtifactWidth(p.sidebar_width));
+    }
+    var known = { now: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
+    if (known[p.sidebar_tab]) sideTab = p.sidebar_tab;
+    if (p.sidebar_open === true) {
+      selectSidebar(sideTab);
+      return;
+    }
+    if (known[p.sidebar_tab]) selectSidebar(sideTab, { keepClosed: true });
+    if (p.sidebar_open === false) closeArtifactPane({ silent: true });
   }
   function saveArtifactMode(mode) {
     try { localStorage.setItem(STORAGE_ARTIFACT_MODE, mode); } catch (e) {}
@@ -6132,6 +6462,45 @@
     if (!artifactPane) return;
     artifactPane.hidden = false;
     syncArtifactModeUI();
+    if (sidebarToggle) sidebarToggle.setAttribute("aria-pressed", "true");
+  }
+  function syncSidebarOpen() {
+    if (!artifactOpenExt) return;
+    artifactOpenExt.hidden = !(sideTab === "artifacts" && artifactSrc(currentArtifact));
+  }
+  function selectSidebar(tab, opts) {
+    opts = opts || {};
+    var known = { now: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
+    if (!known[tab]) tab = "now";
+    sideTab = tab;
+    try { localStorage.setItem(STORAGE_SIDEBAR_TAB, tab); } catch (e) {}
+    var panels = artifactPane ? artifactPane.querySelectorAll(".side-panel") : [];
+    panels.forEach(function (el) {
+      el.hidden = el.getAttribute("data-side") !== tab;
+    });
+    var tabs = document.getElementById("sidebar-tabs");
+    if (tabs) {
+      tabs.querySelectorAll("button").forEach(function (btn) {
+        btn.setAttribute("aria-selected", btn.getAttribute("data-side") === tab ? "true" : "false");
+      });
+    }
+    syncSidebarOpen();
+    if (opts.keepClosed) return;
+    openArtifactPane();
+    persistSidebarLayout();
+    if (opts.skipFetch || !connected) return;
+    if (tab === "now") renderSidePerf();
+    if (tab === "now" || tab === "context") refreshSideContext({ report: tab === "context" });
+    if (tab === "artifacts") {
+      loadArtifactsList().then(function (items) {
+        if (!currentArtifact && items && items.length) showArtifact(sortArtifacts(items)[0]);
+      }).catch(function () {});
+    }
+    if (tab === "connections") loadMcpList().catch(function () {});
+    if (tab === "instructions") loadThreadAutopilot();
+  }
+  function openSidebar() {
+    selectSidebar(sideTab);
   }
   function sortArtifacts(items) {
     return (items || []).slice().sort(function (a, b) {
@@ -6147,6 +6516,7 @@
     if (artifactFrame) artifactFrame.hidden = !!on;
     if (artifactPaper) artifactPaper.classList.toggle("is-empty", !!on);
     if (on && artifactFrame) artifactFrame.removeAttribute("src");
+    syncSidebarOpen();
   }
   function renderArtifactHistory(items) {
     if (!artifactHistory) return;
@@ -6175,7 +6545,6 @@
   function showArtifact(art) {
     if (!art || !artifactPane || !artifactFrame) return;
     currentArtifact = art;
-    if (artifactTitle) artifactTitle.textContent = art.title || art.path || "Artifact";
     var src = artifactSrc(art);
     if (src) artifactFrame.src = src;
     setArtifactEmpty(!src);
@@ -6186,11 +6555,14 @@
         else btn.removeAttribute("aria-current");
       });
     }
-    openArtifactPane();
+    selectSidebar("artifacts", { skipFetch: true });
   }
-  function closeArtifactPane() {
-    currentArtifact = null;
-    setArtifactEmpty(true);
+  function closeArtifactPane(opts) {
+    var fs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fs && artifactPane && artifactPane.contains(fs)) {
+      var exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document);
+    }
     if (artifactPane) artifactPane.hidden = true;
     if (artifactBackdrop) artifactBackdrop.hidden = true;
     if (shellEl) {
@@ -6198,6 +6570,8 @@
       shellEl.classList.remove("artifact-overlay");
       shellEl.classList.remove("artifact-resizing");
     }
+    if (sidebarToggle) sidebarToggle.setAttribute("aria-pressed", "false");
+    if (!opts || !opts.silent) persistSidebarLayout();
   }
   function loadArtifactsList() {
     return fetch(apiURL("/api/artifacts"), { headers: headers() })
@@ -6213,6 +6587,18 @@
       });
   }
   loadArtifactPrefs();
+  var sidebarTabs = document.getElementById("sidebar-tabs");
+  if (sidebarTabs) {
+    sidebarTabs.addEventListener("click", function (e) {
+      var btn = e.target.closest && e.target.closest("button[data-side]");
+      if (!btn) return;
+      selectSidebar(btn.getAttribute("data-side"));
+    });
+  }
+  setInterval(function () {
+    if (!artifactPane || artifactPane.hidden || sideTab !== "now") return;
+    renderSidePerf();
+  }, 1000);
   if (artifactClose) {
     artifactClose.addEventListener("click", closeArtifactPane);
   }
@@ -6237,15 +6623,17 @@
   }
   if (artifactFullscreen) {
     artifactFullscreen.addEventListener("click", function () {
-      var el = artifactPaper || artifactFrame;
+      var el = sideTab === "artifacts"
+        ? (artifactPaper || artifactFrame)
+        : (artifactPane && artifactPane.querySelector(".side-panel:not([hidden])"));
       if (!el) return;
       var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
       if (!req) {
-        appendLive("\n[artifact] Fullscreen API unavailable\n");
+        appendLive("\n[sidebar] Fullscreen is unavailable\n");
         return;
       }
       Promise.resolve(req.call(el)).catch(function (err) {
-        appendLive("\n[artifact] Fullscreen: " + (err && err.message ? err.message : err) + "\n");
+        appendLive("\n[sidebar] Fullscreen: " + (err && err.message ? err.message : err) + "\n");
       });
     });
   }
@@ -6264,6 +6652,8 @@
         shellEl.classList.remove("artifact-resizing");
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        var w = parseInt(shellEl.style.getPropertyValue("--artifact-width"), 10);
+        if (w > 0) persistSidebarWidth(w);
       }
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
@@ -6274,10 +6664,10 @@
       var step = e.shiftKey ? 48 : 16;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        saveArtifactWidth(applyArtifactWidth(cur + step));
+        persistSidebarWidth(applyArtifactWidth(cur + step));
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        saveArtifactWidth(applyArtifactWidth(cur - step));
+        persistSidebarWidth(applyArtifactWidth(cur - step));
       }
     });
   }
@@ -6289,25 +6679,6 @@
       closeArtifactPane();
     }
   });
-  if (openArtifactsBtn) {
-    openArtifactsBtn.addEventListener("click", function () {
-      closePaperMenu();
-      if (!connected) return;
-      loadArtifactsList()
-        .then(function (items) {
-          if (items.length) showArtifact(sortArtifacts(items)[0]);
-          else {
-            currentArtifact = null;
-            if (artifactTitle) artifactTitle.textContent = "Artifacts";
-            setArtifactEmpty(true);
-            openArtifactPane();
-          }
-        })
-        .catch(function (err) {
-          appendLive("\n[artifacts] " + err + "\n");
-        });
-    });
-  }
   if (mcpKind) {
     mcpKind.addEventListener("change", syncMcpKindUI);
   }
@@ -6504,11 +6875,12 @@
       if (open) renderChapters();
     });
   }
-  if (paperMenuToggle) {
-    paperMenuToggle.addEventListener("click", function () {
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener("click", function () {
       closeChaptersFlyout();
       closeModelMenu();
-      setPaperMenuOpen(!!(paperMenu && paperMenu.hidden));
+      if (artifactPane && !artifactPane.hidden) closeArtifactPane();
+      else openSidebar();
     });
   }
   if (modelEl) {
@@ -6534,10 +6906,6 @@
     if (chaptersFlyout && !chaptersFlyout.hidden) {
       var left = chaptersToggle && chaptersToggle.parentElement;
       if (!(left && left.contains(e.target))) closeChaptersFlyout();
-    }
-    if (paperMenu && !paperMenu.hidden) {
-      var right = paperMenuToggle && paperMenuToggle.parentElement;
-      if (!(right && right.contains(e.target))) closePaperMenu();
     }
   });
 
@@ -7312,6 +7680,7 @@
         } else if (j && j.realtime) {
           speakText(j.text || text);
         } else {
+          if (agentState === "idle") resetSideSamples();
           setState("running");
         }
         renderThread();

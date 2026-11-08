@@ -130,6 +130,38 @@ func TestAppServerGuiPrefsAPI(t *testing.T) {
 		t.Fatalf("theme merge: %#v", got)
 	}
 
+	open := true
+	req = httptest.NewRequest(http.MethodPut, "/api/gui-prefs", strings.NewReader(`{"sidebar_open":true,"sidebar_tab":"context","sidebar_width":420}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sidebar put: %d %s", rec.Code, rec.Body.String())
+	}
+	got, err = readGuiPrefs(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SidebarOpen == nil || *got.SidebarOpen != open || got.SidebarTab != "context" || got.SidebarWidth != 420 || got.WindowWidth != 1400 {
+		t.Fatalf("sidebar merge: %#v", got)
+	}
+	req = httptest.NewRequest(http.MethodPut, "/api/gui-prefs", strings.NewReader(`{"sidebar_open":false,"sidebar_tab":"nope","sidebar_width":10}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sidebar clear: %d %s", rec.Code, rec.Body.String())
+	}
+	got, err = readGuiPrefs(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SidebarOpen == nil || *got.SidebarOpen || got.SidebarTab != "context" || got.SidebarWidth != 420 {
+		t.Fatalf("invalid sidebar fields should not replace the saved ones: %#v", got)
+	}
+
 	req = httptest.NewRequest(http.MethodGet, "/api/gui-prefs", nil)
 	req.Header.Set("Authorization", "Bearer tok")
 	rec = httptest.NewRecorder()

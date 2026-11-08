@@ -99,7 +99,7 @@ names the affected path, and file edits show the old/new preview above the
   (`ask` / `auto` / `yolo`) is separate from the supervisor prompt.
 - Settings can replace the whole supervisor prompt. A thread can replace that
   again. An empty text cannot be saved. Reset in Settings returns to the
-  built-in prompt. Reset on the thread (More → Autopilot instructions) drops
+  built-in prompt. Reset on the thread (Sidebar → Instructions) drops
   the thread text so later global edits apply again. A thread with no saved
   text follows the global prompt live.
 

@@ -2148,6 +2148,9 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			"workspace_id":         p.WorkspaceID,
 			"window_width":         p.WindowWidth,
 			"window_height":        p.WindowHeight,
+			"sidebar_open":         p.SidebarOpen,
+			"sidebar_tab":          p.SidebarTab,
+			"sidebar_width":        p.SidebarWidth,
 		})
 	case http.MethodPut, http.MethodPatch:
 		var body struct {
@@ -2158,6 +2161,9 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			BgLight            *string              `json:"bg_light"`
 			BgDark             *string              `json:"bg_dark"`
 			WorkspaceID        *string              `json:"workspace_id"`
+			SidebarOpen        *bool                `json:"sidebar_open"`
+			SidebarTab         *string              `json:"sidebar_tab"`
+			SidebarWidth       *int                 `json:"sidebar_width"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -2205,6 +2211,18 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.WorkspaceID != nil {
 				p.WorkspaceID = strings.TrimSpace(*body.WorkspaceID)
+			}
+			if body.SidebarOpen != nil {
+				p.SidebarOpen = body.SidebarOpen
+			}
+			if body.SidebarTab != nil {
+				switch strings.TrimSpace(*body.SidebarTab) {
+				case "now", "artifacts", "context", "connections", "instructions":
+					p.SidebarTab = strings.TrimSpace(*body.SidebarTab)
+				}
+			}
+			if body.SidebarWidth != nil && *body.SidebarWidth >= 280 && *body.SidebarWidth <= 4000 {
+				p.SidebarWidth = *body.SidebarWidth
 			}
 			normalizeConnectionProfiles(p)
 			// If only legacy connect was patched without connections array, sync profiles.

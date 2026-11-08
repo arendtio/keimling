@@ -704,55 +704,6 @@
         </form>
       </dialog>
 
-      <dialog id="autopilot-dialog" class="context-dialog autopilot-dialog">
-        <form method="dialog" class="context-panel" id="autopilot-form">
-          <header class="context-head">
-            <h2>Autopilot instructions</h2>
-            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
-          </header>
-          <p id="autopilot-instructions-status" class="hint"></p>
-          <textarea id="autopilot-instructions" class="autopilot-instructions" rows="12" spellcheck="false"></textarea>
-          <p id="autopilot-instructions-err" class="gate-err" hidden></p>
-          <div class="skills-row">
-            <button type="button" id="autopilot-instructions-save">Save for this thread</button>
-            <button type="button" id="autopilot-instructions-undo" class="ghost" hidden>Undo reset</button>
-          </div>
-          <div class="skills-row">
-            <button type="button" id="autopilot-instructions-reset" class="ghost">Reset to global</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog id="context-dialog" class="context-dialog">
-        <form method="dialog" class="context-panel">
-          <header class="context-head">
-            <h2>Context</h2>
-            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
-          </header>
-          <div class="budget-bar-wrap" aria-label="Context budget">
-            <div class="budget-meta"><span id="budget-label">—</span></div>
-            <div class="budget-track"><div id="budget-fill" class="budget-fill"></div></div>
-          </div>
-          <div class="skills-row" style="margin: 0.35rem 0 0.75rem">
-            <button type="button" id="context-compact-btn">Compact</button>
-            <span id="context-compact-status" class="hint"></span>
-          </div>
-          <div class="context-panes">
-            <section><h3>Goal</h3><pre id="ctx-goal" class="context-body"></pre></section>
-            <section><h3>Plan</h3><pre id="ctx-plan" class="context-body"></pre></section>
-            <section><h3>Findings</h3><pre id="ctx-findings" class="context-body"></pre></section>
-            <section><h3>Open questions</h3><pre id="ctx-questions" class="context-body"></pre></section>
-            <section><h3>Constraints</h3><pre id="ctx-constraints" class="context-body"></pre></section>
-            <section><h3>Recent</h3><pre id="ctx-recent" class="context-body"></pre></section>
-            <section>
-              <h3>Raw context</h3>
-              <p id="ctx-raw-note" class="hint"></p>
-              <pre id="ctx-raw" class="context-body"></pre>
-            </section>
-          </div>
-        </form>
-      </dialog>
-
       <dialog id="confirm-dialog" class="context-dialog confirm-dialog" aria-labelledby="confirm-text">
         <form method="dialog" class="context-panel">
           <p id="confirm-text" class="confirm-text"></p>
@@ -772,12 +723,7 @@
             </div>
           </div>
           <div class="paper-toolbar-right">
-            <button type="button" id="paper-menu-toggle" class="ghost" aria-expanded="false" aria-controls="paper-menu" aria-haspopup="menu">More</button>
-            <div id="paper-menu" class="paper-menu" role="menu" hidden>
-              <button type="button" id="open-context" role="menuitem">Context</button>
-              <button type="button" id="open-artifacts" role="menuitem">Artifacts</button>
-              <button type="button" id="open-autopilot" role="menuitem">Autopilot instructions</button>
-            </div>
+            <button type="button" id="sidebar-toggle" class="ghost" aria-pressed="false" aria-controls="artifact-pane">Sidebar</button>
           </div>
         </header>
 
@@ -850,21 +796,96 @@
       <aside id="artifact-pane" class="artifact-pane mode-dock" hidden>
         <div id="artifact-resize" class="artifact-resize" role="separator" aria-orientation="vertical" aria-label="Resize artifact panel" tabindex="0"></div>
         <header class="artifact-head">
-          <h2 id="artifact-title">Artifact</h2>
+          <nav id="sidebar-tabs" class="sidebar-tabs" aria-label="Sidebar">
+            <button type="button" data-side="now" aria-selected="true">Now</button>
+            <button type="button" data-side="artifacts" aria-selected="false">Artifacts</button>
+            <button type="button" data-side="context" aria-selected="false">Context</button>
+            <button type="button" data-side="connections" aria-selected="false">Connections</button>
+            <button type="button" data-side="instructions" aria-selected="false">Instructions</button>
+          </nav>
           <div class="artifact-actions">
             <button type="button" id="artifact-mode-dock" class="ghost" title="Dock beside chat" hidden>Dock</button>
             <button type="button" id="artifact-mode-overlay" class="ghost" title="Focus overlay">Focus</button>
-            <button type="button" id="artifact-fullscreen" class="ghost" title="Fullscreen (presentation)">Fullscreen</button>
-            <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab">Open</button>
-            <button type="button" id="artifact-close" class="ghost" aria-label="Close">Close</button>
+            <button type="button" id="artifact-fullscreen" class="ghost" title="Fullscreen">Fullscreen</button>
+            <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab" hidden>Open</button>
+            <button type="button" id="artifact-close" class="ghost" aria-label="Close sidebar">Close</button>
           </div>
         </header>
-        <div class="artifact-paper" id="artifact-paper">
-          <ul id="artifact-history" class="artifact-switch" aria-label="Artifacts in this workspace" hidden></ul>
-          <div id="artifact-empty" class="artifact-empty">
-            <p>Nothing open yet. Previews from this workspace show up here.</p>
+        <div id="side-now" class="side-panel" data-side="now">
+          <section class="side-block">
+            <h2>Plan</h2>
+            <p id="side-plan-empty" class="hint">No plan for this run.</p>
+            <ol id="side-plan" class="side-plan"></ol>
+          </section>
+          <section class="side-block" aria-label="Performance">
+            <h2>Performance</h2>
+            <div id="side-dash" class="side-dash" data-state="idle">
+              <div class="side-meter">
+                <div id="side-bars" class="side-bars" aria-hidden="true"></div>
+                <div id="side-mark" class="side-mark" aria-hidden="true"><span>120</span></div>
+              </div>
+              <div class="side-scan" aria-hidden="true"><span class="side-scan-eye"></span></div>
+              <p id="side-dash-read" class="side-dash-read">Done</p>
+            </div>
+          </section>
+        </div>
+        <div id="side-artifacts" class="side-panel" data-side="artifacts" hidden>
+          <div class="artifact-paper" id="artifact-paper">
+            <ul id="artifact-history" class="artifact-switch" aria-label="Artifacts in this workspace" hidden></ul>
+            <div id="artifact-empty" class="artifact-empty">
+              <p>Nothing open yet. Previews from this workspace show up here.</p>
+            </div>
+            <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" hidden sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
           </div>
-          <iframe id="artifact-frame" class="artifact-frame" title="Artifact preview" hidden sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
+        </div>
+        <div id="side-context" class="side-panel" data-side="context" hidden>
+          <div class="context-panel">
+            <div class="budget-bar-wrap" aria-label="Context budget">
+              <div class="budget-meta"><span id="budget-label">—</span></div>
+              <div class="budget-track"><div id="budget-fill" class="budget-fill"></div></div>
+            </div>
+            <div class="skills-row">
+              <button type="button" id="context-compact-btn">Compact</button>
+              <span id="context-compact-status" class="hint"></span>
+            </div>
+            <div class="context-panes">
+              <section><h3>Goal</h3><pre id="ctx-goal" class="context-body"></pre></section>
+              <section><h3>Plan</h3><pre id="ctx-plan" class="context-body"></pre></section>
+              <section><h3>Findings</h3><pre id="ctx-findings" class="context-body"></pre></section>
+              <section><h3>Open questions</h3><pre id="ctx-questions" class="context-body"></pre></section>
+              <section><h3>Constraints</h3><pre id="ctx-constraints" class="context-body"></pre></section>
+              <section><h3>Recent</h3><pre id="ctx-recent" class="context-body"></pre></section>
+              <section>
+                <h3>Raw context</h3>
+                <p id="ctx-raw-note" class="hint"></p>
+                <pre id="ctx-raw" class="context-body"></pre>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div id="side-connections" class="side-panel" data-side="connections" hidden>
+          <section class="side-block">
+            <h2>MCP servers</h2>
+            <p id="side-mcp-empty" class="hint">No MCP servers configured.</p>
+            <p id="side-mcp-status" class="hint" hidden></p>
+            <ul id="side-mcp" class="side-mcp"></ul>
+            <button type="button" id="side-mcp-manage">Manage MCP servers…</button>
+          </section>
+        </div>
+        <div id="side-instructions" class="side-panel" data-side="instructions" hidden>
+          <form id="autopilot-form" class="context-panel">
+            <p id="autopilot-instructions-status" class="hint"></p>
+            <label class="field" for="autopilot-instructions">What the autopilot should do</label>
+            <textarea id="autopilot-instructions" class="autopilot-instructions" rows="12" spellcheck="false"></textarea>
+            <p id="autopilot-instructions-err" class="gate-err" hidden></p>
+            <div class="skills-row">
+              <button type="button" id="autopilot-instructions-save">Save for this thread</button>
+              <button type="button" id="autopilot-instructions-undo" class="ghost" hidden>Undo reset</button>
+            </div>
+            <div class="skills-row">
+              <button type="button" id="autopilot-instructions-reset" class="ghost">Reset to global</button>
+            </div>
+          </form>
         </div>
       </aside>
     </div>

@@ -25,6 +25,9 @@ type guiPrefs struct {
 	BgLight            string              `json:"bg_light,omitempty"` // #rrggbb page background (light)
 	BgDark             string              `json:"bg_dark,omitempty"`  // #rrggbb page background (dark)
 	WorkspaceID        string              `json:"workspace_id,omitempty"`
+	SidebarOpen        *bool               `json:"sidebar_open,omitempty"`
+	SidebarTab         string              `json:"sidebar_tab,omitempty"`
+	SidebarWidth       int                 `json:"sidebar_width,omitempty"`
 }
 
 // normalizeBgColor accepts #rgb / #rrggbb (case-insensitive); empty clears to default.

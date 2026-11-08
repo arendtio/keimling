@@ -2127,6 +2127,179 @@ button.wide { width: 100%; max-width: 100%; }
   }
 }
 
+.sidebar-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+.sidebar-tabs button {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.sidebar-tabs button[aria-selected="true"] {
+  color: var(--fg);
+  border-color: var(--line);
+  background: var(--panel);
+}
+.artifact-head { flex-wrap: wrap; align-items: flex-start; }
+.side-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.side-panel[hidden] { display: none !important; }
+.side-block { padding: 0.2rem 0.55rem 0.85rem; }
+.side-block h2 {
+  margin: 0.7rem 0 0.4rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.side-plan {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.side-plan li {
+  display: grid;
+  grid-template-columns: 6.2rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: baseline;
+}
+.side-plan-status {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.side-plan li[data-status="in_progress"] .side-plan-status { color: var(--fg); font-weight: 650; }
+.side-plan li[data-status="done"] .side-plan-status { color: var(--accent, #3d8b6e); }
+.side-dash { display: grid; gap: 0.35rem; }
+.side-meter {
+  position: relative;
+  height: 3.4rem;
+}
+.side-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 100%;
+  padding-right: 1.8rem;
+}
+.side-bars i {
+  flex: 0 0 var(--side-bar-w, 1.1rem);
+  width: var(--side-bar-w, 1.1rem);
+  height: 0;
+  border-radius: 1px 1px 0 0;
+  background: color-mix(in srgb, var(--accent, #3d8b6e) 70%, var(--fg));
+}
+.side-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--fg) 55%, transparent);
+  pointer-events: none;
+}
+.side-mark span {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 0.65rem;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--chrome);
+  padding: 0 0.15rem;
+}
+.side-scan {
+  display: none;
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.side-dash[data-state="thinking"] .side-scan { display: block; }
+.side-scan-eye {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2.75rem;
+  left: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: side-scan 1.15s ease-in-out infinite alternate;
+}
+@keyframes side-scan {
+  from { left: 0; }
+  to { left: calc(100% - 2.75rem); }
+}
+.side-dash-read {
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.side-dash[data-state="idle"] .side-dash-read,
+.side-dash[data-state="quiet"] .side-dash-read { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .side-scan-eye {
+    animation: none;
+    left: calc(50% - 1.375rem);
+  }
+}
+.side-mcp {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.side-mcp li {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.side-mcp .side-mcp-name { font-weight: 650; }
+.side-mcp .side-mcp-meta { color: var(--muted); font-size: 0.82rem; }
+.side-mcp .side-mcp-err { color: var(--muted); font-size: 0.82rem; }
+#side-now .side-block:last-child {
+  position: sticky;
+  bottom: 0;
+  background: var(--chrome);
+}
+#side-context .context-panes { max-height: none; }
+#side-context .context-panel,
+#side-instructions .context-panel { padding-top: 0.35rem; }
+.artifact-pane.mode-dock #side-artifacts .artifact-paper,
+.artifact-pane.mode-overlay #side-artifacts .artifact-paper {
+  margin-top: 0.35rem;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.side-panel:fullscreen,
+.side-panel:-webkit-full-screen {
+  display: flex;
+  background: var(--chrome);
+  color: var(--fg);
+  overflow: auto;
+  padding: 1rem 1.25rem;
+  box-sizing: border-box;
+}
+
 .provider-banner[hidden] { display: none; }
 .provider-banner {
   display: flex;

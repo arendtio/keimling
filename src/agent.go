@@ -275,7 +275,33 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 		streamPhase.Store("waiting")
 		phaseStarted.Store(started)
 		var streamedText strings.Builder
-		emitProgress := func() {
+		// Rate is tokens over the last measured window, not since the phase
+		// opened. The first instant of a phase divides a burst by a tiny
+		// elapsed time and publishes a speed no model sustains.
+		var rateMarkCount int64
+		var rateMarkAt time.Time
+		var ratePhase string
+		windowRate := func(phase string, count int64) float64 {
+			now := time.Now()
+			if phase != ratePhase || rateMarkAt.IsZero() {
+				ratePhase = phase
+				rateMarkCount = count
+				rateMarkAt = now
+				return 0
+			}
+			dt := now.Sub(rateMarkAt).Seconds()
+			if dt < 0.75 {
+				return 0
+			}
+			delta := count - rateMarkCount
+			rateMarkCount = count
+			rateMarkAt = now
+			if delta <= 0 {
+				return 0
+			}
+			return float64(delta) / 4 / dt
+		}
+		emitProgress := func() float64 {
 			phase, _ := streamPhase.Load().(string)
 			if phase == "" {
 				phase = "waiting"
@@ -291,15 +317,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 			default:
 				count = thinkingChars.Load() + textChars.Load() + toolChars.Load()
 			}
-			ps, _ := phaseStarted.Load().(time.Time)
-			if ps.IsZero() {
-				ps = started
-			}
-			phaseElapsed := time.Since(ps).Seconds()
-			rate := 0.0
-			if phaseElapsed > 0 && count > 0 {
-				rate = float64(count) / 4 / phaseElapsed
-			}
+			rate := windowRate(phase, count)
 			a.emitJSON("progress", map[string]any{
 				"phase":          phase,
 				"elapsed_sec":    int(time.Since(started).Seconds()),
@@ -310,6 +328,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 				"text_chars":     textChars.Load(),
 				"tool_chars":     toolChars.Load(),
 			})
+			return rate
 		}
 		// Buffer streamed markdown; print a formatted block when the turn finishes
 		// so **bold**/code fences are not left as raw markers in the terminal.
@@ -353,33 +372,21 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 					return
 				case <-tick.C:
 					phase, _ := streamPhase.Load().(string)
-					var count int64
 					label := "Working"
 					switch phase {
 					case "thinking":
-						count = thinkingChars.Load()
 						label = "Thinking"
 					case "text":
-						count = textChars.Load()
 						label = "Generating"
 					case "tool":
-						count = toolChars.Load()
 						label = "Tool args"
-					default:
-						count = thinkingChars.Load() + textChars.Load() + toolChars.Load()
 					}
-					ps, _ := phaseStarted.Load().(time.Time)
-					if ps.IsZero() {
-						ps = started
-					}
-					phaseElapsed := time.Since(ps).Seconds()
-					if count > 0 && phaseElapsed > 0 {
-						rate := float64(count) / 4 / phaseElapsed
+					rate := emitProgress()
+					if rate > 0 {
 						a.printf("\r\033[2K\033[36m◌\033[0m %s… %s · ~%.1f tok/s", label, time.Since(started).Truncate(time.Second), rate)
 					} else {
 						a.printf("\r\033[2K\033[36m◌\033[0m %s… %s", label, time.Since(started).Truncate(time.Second))
 					}
-					emitProgress()
 				}
 			}
 		}()
