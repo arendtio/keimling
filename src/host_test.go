@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -126,6 +127,39 @@ func TestHostLoginPageWithholdsApp(t *testing.T) {
 	h.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="pane-secrets"`) {
 		t.Fatalf("ui: %d", rec.Code)
+	}
+}
+
+func TestRefuseCallLeave(t *testing.T) {
+	open := true
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Path != "/api/health" || r.Header.Get("Authorization") != "Bearer sekrit" {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "call": open})
+	}))
+	defer srv.Close()
+	h := &Host{
+		workers: map[string]*hostWorker{
+			"ws:here": {Key: "ws:here", Addr: strings.TrimPrefix(srv.URL, "http://"), Secret: "sekrit"},
+		},
+		attached: "ws:here",
+	}
+	if err := h.refuseCallLeave(context.Background(), "ws:here"); err != nil {
+		t.Fatalf("same worker: %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("same worker asked health %d times", hits)
+	}
+	if err := h.refuseCallLeave(context.Background(), "agent:other"); !errors.Is(err, errHangUpFirst) {
+		t.Fatalf("open call: %v", err)
+	}
+	open = false
+	if err := h.refuseCallLeave(context.Background(), "agent:other"); err != nil {
+		t.Fatalf("no call: %v", err)
 	}
 }
 

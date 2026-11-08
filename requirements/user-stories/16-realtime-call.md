@@ -21,3 +21,13 @@
 - Spoken user and assistant lines show in the thread as they finish, and remain after reload.
 - A message sent during the call is stored and handed to the call. The text model does not run until hang up.
 - A tool asked for on the call uses that chat's tools and approval.
+
+## US-46 — The call keeps its chat
+
+**As** a user, **I want** a live call to stay on the thread or agent where I started it, **so that** another chat does not look like it is in that conversation.
+
+**Acceptance**
+
+- During a call, another thread, another agent, and another workspace stay closed.
+- The control says to hang up first.
+- After hang up, that switch opens the chosen chat.

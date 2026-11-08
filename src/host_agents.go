@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -163,7 +164,7 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		if err := h.AttachAgent(ctx, inst.ID); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeAttachErr(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -188,7 +189,7 @@ func (h *Host) handleAgentAttach(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if err := h.AttachAgent(ctx, strings.TrimSpace(body.ID)); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAttachErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -757,11 +758,19 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.focusWorkspace = wsID
 	h.mu.Unlock()
+	attached := false
 	if len(created) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		_ = h.AttachAgent(ctx, created[0].ID)
+		if err := h.AttachAgent(ctx, created[0].ID); err != nil {
+			if !errors.Is(err, errHangUpFirst) {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+		} else {
+			attached = true
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instances": created, "attached": len(created) > 0})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instances": created, "attached": attached})
 }

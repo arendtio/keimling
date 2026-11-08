@@ -149,6 +149,8 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/workspaces/open", s.requireSecret(http.HandlerFunc(s.handleWorkspaceOpen)))
 	s.mux.Handle("/api/workspaces/switch", s.requireSecret(http.HandlerFunc(s.handleWorkspaceSwitch)))
 	s.mux.Handle("/api/workspaces/hide", s.requireSecret(http.HandlerFunc(s.handleWorkspaceHide)))
+	s.mux.Handle("/api/workspaces/rename", s.requireSecret(http.HandlerFunc(s.handleWorkspaceRename)))
+	s.mux.Handle("/api/workspaces/restore", s.requireSecret(http.HandlerFunc(s.handleWorkspaceRestore)))
 	s.mux.Handle("/api/threads", s.requireSecret(http.HandlerFunc(s.handleThreads)))
 	s.mux.Handle("/api/threads/switch", s.requireSecret(http.HandlerFunc(s.handleThreadSwitch)))
 	s.mux.Handle("/api/threads/delete", s.requireSecret(http.HandlerFunc(s.handleThreadDelete)))
@@ -257,6 +259,7 @@ func (s *appServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"ok":    true,
 		"state": state,
 		"voice": s.voiceAvailable(),
+		"call":  s.realtimeCallOpen(),
 	})
 }
 
@@ -440,17 +443,60 @@ func (s *appServer) handleWorkspaceOpen(w http.ResponseWriter, r *http.Request) 
 	}
 	var body struct {
 		Path string `json:"path"`
+		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	ws, err := ensureWorkspaceForRoot(body.Path)
+	ws, err := ensureWorkspaceNamed(body.Path, body.Name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	s.respondWorkspaceSwitch(w, ws.ID)
+}
+
+func (s *appServer) handleWorkspaceRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	ws, err := renameWorkspace(body.ID, body.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ws)
+}
+
+func (s *appServer) handleWorkspaceRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	if err := showWorkspace(body.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": strings.TrimSpace(body.ID)})
 }
 
 func (s *appServer) handleWorkspaceSwitch(w http.ResponseWriter, r *http.Request) {

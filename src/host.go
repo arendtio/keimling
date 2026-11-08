@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -300,7 +301,60 @@ func (h *Host) StopAll() {
 	}
 }
 
+var errHangUpFirst = errors.New("hang up the call first")
+
+func (h *Host) workerCallOpen(ctx context.Context, w *hostWorker) bool {
+	if w == nil {
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+w.Addr+"/api/health", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+w.Secret)
+	client := &http.Client{Timeout: 800 * time.Millisecond}
+	res, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer res.Body.Close()
+	var body struct {
+		Call bool `json:"call"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&body)
+	return body.Call
+}
+
+// refuseCallLeave keeps a live call on the worker that owns it.
+func (h *Host) refuseCallLeave(ctx context.Context, nextKey string) error {
+	h.mu.Lock()
+	cur := h.attached
+	w := h.workers[cur]
+	h.mu.Unlock()
+	if cur == "" || cur == nextKey || w == nil {
+		return nil
+	}
+	if h.workerCallOpen(ctx, w) {
+		return errHangUpFirst
+	}
+	return nil
+}
+
+func writeAttachErr(w http.ResponseWriter, err error) {
+	if err == nil {
+		return
+	}
+	code := http.StatusBadGateway
+	if errors.Is(err, errHangUpFirst) {
+		code = http.StatusConflict
+	}
+	http.Error(w, err.Error(), code)
+}
+
 func (h *Host) Attach(ctx context.Context, workspaceID string) error {
+	if err := h.refuseCallLeave(ctx, workspaceWorkerKey(workspaceID)); err != nil {
+		return err
+	}
 	w, err := h.EnsureWorker(ctx, workspaceID)
 	if err != nil {
 		return err
@@ -314,6 +368,9 @@ func (h *Host) Attach(ctx context.Context, workspaceID string) error {
 }
 
 func (h *Host) AttachAgent(ctx context.Context, instanceID string) error {
+	if err := h.refuseCallLeave(ctx, agentWorkerKey(instanceID)); err != nil {
+		return err
+	}
 	meta, err := readAgentInstanceMeta(instanceID)
 	if err != nil {
 		return err
@@ -402,7 +459,7 @@ func (h *Host) proxyToWorkspace() http.Handler {
 		ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
 		defer cancel()
 		if err := h.Attach(ctx, wsID); err != nil {
-			http.Error(rw, err.Error(), http.StatusBadGateway)
+			writeAttachErr(rw, err)
 			return
 		}
 		w, err := h.EnsureWorker(ctx, wsID)
@@ -535,6 +592,8 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/workspaces/open", auth(h.handleWorkspaceOpen))
 	mux.Handle("/api/workspaces/switch", auth(h.handleWorkspaceSwitch))
 	mux.Handle("/api/workspaces/hide", auth(h.handleWorkspaceHide))
+	mux.Handle("/api/workspaces/rename", auth(h.handleWorkspaceRename))
+	mux.Handle("/api/workspaces/restore", auth(h.handleWorkspaceRestore))
 	mux.Handle("/api/agents/recipes", auth(h.handleAgentRecipes))
 	mux.Handle("/api/agents/recipes/update", auth(h.handleAgentRecipeUpdate))
 	mux.Handle("/api/agents/recipes/delete", auth(h.handleAgentRecipeDelete))
@@ -769,17 +828,60 @@ func (h *Host) handleWorkspaceOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Path string `json:"path"`
+		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	ws, err := ensureWorkspaceForRoot(body.Path)
+	ws, err := ensureWorkspaceNamed(body.Path, body.Name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	h.respondAttach(w, ws.ID)
+}
+
+func (h *Host) handleWorkspaceRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	ws, err := renameWorkspace(body.ID, body.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ws)
+}
+
+func (h *Host) handleWorkspaceRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	if err := showWorkspace(body.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": strings.TrimSpace(body.ID)})
 }
 
 func (h *Host) handleWorkspaceSwitch(w http.ResponseWriter, r *http.Request) {
@@ -831,7 +933,7 @@ func (h *Host) respondAttach(w http.ResponseWriter, id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := h.Attach(ctx, id); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAttachErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -181,6 +181,61 @@ func hideWorkspace(id string) error {
 	return writeWorkspaceMeta(m)
 }
 
+func cleanWorkspaceName(name string) (string, error) {
+	name = strings.Join(strings.Fields(name), " ")
+	if name == "" {
+		return "", fmt.Errorf("name required")
+	}
+	if len([]rune(name)) > 80 {
+		return "", fmt.Errorf("name is too long")
+	}
+	return name, nil
+}
+
+// renameWorkspace changes the name shown in the menu. It does not move the folder.
+func renameWorkspace(id, name string) (WorkspaceMeta, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return WorkspaceMeta{}, fmt.Errorf("id required")
+	}
+	name, err := cleanWorkspaceName(name)
+	if err != nil {
+		return WorkspaceMeta{}, err
+	}
+	m, err := readWorkspaceMeta(id)
+	if err != nil {
+		return WorkspaceMeta{}, fmt.Errorf("unknown workspace")
+	}
+	m.Name = name
+	if err := writeWorkspaceMeta(m); err != nil {
+		return WorkspaceMeta{}, err
+	}
+	return m, nil
+}
+
+// showWorkspace puts a hidden workspace back on the menu without switching to it.
+func showWorkspace(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("id required")
+	}
+	m, err := readWorkspaceMeta(id)
+	if err != nil {
+		return fmt.Errorf("unknown workspace")
+	}
+	m.Hidden = false
+	return writeWorkspaceMeta(m)
+}
+
+// ensureWorkspaceNamed opens or restores the folder and, when name is set, stores that name.
+func ensureWorkspaceNamed(root, name string) (WorkspaceMeta, error) {
+	ws, err := ensureWorkspaceForRoot(root)
+	if err != nil || strings.TrimSpace(name) == "" {
+		return ws, err
+	}
+	return renameWorkspace(ws.ID, name)
+}
+
 func ensureGlobalWorkspace() (WorkspaceMeta, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {

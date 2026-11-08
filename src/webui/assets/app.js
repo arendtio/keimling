@@ -147,13 +147,17 @@
   var workspaceList = document.getElementById("workspace-list");
   var workspaceSearch = document.getElementById("workspace-search");
   var workspacePath = document.getElementById("workspace-path");
+  var workspaceNewName = document.getElementById("workspace-new-name");
   var workspaceOpenBtn = document.getElementById("workspace-open-btn");
+  var workspaceManageBtn = document.getElementById("workspace-manage-btn");
+  var workspaceDialog = document.getElementById("workspace-dialog");
   var threadListEl = document.getElementById("thread-list");
   var threadSearchEl = document.getElementById("thread-search");
   var chaptersToggle = document.getElementById("chapters-toggle");
   var chaptersFlyout = document.getElementById("chapters-flyout");
   var sidebarToggle = document.getElementById("sidebar-toggle");
   var workspacesCache = [];
+  var workspaceUndo = null;
   var threadsCache = [];
   var threadsListState = "idle";
   var threadsShowAll = false;
@@ -313,8 +317,6 @@
 
   var thread = document.getElementById("thread");
   var chaptersEl = document.getElementById("chapters");
-  var workingWrap = document.getElementById("working-wrap");
-  var workingEl = document.getElementById("working");
   var uiFlash = document.getElementById("ui-flash");
   var stateEl = document.getElementById("state");
   var agentStatus = document.getElementById("agent-status");
@@ -344,6 +346,8 @@
   var callPictureAt = 0;
   var callPicturePending = false;
   var stopBtn = document.getElementById("stop");
+  var composerMoreBtn = document.getElementById("composer-more");
+  var composerMoreMenu = document.getElementById("composer-more-menu");
   var voiceStatus = document.getElementById("voice-status");
 
   var es = null;
@@ -2282,6 +2286,110 @@
     return !!stoppingThreadID && currentThreadID === stoppingThreadID;
   }
 
+  function glyph(name) {
+    var strokes = {
+      plus: ["M12 5v14", "M5 12h14"],
+      up: ["M12 19V6", "M7 11l5-5 5 5"],
+      stop: ["M8 8h8v8H8z"],
+      file: ["M7 3.5h7l4.5 4.5V20.5H7z", "M14 3.5v4.5h4.5"],
+      screen: ["M4 5h16v11H4z", "M8 20h8", "M12 16v4"],
+      mic: ["M9 4.5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M6.5 11a5.5 5.5 0 0 0 11 0", "M12 16.5V20"],
+      "mic-off": ["M9 4.5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M6.5 11a5.5 5.5 0 0 0 11 0", "M12 16.5V20", "M5 5l14 14"],
+      cassette: ["M4 8h16v9H4z", "M8 12.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0", "M12.8 12.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0"],
+      phone: ["M8 4h2.8l1.2 3.6-2 1.1a11 11 0 0 0 5.3 5.3l1.1-2 3.6 1.2V16a2 2 0 0 1-2 2A13 13 0 0 1 6 6a2 2 0 0 1 2-2z"]
+    };
+    var turn = name === "hangup" ? 135 : 0;
+    strokes = strokes[turn ? "phone" : name] || ["M12 5v14", "M5 12h14"];
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    var parent = svg;
+    if (turn) {
+      parent = document.createElementNS(ns, "g");
+      parent.setAttribute("transform", "rotate(" + turn + " 12 12)");
+      svg.appendChild(parent);
+    }
+    strokes.forEach(function (d) {
+      var p = document.createElementNS(ns, "path");
+      p.setAttribute("d", d);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", "currentColor");
+      p.setAttribute("stroke-width", "2");
+      p.setAttribute("stroke-linecap", "round");
+      p.setAttribute("stroke-linejoin", "round");
+      parent.appendChild(p);
+    });
+    return svg;
+  }
+
+  function mountGlyphs(root) {
+    (root || document).querySelectorAll("[data-icon]").forEach(function (el) {
+      if (el.querySelector("svg")) return;
+      var icon = glyph(el.getAttribute("data-icon"));
+      el.insertBefore(icon, el.firstChild);
+    });
+  }
+
+  function setGlyph(btn, name) {
+    if (!btn) return;
+    if (btn.getAttribute("data-icon") === name && btn.querySelector("svg")) return;
+    btn.setAttribute("data-icon", name);
+    var old = btn.querySelector("svg");
+    var next = glyph(name);
+    if (old) btn.replaceChild(next, old);
+    else btn.insertBefore(next, btn.firstChild);
+  }
+
+  function setControlLabel(btn, label, title, emphasize) {
+    if (!btn) return;
+    var cap = btn.querySelector(".btn-caption");
+    if (cap) cap.textContent = label;
+    btn.setAttribute("aria-label", label);
+    btn.title = title || label;
+    btn.classList.toggle("show-label", !!emphasize);
+  }
+
+  function setComposerMore(open) {
+    if (!composerMoreMenu || !composerMoreBtn) return;
+    composerMoreMenu.hidden = !open;
+    composerMoreBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function placeComposerControls() {
+    var col = document.querySelector(".composer-send-col");
+    if (!composerMoreMenu || !col || !send) return;
+    function park(btn, where) {
+      if (!btn) return;
+      btn.classList.toggle("icon-btn", where !== "menu");
+      if (where === "menu") composerMoreMenu.appendChild(btn);
+      else col.insertBefore(btn, send);
+    }
+    park(attachFileBtn, "menu");
+    if (typeof screenBtn !== "undefined") park(screenBtn, "menu");
+    park(voiceBtn, "col");
+    park(callBtn, "col");
+    if (callMuteBtn) park(callMuteBtn, "col");
+    if (stopBtn) park(stopBtn, "col");
+  }
+
+  function fitComposer() {
+    if (!msg) return;
+    var style = window.getComputedStyle(msg);
+    var line = parseFloat(style.lineHeight);
+    if (!isFinite(line) || line <= 0) line = (parseFloat(style.fontSize) || 16) * 1.35;
+    var pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    var max = Math.ceil(line * 7.5 + pad);
+    msg.style.height = "auto";
+    var need = msg.scrollHeight;
+    var next = need > max ? max : need;
+    var min = Math.ceil(line + pad);
+    if (next < min) next = min;
+    msg.style.height = next + "px";
+    msg.style.overflowY = need > max + 1 ? "auto" : "hidden";
+  }
+
   function setState(s) {
     var prev = agentState;
     agentState = s || "idle";
@@ -2309,56 +2417,54 @@
     if (msg) msg.placeholder = needsProvider ? "Add a model provider before sending" : "Message Keimling…";
     if (modelEl) modelEl.disabled = !connected || needsProvider;
     voiceBtn.disabled = !connected || !voiceOK || callLive;
+    voiceBtn.hidden = !voiceOK;
     if (callBtn) {
       callBtn.hidden = !realtimeReady;
       callBtn.disabled = !connected || !realtimeReady || recording;
-      callBtn.textContent = callLive ? "Hang up" : "Call";
       callBtn.classList.toggle("live", callLive);
-      callBtn.title = callLive ? "Hang up. The transcript stays in the chat." : "Live voice call";
+      setControlLabel(callBtn, callLive ? "Hang up" : "Call", callLive ? "Hang up. The transcript stays in the chat." : "Live voice call", false);
+      setGlyph(callBtn, callLive ? "hangup" : "phone");
     }
     if (screenBtn) screenBtn.disabled = !connected || screenBusy;
     if (callMuteBtn) {
       callMuteBtn.hidden = !callLive;
-      callMuteBtn.textContent = callMuted ? "Unmute" : "Mute";
-      callMuteBtn.title = callMuted ? "Turn the microphone back on" : "Mute the microphone";
+      setControlLabel(callMuteBtn, callMuted ? "Unmute" : "Mute", callMuted ? "Turn the microphone back on" : "Mute the microphone", false);
+      setGlyph(callMuteBtn, callMuted ? "mic-off" : "mic");
     }
-    newChatBtn.disabled = !connected;
+    newChatBtn.disabled = !connected || callLive;
+    newChatBtn.title = callLive ? "Hang up the call first" : "New thread";
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
     if (send) {
       if (recording && queueHere) {
-        send.textContent = "Queue";
-        send.title = "Stop recording, transcribe, and queue";
+        setControlLabel(send, "Queue", "Stop recording, transcribe, and queue", true);
       } else if (recording) {
-        send.textContent = "Send";
-        send.title = "Stop recording, transcribe, and send";
+        setControlLabel(send, "Send", "Stop recording, transcribe, and send", false);
       } else if (queueHere) {
-        send.textContent = "Queue";
-        send.title = backgroundBusy
+        setControlLabel(send, "Queue", backgroundBusy
           ? "Queue in this thread. It runs when this thread is free."
-          : "Queue for when the agent is idle (or steer the current run)";
+          : "Queue for when the agent is idle (or steer the current run)", true);
       } else {
-        send.textContent = "Send";
-        send.title = "Send message";
+        setControlLabel(send, "Send", "Send message", false);
       }
     }
     if (stopBtn) {
       var hereStopping = composerIsStopping();
       var workspaceStopping = !currentAgentInstanceID && !!stoppingThreadID && (busyish || backgroundBusy);
-      stopBtn.disabled = !connected || !(busyish || backgroundBusy || callLive) || hereStopping || (workspaceStopping && !hereStopping);
-      stopBtn.textContent = hereStopping ? "Stopping…" : "Interrupt";
-      stopBtn.title = hereStopping ? "This one is stopping" : (callLive && !busyish ? "Stop the current spoken reply" : "Interrupt the running agent");
+      var stopVisible = connected && (busyish || backgroundBusy || callLive);
+      stopBtn.hidden = !stopVisible;
+      stopBtn.disabled = !connected || !stopVisible || hereStopping || (workspaceStopping && !hereStopping);
+      setControlLabel(stopBtn, hereStopping ? "Stopping…" : "Interrupt", hereStopping ? "This one is stopping" : (callLive && !busyish ? "Stop the current spoken reply" : "Interrupt the running agent"), hereStopping);
     }
     if (voiceBtn && recording) {
-      voiceBtn.textContent = "Done";
-      voiceBtn.title = busyish
+      setControlLabel(voiceBtn, "Done", busyish
         ? "Finish recording into the composer (Queue to enqueue)"
-        : "Finish recording (Space = draft · Enter = send)";
+        : "Finish recording (Space = draft · Enter = send)", true);
     } else if (voiceBtn && !recording) {
-      voiceBtn.textContent = "Mic";
-      voiceBtn.title = busyish
+      setControlLabel(voiceBtn, "Record", busyish
         ? "Record a message to queue or steer"
-        : "Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send";
+        : "Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send", false);
     }
+    placeComposerControls();
     if (!waiting) hideApproval();
     if (currentAgentInstanceID && agentsCache.length) {
       var busyNow = agentState === "running" || agentState === "compacting";
@@ -2368,12 +2474,13 @@
           agentsCache[ai].running = busyNow;
         }
       }
-      renderAgentList();
     }
+    if (agentListEl) renderAgentList();
     if (threadListEl && currentThreadID) {
       threadsListState = agentState;
       renderThreadListFromCache();
     }
+    if (workspaceList) renderWorkspaceList(workspaceSearch ? workspaceSearch.value : "");
   }
 
   function setAnsiPre(el, text) {
@@ -2491,6 +2598,15 @@
     workspaceToggle.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
+  function workspaceNameShared(ws) {
+    var name = ws.name || ws.id;
+    var n = 0;
+    workspacesCache.forEach(function (other) {
+      if ((other.name || other.id) === name) n++;
+    });
+    return n > 1;
+  }
+
   function renderWorkspaceList(filter) {
     if (!workspaceList) return;
     filter = String(filter || "").trim().toLowerCase();
@@ -2502,25 +2618,134 @@
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = ws.id === currentWorkspaceID ? "active" : "";
-      btn.innerHTML = esc(ws.name || ws.id) + '<span class="ws-path">' + esc(ws.root || "") + "</span>";
+      var label = esc(ws.name || ws.id);
+      if (workspaceNameShared(ws)) label += '<span class="ws-path">' + esc(ws.root || "") + "</span>";
+      btn.innerHTML = label;
+      var here = ws.id === currentWorkspaceID && !currentAgentInstanceID;
+      if (callLive && !here) {
+        btn.disabled = true;
+        btn.title = "Hang up the call first";
+      }
       btn.addEventListener("click", function () {
         switchWorkspace(ws.id);
       });
       li.appendChild(btn);
-      if (!ws.builtin && ws.id !== currentWorkspaceID) {
+      workspaceList.appendChild(li);
+    });
+  }
+
+  function renderWorkspaceManage() {
+    var list = document.getElementById("workspace-manage-list");
+    if (!list) return;
+    list.innerHTML = "";
+    workspacesCache.forEach(function (ws) {
+      var li = document.createElement("li");
+      li.className = "agent-manage-row";
+      var name = document.createElement("div");
+      name.className = "agent-manage-name";
+      name.appendChild(document.createTextNode(ws.name || ws.id));
+      var small = document.createElement("small");
+      small.textContent = ws.root || "";
+      name.appendChild(small);
+      var actions = document.createElement("div");
+      actions.className = "agent-manage-actions";
+      if (ws.id === currentWorkspaceID) {
+        var current = document.createElement("span");
+        current.className = "meta";
+        current.textContent = "Current";
+        current.title = "Switch to another workspace before removing this one";
+        actions.appendChild(current);
+      } else if (!ws.builtin) {
         var remove = document.createElement("button");
         remove.type = "button";
-        remove.className = "ghost workspace-remove";
+        remove.className = "ghost";
         remove.textContent = "Remove";
-        remove.title = "Remove from the menu. Files stay on disk.";
-        remove.addEventListener("click", function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          hideWorkspace(ws);
-        });
-        li.appendChild(remove);
+        remove.addEventListener("click", function () { hideWorkspace(ws); });
+        actions.appendChild(remove);
       }
-      workspaceList.appendChild(li);
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", function () { beginWorkspaceRename(name, actions, ws); });
+      actions.appendChild(edit);
+      li.appendChild(name);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+    var undo = document.getElementById("workspace-undo");
+    if (!undo) return;
+    undo.hidden = !workspaceUndo;
+    undo.textContent = "";
+    if (!workspaceUndo) return;
+    undo.appendChild(document.createTextNode("Removed “" + (workspaceUndo.name || "workspace") + "” from the list. "));
+    var back = document.createElement("button");
+    back.type = "button";
+    back.className = "ghost";
+    back.textContent = "Undo";
+    back.addEventListener("click", function () {
+      var remembered = workspaceUndo;
+      workspaceUndo = null;
+      fetch(apiURL("/api/workspaces/restore"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ id: remembered.id }),
+      })
+        .then(readAPIResult)
+        .then(function () { return loadWorkspaces(); })
+        .catch(function (err) {
+          workspaceUndo = remembered;
+          appendLive("\n[workspace] " + err + "\n");
+        });
+    });
+    undo.appendChild(back);
+  }
+
+  function beginWorkspaceRename(nameEl, actions, ws) {
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = ws.name || "";
+    input.setAttribute("aria-label", "Workspace name");
+    nameEl.textContent = "";
+    nameEl.appendChild(input);
+    var small = document.createElement("small");
+    small.textContent = ws.root || "";
+    nameEl.appendChild(small);
+    actions.textContent = "";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ghost";
+    cancel.textContent = "Cancel";
+    var save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "Save";
+    cancel.addEventListener("click", function () { renderWorkspaceManage(); });
+    save.addEventListener("click", function () {
+      var next = input.value.trim();
+      if (!next) return;
+      fetch(apiURL("/api/workspaces/rename"), {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ id: ws.id, name: next }),
+      })
+        .then(readAPIResult)
+        .then(function () { return loadWorkspaces(); })
+        .catch(function (err) {
+          appendLive("\n[workspace] " + err + "\n");
+        });
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    input.focus();
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        save.click();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        cancel.click();
+      }
     });
   }
 
@@ -2540,11 +2765,9 @@
             }
           }
           if (workspaceLabel) workspaceLabel.textContent = (cur && cur.name) || currentWorkspaceID || "Workspace";
-          if (workspaceRootEl) {
-            workspaceRootEl.textContent = (cur && cur.root) || "";
-            workspaceRootEl.title = workspaceRootEl.textContent;
-          }
+          if (workspaceToggle) workspaceToggle.title = (cur && cur.name) || "";
           renderWorkspaceList(workspaceSearch && workspaceSearch.value);
+          if (workspaceDialog && workspaceDialog.open) renderWorkspaceManage();
         });
       })
       .catch(function (err) {
@@ -2629,7 +2852,7 @@
 
   function hideWorkspace(ws) {
     var name = (ws && (ws.name || ws.id)) || "this workspace";
-    askConfirm("Remove “" + name + "” from the menu?\n\nNo files are deleted. Open the folder again to put it back.", "Remove").then(function (yes) {
+    askConfirm("Remove “" + name + "” from the list?\n\nNo files are deleted. Add the folder again to put it back.", "Remove").then(function (yes) {
       if (!yes) return;
     fetch(apiURL("/api/workspaces/hide"), {
       method: "POST",
@@ -2637,23 +2860,32 @@
       body: JSON.stringify({ id: ws.id }),
     })
       .then(readAPIResult)
-      .then(function () { return loadWorkspaces(); })
+      .then(function () {
+        workspaceUndo = { id: ws.id, name: ws.name || name };
+        return loadWorkspaces();
+      })
       .catch(function (err) {
         appendLive("\n[workspace] " + err + "\n");
       });
     });
   }
 
-  function openWorkspacePath(path) {
+  function openWorkspacePath(path, name) {
     path = String(path || "").trim();
+    name = String(name || "").trim();
     if (!path) return;
     fetch(apiURL("/api/workspaces/open"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ path: path }),
+      body: JSON.stringify({ path: path, name: name }),
     })
       .then(readAPIResult)
-      .then(afterWorkspaceAttach)
+      .then(function (j) {
+        if (workspacePath) workspacePath.value = "";
+        if (workspaceNewName) workspaceNewName.value = "";
+        if (workspaceDialog && workspaceDialog.open) workspaceDialog.close();
+        return afterWorkspaceAttach(j);
+      })
       .catch(function (err) {
         appendLive("\n[workspace] " + err + "\n");
       });
@@ -2719,6 +2951,10 @@
       title.textContent = th.title || th.id;
       open.appendChild(st);
       open.appendChild(title);
+      if (callLive && !isActive) {
+        open.disabled = true;
+        open.title = "Hang up the call first";
+      }
       open.addEventListener("click", function () {
         switchThread(th.id);
       });
@@ -2920,6 +3156,10 @@
       title.textContent = ag.name || ag.id;
       open.appendChild(st);
       open.appendChild(title);
+      if (callLive && ag.id !== currentAgentInstanceID) {
+        open.disabled = true;
+        open.title = "Hang up the call first";
+      }
       open.addEventListener("click", function () {
         attachAgent(ag.id);
       });
@@ -5022,14 +5262,6 @@
       workspaceRootEl.textContent = j.workspace_root;
       workspaceRootEl.title = j.workspace_root;
     }
-    if (j.working_state) {
-      workingWrap.hidden = false;
-      workingEl.textContent = j.working_state;
-      workingWrap.open = false;
-    } else {
-      workingWrap.hidden = true;
-      workingEl.textContent = "";
-    }
     renderBudgetLine(j.budget);
     renderChapters();
     renderThread();
@@ -6978,19 +7210,63 @@
       renderWorkspaceList(workspaceSearch.value);
     });
   }
+  if (workspaceManageBtn) {
+    workspaceManageBtn.addEventListener("click", function () {
+      setWorkspaceMenuOpen(false);
+      renderWorkspaceManage();
+      if (workspaceDialog && workspaceDialog.showModal) workspaceDialog.showModal();
+    });
+  }
+  if (workspaceDialog) {
+    workspaceDialog.addEventListener("cancel", function (e) {
+      if (workspaceDialog.querySelector(".agent-manage-name input")) {
+        e.preventDefault();
+        renderWorkspaceManage();
+      }
+    });
+  }
   if (workspaceOpenBtn) {
     workspaceOpenBtn.addEventListener("click", function () {
-      openWorkspacePath(workspacePath && workspacePath.value);
+      openWorkspacePath(workspacePath && workspacePath.value, workspaceNewName && workspaceNewName.value);
     });
   }
   if (workspacePath) {
     workspacePath.addEventListener("keydown", function (e) {
       if (e.key === "Enter") {
         e.preventDefault();
-        openWorkspacePath(workspacePath.value);
+        openWorkspacePath(workspacePath.value, workspaceNewName && workspaceNewName.value);
       }
     });
   }
+  if (workspaceNewName) {
+    workspaceNewName.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        openWorkspacePath(workspacePath && workspacePath.value, workspaceNewName.value);
+      }
+    });
+  }
+  mountGlyphs();
+  if (composerMoreBtn) {
+    composerMoreBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      setComposerMore(composerMoreMenu && composerMoreMenu.hidden);
+    });
+  }
+  if (composerMoreMenu) {
+    composerMoreMenu.addEventListener("click", function (e) {
+      if (e.target.closest("button")) setComposerMore(false);
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (!composerMoreMenu || composerMoreMenu.hidden) return;
+    if (e.target.closest && e.target.closest(".composer-more")) return;
+    setComposerMore(false);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") setComposerMore(false);
+  });
   document.addEventListener("copy", function (e) {
     if (!thread || !e.clipboardData) return;
     var sel = window.getSelection();
@@ -7239,7 +7515,7 @@
   }
 
   newChatBtn.addEventListener("click", function () {
-    if (!connected) return;
+    if (!connected || callLive) return;
     newChatBtn.disabled = true;
     fetch(apiURL("/api/threads"), { method: "POST", headers: headers() })
       .then(function (r) {
@@ -7278,7 +7554,7 @@
         appendLive("\n[thread] " + err + "\n");
       })
       .finally(function () {
-        newChatBtn.disabled = false;
+        newChatBtn.disabled = !connected || callLive;
       });
   });
 
@@ -7514,6 +7790,7 @@
   function applySlash(cmd) {
     if (!cmd) return;
     msg.value = cmd.body || ("/" + cmd.name);
+    fitComposer();
     closeSlashMenu();
     slashCommands = null;
     msg.focus();
@@ -7563,6 +7840,7 @@
     var insert = "@" + name + " ";
     var caret = active.start + insert.length;
     msg.value = msg.value.slice(0, active.start) + insert + msg.value.slice(msg.selectionStart);
+    fitComposer();
     msg.setSelectionRange(caret, caret);
     if (agent.kind !== "file") mentionPicks.push({ id: agent.id, name: agent.name || agent.id });
     mentionDismissed = null;
@@ -7573,10 +7851,12 @@
   if (msg) {
     msg.addEventListener("input", function () {
       mentionDismissed = null;
+      fitComposer();
       if (activeMention(msg.value, msg.selectionStart)) ensureMentionAgents();
       updateMentionMenu();
       updateSlashMenu();
     });
+    fitComposer();
     msg.addEventListener("keyup", function (e) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape") return;
       updateMentionMenu();
@@ -7766,6 +8046,7 @@
       .then(function (j) {
         if (j && j.delivered && j.delivered.length) {
           msg.value = "";
+          fitComposer();
           mentionPicks = [];
           pendingFiles = [];
           renderAttachRow();
@@ -7815,6 +8096,7 @@
           });
         }
         msg.value = "";
+        fitComposer();
         mentionPicks = [];
         pendingFiles = [];
         renderAttachRow();
@@ -8812,6 +9094,7 @@
         }
         if (msg.value && !/\s$/.test(msg.value)) msg.value += " ";
         msg.value += text;
+        fitComposer();
         setVoiceStatus("");
         if (sendAfter) {
           sendMessage(msg.value);
@@ -8830,7 +9113,7 @@
     if (!mediaRecorder || mediaRecorder.state === "inactive") {
       recording = false;
       voiceBtn.classList.remove("recording");
-      voiceBtn.textContent = "Mic";
+      setState(agentState);
       stopTracks();
       voiceSendPending = false;
       return;

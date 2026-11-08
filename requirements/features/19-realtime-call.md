@@ -58,6 +58,14 @@ Screen sharing is a later step. The first call does not capture the display.
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-RT-7 Stay on the call's chat
+
+- **Statement:** While a live call is open, Keimling shall stay on that thread or agent. Another thread, agent, or workspace opens only after hang up.
+- **Origin:** User, 2026-11-08 (paraphrase: switching threads during a call is already refused, switching to an agent still shows the call as if it belonged there; either lock both, or keep the call on its own chat. The lock was chosen first).
+- **Fit criterion:** With a call open, choosing another thread, another agent, or another workspace leaves the open chat in place. The control says to hang up first. After hang up, that switch opens the chosen chat. Transcript lines and tool calls from the call stay on the chat that started it.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Out of scope
 
 Sending a screen share into the call. The live share itself is

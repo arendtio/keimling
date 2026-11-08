@@ -203,3 +203,61 @@ func TestWorkspaceThreadListSkipsAgentPlaceholder(t *testing.T) {
 		t.Fatalf("stored %q %v", got, err)
 	}
 }
+
+func TestRenameWorkspaceKeepsFolder(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := ensureWorkspaceNamed(root, "Alpha")
+	if err != nil || ws.Name != "Alpha" || ws.Root == "" {
+		t.Fatalf("%#v %v", ws, err)
+	}
+	renamed, err := renameWorkspace(ws.ID, "  Beta  ")
+	if err != nil || renamed.Name != "Beta" || renamed.Root != ws.Root {
+		t.Fatalf("%#v %v", renamed, err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := renameWorkspace(ws.ID, " "); err == nil {
+		t.Fatal("empty name was stored")
+	}
+	again, err := ensureWorkspaceNamed(root, "")
+	if err != nil || again.Name != "Beta" {
+		t.Fatalf("opening again should keep the chosen name: %#v %v", again, err)
+	}
+}
+
+func TestShowWorkspaceRestoresMenu(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	root := t.TempDir()
+	ws, err := ensureWorkspaceNamed(root, "Kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hideWorkspace(ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := showWorkspace(ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err := listWorkspaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range list {
+		if m.ID == ws.ID && m.Name == "Kept" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("restored workspace missing")
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatal(err)
+	}
+}

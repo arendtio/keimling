@@ -33,7 +33,28 @@ func TestAppServerHealthRequiresSecret(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["ok"] != true {
+	if body["ok"] != true || body["call"] != false {
+		t.Fatalf("body: %#v", body)
+	}
+}
+
+func TestHealthReportsOpenCall(t *testing.T) {
+	srv := newAppServer(appServerOpts{AccessSecret: "tok"})
+	srv.mu.Lock()
+	srv.realtimeOn = true
+	srv.mu.Unlock()
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d", rec.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["call"] != true {
 		t.Fatalf("body: %#v", body)
 	}
 }

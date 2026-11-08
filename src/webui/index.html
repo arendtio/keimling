@@ -212,7 +212,7 @@
         <p class="hint">Type the transcription model id. For OpenAI, gpt-transcribe is a sensible choice.</p>
 
         <p class="settings-section-title">Live call</p>
-        <p class="hint">A voice conversation on a provider that speaks the Realtime API. OpenAI and a LiteLLM proxy do. The microphone above still only records a message.</p>
+        <p class="hint">A voice conversation on a provider that speaks the Realtime API. OpenAI and a LiteLLM proxy do. Record still only saves a message.</p>
         <label>Provider
           <select id="set-realtime-provider">
             <option value="">Off</option>
@@ -389,15 +389,10 @@
               <input id="workspace-search" type="search" placeholder="Search workspaces…" autocomplete="off">
               <ul id="workspace-list" class="workspace-list" role="listbox" aria-label="Workspaces"></ul>
               <div class="workspace-menu-actions">
-                <label class="workspace-open-path">
-                  <span>Open folder</span>
-                  <input id="workspace-path" type="text" placeholder="/path/to/project" autocomplete="off">
-                </label>
-                <button type="button" id="workspace-open-btn" class="ghost wide">Open</button>
+                <button type="button" id="workspace-manage-btn" class="ghost wide">Manage</button>
               </div>
             </div>
           </div>
-          <p class="meta workspace-meta"><span id="workspace-root" title="">—</span></p>
         </div>
 
         <div class="sidebar-main">
@@ -704,6 +699,29 @@
         </form>
       </dialog>
 
+      <dialog id="workspace-dialog" class="context-dialog agent-manage-dialog">
+        <form method="dialog" class="context-panel" id="workspace-manage-form">
+          <header class="context-head">
+            <h2>Workspaces</h2>
+            <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
+          </header>
+          <p class="hint">The name is what the menu shows. Remove only drops a workspace from this list. The folder stays.</p>
+          <ul id="workspace-manage-list" class="agent-manage-list" aria-label="Workspaces"></ul>
+          <p id="workspace-undo" class="hint" hidden></p>
+          <div class="agent-manage-create">
+            <label class="agent-def-field">
+              <span>Name</span>
+              <input id="workspace-new-name" type="text" autocomplete="off" placeholder="Project name">
+            </label>
+            <label class="agent-def-field">
+              <span>Folder</span>
+              <input id="workspace-path" type="text" autocomplete="off" placeholder="/path/to/project">
+            </label>
+            <button type="button" id="workspace-open-btn">Add</button>
+          </div>
+        </form>
+      </dialog>
+
       <dialog id="confirm-dialog" class="context-dialog confirm-dialog" aria-labelledby="confirm-text">
         <form method="dialog" class="context-panel">
           <p id="confirm-text" class="confirm-text"></p>
@@ -728,11 +746,6 @@
         </header>
 
         <div class="column">
-          <details id="working-wrap" class="block" hidden>
-            <summary>Working state</summary>
-            <pre id="working" class="block-body"></pre>
-          </details>
-
           <div id="provider-banner" class="provider-banner" hidden>
             <p>No model provider. Chat cannot call a model until you add one.</p>
             <button type="button" id="provider-banner-add">Add a provider</button>
@@ -765,22 +778,33 @@
                   <span class="composer-meta-sep"> · </span><span id="budget-line" class="budget-line">—</span>
                 </p>
                 <div id="model-menu" class="model-menu" role="menu" hidden></div>
-                <div class="composer-input">
-                  <div id="mention-menu" class="mention-menu" role="listbox" hidden></div>
-                  <div id="slash-menu" class="mention-menu" role="listbox" hidden></div>
-                  <div id="attach-row" class="attach-row" hidden></div>
-                  <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
+                <div class="composer-field">
+                  <div class="composer-input">
+                    <div id="mention-menu" class="mention-menu" role="listbox" hidden></div>
+                    <div id="slash-menu" class="mention-menu" role="listbox" hidden></div>
+                    <div id="attach-row" class="attach-row" hidden></div>
+                    <textarea id="msg" rows="1" placeholder="Message Keimling…" disabled></textarea>
+                  </div>
+                  <div class="composer-actions">
+                    <div class="composer-more">
+                      <button type="button" id="composer-more" class="ghost icon-btn" data-icon="plus" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-controls="composer-more-menu" title="More">
+                        <span class="btn-caption">More</span>
+                      </button>
+                      <div id="composer-more-menu" class="composer-more-menu" role="menu" hidden>
+                        <button id="attach-file" type="button" class="ghost" role="menuitem" data-icon="file" disabled title="Add a file"><span class="btn-caption">File</span></button>
+                        <button id="screen-share" type="button" class="ghost" role="menuitem" data-icon="screen" disabled title="Share a screen or window"><span class="btn-caption">Screen</span></button>
+                      </div>
+                    </div>
+                    <input id="attach-input" type="file" multiple hidden>
+                  </div>
+                  <div class="composer-send-col">
+                    <button id="voice" type="button" class="ghost icon-btn" data-icon="cassette" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send"><span class="btn-caption">Record</span></button>
+                    <button id="call" type="button" class="ghost icon-btn" data-icon="phone" disabled hidden title="Live voice call"><span class="btn-caption">Call</span></button>
+                    <button id="call-mute" type="button" class="ghost icon-btn" data-icon="mic" hidden title="Mute the microphone"><span class="btn-caption">Mute</span></button>
+                    <button id="stop" type="button" class="ghost danger icon-btn" data-icon="stop" disabled hidden title="Interrupt the running agent"><span class="btn-caption">Interrupt</span></button>
+                    <button id="send" type="submit" class="icon-btn" data-icon="up" disabled title="Send message"><span class="btn-caption">Send</span></button>
+                  </div>
                 </div>
-              </div>
-              <div class="composer-actions">
-                <button id="attach-file" type="button" class="ghost" disabled title="Add a file">File</button>
-                <input id="attach-input" type="file" multiple hidden>
-                <button id="call" type="button" class="ghost" disabled hidden title="Live voice call">Call</button>
-                <button id="screen-share" type="button" class="ghost" disabled title="Share a screen or window">Screen</button>
-                <button id="call-mute" type="button" class="ghost" hidden title="Mute the microphone">Mute</button>
-                <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
-                <button id="stop" type="button" class="ghost danger" disabled title="Interrupt the running agent">Interrupt</button>
-                <button id="send" type="submit" disabled title="Send message">Send</button>
               </div>
             </div>
             <div id="screen-preview" class="screen-preview" hidden>
