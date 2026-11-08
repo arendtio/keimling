@@ -327,6 +327,13 @@
   var realtimeReady = false;
   var callLive = false;
   var callMuted = false;
+  var callSentAudio = false;
+  var callUserSpeaking = false;
+  var callRecovering = false;
+  var callRecoverCreate = false;
+  var callResponseSpeak = 0;
+  var callPictureAt = 0;
+  var callPicturePending = false;
   var stopBtn = document.getElementById("stop");
   var voiceStatus = document.getElementById("voice-status");
 
@@ -2100,6 +2107,7 @@
       callBtn.classList.toggle("live", callLive);
       callBtn.title = callLive ? "Hang up. The transcript stays in the chat." : "Live voice call";
     }
+    if (screenBtn) screenBtn.disabled = !connected || screenBusy;
     if (callMuteBtn) {
       callMuteBtn.hidden = !callLive;
       callMuteBtn.textContent = callMuted ? "Unmute" : "Mute";
@@ -7392,6 +7400,11 @@
     if (socketMode) primeCallSpeaker();
     callLive = true;
     callMuted = false;
+    callSentAudio = false;
+    callUserSpeaking = false;
+    callRecovering = false;
+    callRecoverCreate = false;
+    callPicturePending = false;
     callConfigured = false;
     callSeeded = false;
     callDCOpen = false;
@@ -7521,10 +7534,12 @@
     micProc.connect(mute);
     mute.connect(ctx.destination);
     micProc.onaudioprocess = function (e) {
-      if (gen !== callGen || callMuted || !callDC || callDC.readyState !== "open") return;
+      if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
       var input = e.inputBuffer.getChannelData(0);
       var pcm = resampleTo24k(input, ctx.sampleRate);
       if (!pcm.length) return;
+      if (callMuted) pcm = new Float32Array(pcm.length);
+      else callSentAudio = true;
       callDC.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm16Base64(pcm) }));
     };
   }
@@ -7675,6 +7690,7 @@
 
   function sendCallText(text) {
     if (!callDC || callDC.readyState !== "open") return;
+    sendCallPicture();
     callDC.send(JSON.stringify({
       type: "conversation.item.create",
       item: { type: "message", role: "user", content: [{ type: "input_text", text: text }] },
@@ -7692,11 +7708,27 @@
       maybeConfigureCall(gen);
     }
     if (type === "error") {
-      var msg = (ev.error && (ev.error.message || ev.error.code)) || "Call error";
-      setVoiceStatus(String(msg));
+      var msg = String((ev.error && (ev.error.message || ev.error.code)) || "Call error");
+      if (isEmptyAudioError(msg) || isNoResponseError(msg)) return;
+      if (isActiveResponseError(msg)) {
+        if (callPictureAt && Date.now() - callPictureAt < 1500) {
+          callPictureAt = 0;
+          callPicturePending = true;
+          return;
+        }
+        if (callRecovering || !callDC || callDC.readyState !== "open") return;
+        callRecovering = true;
+        callRecoverCreate = !callUserSpeaking;
+        callDC.send(JSON.stringify({ type: "response.cancel" }));
+        return;
+      }
+      setVoiceStatus(msg);
       return;
     }
     if (type === "response.created") {
+      callRecovering = false;
+      callRecoverCreate = false;
+      callResponseSpeak = callSpeak;
       finishLiveLine("assistant");
       assistantLive = "";
       assistantSaved = false;
@@ -7708,7 +7740,23 @@
       if (typeof ev.content_index === "number") callAudioIndex = ev.content_index;
     }
     if (type === "response.output_item.added" && ev.item && ev.item.id) callAudioItem = ev.item.id;
-    if (type === "input_audio_buffer.speech_started") bargeInCall();
+    if (type === "input_audio_buffer.speech_started") {
+      callUserSpeaking = true;
+      bargeInCall();
+      if (!sendCallPicture()) callPicturePending = true;
+    }
+    if (type === "input_audio_buffer.speech_stopped") {
+      callUserSpeaking = false;
+    }
+    if (type === "response.cancelled") {
+      if (callPicturePending && callUserSpeaking) sendCallPicture();
+      var create = callRecoverCreate && !callUserSpeaking;
+      callRecoverCreate = false;
+      if (!create) callRecovering = false;
+      if (create && callDC && callDC.readyState === "open") {
+        callDC.send(JSON.stringify({ type: "response.create" }));
+      }
+    }
     if (type === "conversation.item.input_audio_transcription.delta") {
       if (ev.item_id && ev.item_id !== callUserItem) {
         finishLiveLine("user");
@@ -7755,7 +7803,7 @@
       (resp.output || []).forEach(function (item) {
         if (item && item.type === "function_call" && item.call_id && !callSeen[item.call_id]) calls.push(item);
       });
-      if (calls.length) runCallTools(calls, gen);
+      if (calls.length && callSpeak === callResponseSpeak) runCallTools(calls, gen);
     }
   }
 
@@ -7811,13 +7859,33 @@
     });
   }
 
+  function isEmptyAudioError(msg) {
+    return /empty|buffer too small|audio is too short|commit.*buffer/i.test(msg);
+  }
+
+  function isNoResponseError(msg) {
+    return /no active response|no response is active|response not active/i.test(msg);
+  }
+
+  function isActiveResponseError(msg) {
+    return /active response|already has an active response|response in progress/i.test(msg);
+  }
+
+  function commitCallInput() {
+    if (!callDC || callDC.readyState !== "open") return;
+    if (callTransport === "ws" && !callSentAudio) return;
+    callSentAudio = false;
+    callDC.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+  }
+
   function runCallTools(calls, gen) {
     var i = 0;
     var speakGen = callSpeak;
     function next(speak) {
-      if (gen !== callGen) return;
-      if (i >= calls.length) {
-        if (speak && callDC && callDC.readyState === "open") callDC.send(JSON.stringify({ type: "response.create" }));
+      if (gen !== callGen || !callDC || callDC.readyState !== "open") return;
+      if (speakGen !== callSpeak) speak = false;
+      if (!speak || i >= calls.length) {
+        callDC.send(JSON.stringify({ type: speak ? "response.create" : "response.cancel" }));
         return;
       }
       var item = calls[i++];
@@ -7839,7 +7907,7 @@
           type: "conversation.item.create",
           item: { type: "function_call_output", call_id: item.call_id, output: "INTERRUPTED: " + String((err && err.message) || err) },
         }));
-        next(speakGen === callSpeak);
+        next(false);
       });
     }
     next(true);
@@ -7881,6 +7949,7 @@
     if (!callMic) return;
     callMuted = !callMuted;
     callMic.getAudioTracks().forEach(function (t) { t.enabled = !callMuted; });
+    if (callMuted) commitCallInput();
     setVoiceStatus(callMuted ? "Muted" : "Live");
     setState(agentState);
   }
@@ -7889,6 +7958,11 @@
     callGen += 1;
     callLive = false;
     callMuted = false;
+    callSentAudio = false;
+    callUserSpeaking = false;
+    callRecovering = false;
+    callRecoverCreate = false;
+    callPicturePending = false;
     callConfigured = false;
     callSeeded = false;
     callDCOpen = false;
@@ -7902,6 +7976,7 @@
     if (callLimitTimer) clearTimeout(callLimitTimer);
     callLimitTimer = 0;
     callTransport = "";
+    screenCallItem = "";
     stopCallAudio();
     if (callDC) { try { callDC.close(); } catch (e) {} }
     if (callPC) { try { callPC.close(); } catch (e) {} }
@@ -7982,6 +8057,187 @@
     var busyish = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
     if (busyish || backgroundBusy) stopCurrentRun();
   });
+  var screenBtn = document.getElementById("screen-share");
+  var screenPreview = document.getElementById("screen-preview");
+  var screenFrame = document.getElementById("screen-frame");
+  var screenDismiss = document.getElementById("screen-dismiss");
+  var screenBusy = false;
+  var screenAbort = null;
+  var screenObjectURL = "";
+  var screenSaw = false;
+  var screenGen = 0;
+  var screenLatest = null;
+  var screenCallItem = "";
+
+  function concatBytes(a, b) {
+    var out = new Uint8Array(a.length + b.length);
+    if (a.length) out.set(a, 0);
+    if (b.length) out.set(b, a.length);
+    return out;
+  }
+
+  function scaledScreenDataURL(edge, quality) {
+    var img = screenFrame;
+    if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return "";
+    var scale = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight));
+    var canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    try {
+      return canvas.toDataURL("image/jpeg", quality);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function screenImageDataURL() {
+    if (!screenLatest || !screenLatest.length) return "";
+    var edge = 768;
+    var quality = 0.6;
+    var url = "";
+    for (var attempt = 0; attempt < 3; attempt++) {
+      url = scaledScreenDataURL(edge, quality);
+      if (url && url.length <= 100000) return url;
+      edge = Math.round(edge * 0.7);
+      quality = 0.5;
+    }
+    if (url && url.length <= 160000) return url;
+    return "";
+  }
+
+  function forgetCallPicture() {
+    if (!screenCallItem || !callDC || callDC.readyState !== "open") {
+      screenCallItem = "";
+      return;
+    }
+    var id = screenCallItem;
+    screenCallItem = "";
+    callDC.send(JSON.stringify({ type: "conversation.item.delete", item_id: id }));
+  }
+
+  function sendCallPicture() {
+    if (!callLive || !callDC || callDC.readyState !== "open") return false;
+    var picture = screenImageDataURL();
+    if (!picture) return false;
+    forgetCallPicture();
+    callPicturePending = false;
+    callPictureAt = Date.now();
+    screenCallItem = "screen_" + Date.now();
+    callDC.send(JSON.stringify({
+      type: "conversation.item.create",
+      item: {
+        id: screenCallItem,
+        type: "message",
+        role: "user",
+        content: [
+          { type: "input_text", text: "Live screen share. This is the current frame and it replaces the previous one." },
+          { type: "input_image", image_url: picture },
+        ],
+      },
+    }));
+    return true;
+  }
+
+  function showScreenJpeg(jpeg) {
+    screenLatest = jpeg;
+    var url = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
+    if (screenObjectURL) URL.revokeObjectURL(screenObjectURL);
+    screenObjectURL = url;
+    if (screenFrame) screenFrame.src = url;
+    if (screenPreview) screenPreview.hidden = false;
+    if (!screenSaw) {
+      screenSaw = true;
+      setVoiceStatus("Sharing.");
+    }
+  }
+
+  function readScreenFrames(reader) {
+    var buf = new Uint8Array(0);
+    function take() {
+      var last = null;
+      while (buf.length >= 4) {
+        var n = buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24);
+        if (n <= 0 || n > 8000000) throw new Error("Screen share sent a bad picture.");
+        if (buf.length < 4 + n) break;
+        last = new Uint8Array(n);
+        last.set(buf.subarray(4, 4 + n));
+        buf = buf.subarray(4 + n);
+      }
+      if (last) showScreenJpeg(last);
+    }
+    function pump() {
+      return reader.read().then(function (res) {
+        if (res.done) {
+          if (!screenSaw) throw new Error("Screen share produced no picture.");
+          return;
+        }
+        buf = concatBytes(buf, res.value);
+        take();
+        return pump();
+      });
+    }
+    return pump();
+  }
+
+  function stopScreenShare() {
+    forgetCallPicture();
+    screenGen++;
+    if (screenAbort) screenAbort.abort();
+    screenAbort = null;
+    screenBusy = false;
+    if (screenObjectURL) URL.revokeObjectURL(screenObjectURL);
+    screenObjectURL = "";
+    screenSaw = false;
+    screenLatest = null;
+    if (screenFrame) screenFrame.removeAttribute("src");
+    if (screenPreview) screenPreview.hidden = true;
+    setVoiceStatus("");
+    setState(agentState);
+  }
+
+  function shareScreen() {
+    stopScreenShare();
+    if (!window.fetch || !window.ReadableStream) {
+      setVoiceStatus("This window cannot show a live picture.");
+      return;
+    }
+    var gen = ++screenGen;
+    screenAbort = new AbortController();
+    var signal = screenAbort.signal;
+    screenBusy = true;
+    screenSaw = false;
+    setState(agentState);
+    setVoiceStatus("Choose a screen or window.");
+    fetch(apiURL("/api/screen/share"), { method: "POST", headers: headers(), signal: signal }).then(function (r) {
+      if (gen !== screenGen || signal.aborted) return;
+      if (r.status === 409) {
+        var cancel = new Error("cancelled");
+        cancel.name = "AbortError";
+        throw cancel;
+      }
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+      if (!r.body || !r.body.getReader) throw new Error("This window cannot show a live picture.");
+      setVoiceStatus("Sharing.");
+      return readScreenFrames(r.body.getReader());
+    }).catch(function (err) {
+      if (gen !== screenGen || signal.aborted) return;
+      var name = err && err.name;
+      if (name === "AbortError" || name === "NotAllowedError") setVoiceStatus("Screen share was cancelled.");
+      else setVoiceStatus("Screen: " + ((err && err.message) || err || "failed"));
+    }).then(function () {
+      if (gen !== screenGen) return;
+      if (!signal.aborted && screenSaw) setVoiceStatus("Screen share stopped.");
+      screenBusy = false;
+      screenAbort = null;
+      setState(agentState);
+    });
+  }
+
+  if (screenBtn) screenBtn.addEventListener("click", shareScreen);
+  if (screenDismiss) screenDismiss.addEventListener("click", stopScreenShare);
   if (callBtn) callBtn.addEventListener("click", function () {
     if (callLive) hangUpCall();
     else startCall();

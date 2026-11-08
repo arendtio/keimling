@@ -9,7 +9,7 @@
 - Settings has a live-call provider, model, and voice, separate from transcription.
 - Call is available on a workspace thread and on an agent when that setting is on.
 - Hang up ends the call. The transcript stays in the chat.
-- Mute turns the microphone off without leaving the call.
+- Mute turns the microphone off without leaving the call. The open spoken turn still closes.
 
 ## US-45 — The chat and the call stay one conversation
 

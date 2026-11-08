@@ -139,6 +139,9 @@ func TestRealtimeCallUsesEphemeralSecretAndStaysIdle(t *testing.T) {
 	if !strings.Contains(setup.Instructions, "mcp__") {
 		t.Fatal("instructions do not tell the call that mcp__ is a function")
 	}
+	if !strings.Contains(setup.Instructions, "screen or window") {
+		t.Fatal("instructions do not tell the call that a shared picture is the screen")
+	}
 	if len(setup.History) == 0 || setup.History[len(setup.History)-1]["text"] != "hello" {
 		t.Fatalf("history: %#v", setup.History)
 	}

@@ -393,15 +393,41 @@ func chatFileNames(files []chatFile) []string {
 // expandChatFiles turns attached-file trailers into model input.
 // Text is included. Audio bytes are included only when the model can hear.
 // An image stays as its path. The bytes go out only on a delegate call.
+// The live screen share is the exception: only its newest frame is included.
 func expandChatFiles(items []json.RawMessage, images, audio bool) []json.RawMessage {
+	lastScreen := -1
+	for i, raw := range items {
+		if itemHasScreenShare(raw) {
+			lastScreen = i
+		}
+	}
 	out := make([]json.RawMessage, len(items))
 	for i, raw := range items {
-		out[i] = expandChatFileItem(raw, images, audio)
+		out[i] = expandChatFileItem(raw, images, audio, i == lastScreen)
 	}
 	return out
 }
 
-func expandChatFileItem(raw json.RawMessage, images, audio bool) json.RawMessage {
+func itemHasScreenShare(raw json.RawMessage) bool {
+	var item map[string]any
+	if json.Unmarshal(raw, &item) != nil {
+		return false
+	}
+	role, _ := item["role"].(string)
+	content, ok := item["content"].(string)
+	if !strings.EqualFold(role, "user") || !ok {
+		return false
+	}
+	_, files := splitChatFiles(content)
+	for _, f := range files {
+		if f.Name == screenShareFileName {
+			return true
+		}
+	}
+	return false
+}
+
+func expandChatFileItem(raw json.RawMessage, images, audio, inlineScreen bool) json.RawMessage {
 	var item map[string]any
 	if json.Unmarshal(raw, &item) != nil {
 		return raw
@@ -415,7 +441,7 @@ func expandChatFileItem(raw json.RawMessage, images, audio bool) json.RawMessage
 	if len(files) == 0 {
 		return raw
 	}
-	text, parts := chatFileModelContent(body, files, images, audio)
+	text, parts := chatFileModelContent(body, files, images, audio, inlineScreen)
 	if len(parts) == 0 {
 		item["content"] = text
 	} else {
@@ -428,7 +454,7 @@ func expandChatFileItem(raw json.RawMessage, images, audio bool) json.RawMessage
 	return next
 }
 
-func chatFileModelContent(body string, files []chatFile, images, audio bool) (string, []any) {
+func chatFileModelContent(body string, files []chatFile, images, audio, inlineScreen bool) (string, []any) {
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(body, "\n"))
 	if b.Len() > 0 {
@@ -445,6 +471,19 @@ func chatFileModelContent(body string, files []chatFile, images, audio bool) (st
 		b.WriteString(f.Path)
 		b.WriteByte('\n')
 		if chatFileKind(f.Path) == "image" {
+			if f.Name == screenShareFileName {
+				if inlineScreen && images {
+					if part, ok := screenShareImagePart(f.Path); ok {
+						b.WriteString("  This is the live screen share. The current picture is included in this message and replaces any earlier frame.\n")
+						parts = append(parts, part)
+						continue
+					}
+				}
+				if !inlineScreen {
+					b.WriteString("  A newer live screen frame replaced this one.\n")
+					continue
+				}
+			}
 			if images {
 				b.WriteString("  ")
 				b.WriteString(imageDelegateHint)
@@ -477,6 +516,22 @@ func chatFileModelContent(body string, files []chatFile, images, audio bool) (st
 		}
 	}
 	return b.String(), parts
+}
+
+func screenShareImagePart(path string) (map[string]any, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, chatImageLimit+1))
+	if err != nil || len(data) == 0 || len(data) > chatImageLimit {
+		return nil, false
+	}
+	return map[string]any{
+		"type":      "input_image",
+		"image_url": "data:" + imageMIME(path) + ";base64," + base64.StdEncoding.EncodeToString(data),
+	}, true
 }
 
 func readChatFile(path string) (string, []byte) {

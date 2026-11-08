@@ -830,11 +830,16 @@
                 <button id="attach-file" type="button" class="ghost" disabled title="Add a file">File</button>
                 <input id="attach-input" type="file" multiple hidden>
                 <button id="call" type="button" class="ghost" disabled hidden title="Live voice call">Call</button>
+                <button id="screen-share" type="button" class="ghost" disabled title="Share a screen or window">Screen</button>
                 <button id="call-mute" type="button" class="ghost" hidden title="Mute the microphone">Mute</button>
                 <button id="voice" type="button" class="ghost" disabled hidden title="Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send">Mic</button>
                 <button id="stop" type="button" class="ghost danger" disabled title="Interrupt the running agent">Interrupt</button>
                 <button id="send" type="submit" disabled title="Send message">Send</button>
               </div>
+            </div>
+            <div id="screen-preview" class="screen-preview" hidden>
+              <img id="screen-frame" alt="Live picture of the chosen screen or window">
+              <button id="screen-dismiss" type="button" class="ghost">Stop</button>
             </div>
             <p id="voice-status" class="hint" hidden></p>
           </form>

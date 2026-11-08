@@ -11,7 +11,8 @@ static gboolean keimling_on_permission_request(WebKitWebView *web_view,
                                                gpointer user_data) {
 	(void)web_view;
 	(void)user_data;
-	// Local desktop app: auto-allow mic (and device enumeration). No browser prompt.
+	// Local desktop app: auto-allow mic, screen capture, and device enumeration.
+	// The desktop portal still asks which screen to share.
 	if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request) ||
 	    WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request)) {
 		webkit_permission_request_allow(request);

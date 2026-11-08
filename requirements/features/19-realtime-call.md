@@ -14,7 +14,7 @@ Screen sharing is a later step. The first call does not capture the display.
 
 - **Statement:** Keimling shall open a live voice call on the provider and model chosen for that call, for the open workspace thread or the open agent.
 - **Origin:** User, 2026-11-07 (paraphrase of using the OpenAI Realtime API, including through other providers that offer it, for agents and threads).
-- **Fit criterion:** With a realtime provider and model saved, Call connects on the current thread and on an agent, in the browser and in the desktop window. The browser uses WebRTC. The desktop window uses a websocket and microphone PCM when that window has no WebRTC, and plays the assistant's spoken reply for the whole turn as one continuous stream. Interrupt stops that playback. Speaking while the reply is still playing stops it too, and that speech is one turn. Hang up ends it. The transcription microphone still records a message and does not place the call.
+- **Fit criterion:** With a realtime provider and model saved, Call connects on the current thread and on an agent, in the browser and in the desktop window. The browser uses WebRTC. The desktop window uses a websocket and microphone PCM when that window has no WebRTC, and plays the assistant's spoken reply for the whole turn as one continuous stream. Interrupt stops that playback. Speaking while the reply is still playing stops it too, and that speech is one turn. After an interrupt, the next spoken turn works without starting the call again. Hang up ends it. The transcription microphone still records a message and does not place the call.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -30,7 +30,7 @@ Screen sharing is a later step. The first call does not capture the display.
 
 - **Statement:** What is said in the call shall appear in the text window. The spoken reply and the written reply are the same answer.
 - **Origin:** User, 2026-11-07 (quote: "gesagte soll direkt auch im Textfenster erscheinend" and "bietet die realtime API nicht die möglichkeit die textevents auch zu bekommen?").
-- **Fit criterion:** Input transcription is on for the call. After a spoken turn, the thread shows the recognized user speech and the assistant transcript. Reloading the thread still shows both. A second model does not write a separate reply during the call.
+- **Fit criterion:** Input transcription is on for the call. After a spoken turn, the thread shows the recognized user speech and the assistant transcript. Muting the microphone closes that turn, so the transcript appears without more microphone audio. Reloading the thread still shows both. A second model does not write a separate reply during the call.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -60,5 +60,6 @@ Screen sharing is a later step. The first call does not capture the display.
 
 ## Out of scope
 
-Sharing the screen into the call. A later call can add an image on the same
-text-event channel.
+Sending a screen share into the call. The live share itself is
+[REQ-SS-1](20-screen-share.md). A later requirement can hand that picture to
+the model.

@@ -210,7 +210,7 @@ func (a *Agent) realtimeInstructions() string {
 	if a != nil {
 		base = a.modelInstructions()
 	}
-	extra := "You are in a live voice call. The user hears your speech, and the same words are written into the chat. A typed line is the same person. Use tools the same way as in chat. A name that starts with mcp__ is a function. Call that function. Never pass that name to exec. Wait for each tool result. Do not claim a tool ran before its result arrives."
+	extra := "You are in a live voice call. The user hears your speech, and the same words are written into the chat. A typed line is the same person. Use tools the same way as in chat. A name that starts with mcp__ is a function. Call that function. Never pass that name to exec. Wait for each tool result. Do not claim a tool ran before its result arrives. When a user message includes an image, that image is the screen or window the user is sharing at that moment. Answer from that picture."
 	return strings.TrimSpace(base + "\n\n" + extra)
 }
 
