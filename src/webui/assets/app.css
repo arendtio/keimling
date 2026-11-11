@@ -1867,11 +1867,6 @@ button.wide { width: 100%; max-width: 100%; }
   align-items: center;
   justify-content: center;
 }
-.composer .icon-btn.show-label {
-  width: auto;
-  padding: 0 0.6rem;
-  gap: 0.35rem;
-}
 .composer .icon-btn[hidden] { display: none; }
 .composer-send-col svg,
 .composer-actions svg,
@@ -1880,7 +1875,7 @@ button.wide { width: 100%; max-width: 100%; }
   height: 1.15rem;
   flex: none;
 }
-.icon-btn .btn-caption {
+.composer .icon-btn .btn-caption {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1890,14 +1885,6 @@ button.wide { width: 100%; max-width: 100%; }
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
-}
-.icon-btn.show-label .btn-caption {
-  position: static;
-  width: auto;
-  height: auto;
-  margin: 0;
-  overflow: visible;
-  clip: auto;
 }
 .composer-more-menu[hidden] { display: none; }
 .composer-more-menu {

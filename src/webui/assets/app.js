@@ -2415,13 +2415,13 @@
     else btn.insertBefore(next, btn.firstChild);
   }
 
-  function setControlLabel(btn, label, title, emphasize) {
+  function setControlLabel(btn, label, title) {
     if (!btn) return;
     var cap = btn.querySelector(".btn-caption");
     if (cap) cap.textContent = label;
     btn.setAttribute("aria-label", label);
     btn.title = title || label;
-    btn.classList.toggle("show-label", !!emphasize);
+    btn.classList.remove("show-label");
   }
 
   function setComposerMore(open) {
@@ -2495,13 +2495,13 @@
       callBtn.hidden = !realtimeReady;
       callBtn.disabled = !connected || !realtimeReady || recording;
       callBtn.classList.toggle("live", callLive);
-      setControlLabel(callBtn, callLive ? "Hang up" : "Call", callLive ? "Hang up. The transcript stays in the chat." : "Live voice call", false);
+      setControlLabel(callBtn, callLive ? "Hang up" : "Call", callLive ? "Hang up. The transcript stays in the chat." : "Live voice call");
       setGlyph(callBtn, callLive ? "hangup" : "phone");
     }
     if (screenBtn) screenBtn.disabled = !connected || screenBusy;
     if (callMuteBtn) {
       callMuteBtn.hidden = !callLive;
-      setControlLabel(callMuteBtn, callMuted ? "Unmute" : "Mute", callMuted ? "Turn the microphone back on" : "Mute the microphone", false);
+      setControlLabel(callMuteBtn, callMuted ? "Unmute" : "Mute", callMuted ? "Turn the microphone back on" : "Mute the microphone");
       setGlyph(callMuteBtn, callMuted ? "mic-off" : "mic");
     }
     newChatBtn.disabled = !connected || callLive;
@@ -2509,15 +2509,15 @@
     if (contextCompactBtn) contextCompactBtn.disabled = !connected || busyish;
     if (send) {
       if (recording && queueHere) {
-        setControlLabel(send, "Queue", "Stop recording, transcribe, and queue", true);
+        setControlLabel(send, "Queue", "Stop recording, transcribe, and queue");
       } else if (recording) {
-        setControlLabel(send, "Send", "Stop recording, transcribe, and send", false);
+        setControlLabel(send, "Send", "Stop recording, transcribe, and send");
       } else if (queueHere) {
         setControlLabel(send, "Queue", backgroundBusy
           ? "Queue in this thread. It runs when this thread is free."
-          : "Queue for when the agent is idle (or steer the current run)", true);
+          : "Queue for when the agent is idle (or steer the current run)");
       } else {
-        setControlLabel(send, "Send", "Send message", false);
+        setControlLabel(send, "Send", "Send message");
       }
     }
     if (stopBtn) {
@@ -2526,16 +2526,16 @@
       var stopVisible = connected && (busyish || backgroundBusy || callLive);
       stopBtn.hidden = !stopVisible;
       stopBtn.disabled = !connected || !stopVisible || hereStopping || (workspaceStopping && !hereStopping);
-      setControlLabel(stopBtn, hereStopping ? "Stopping…" : "Interrupt", hereStopping ? "This one is stopping" : (callLive && !busyish ? "Stop the current spoken reply" : "Interrupt the running agent"), hereStopping);
+      setControlLabel(stopBtn, hereStopping ? "Stopping…" : "Interrupt", hereStopping ? "This one is stopping" : (callLive && !busyish ? "Stop the current spoken reply" : "Interrupt the running agent"));
     }
     if (voiceBtn && recording) {
       setControlLabel(voiceBtn, "Done", busyish
         ? "Finish recording into the composer (Queue to enqueue)"
-        : "Finish recording (Space = draft · Enter = send)", true);
+        : "Finish recording (Space = draft · Enter = send)");
     } else if (voiceBtn && !recording) {
       setControlLabel(voiceBtn, "Record", busyish
         ? "Record a message to queue or steer"
-        : "Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send", false);
+        : "Record (Space/Enter on empty · F1). While recording: Space = draft, Enter = send");
     }
     placeComposerControls();
     if (!waiting) hideApproval();
