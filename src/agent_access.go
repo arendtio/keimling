@@ -257,6 +257,17 @@ func toolNameGranted(grant []string, name string) bool {
 	if name == "data_processing" || name == "data_processing_help" {
 		return true
 	}
+	if name == "mcp_tools" {
+		if grant == nil {
+			return true
+		}
+		for _, g := range grant {
+			if isMCPServerGrant(g) {
+				return true
+			}
+		}
+		return false
+	}
 	if grant == nil {
 		return true
 	}
@@ -419,11 +430,11 @@ func (a *Agent) modelInstructions() string {
 			base += "\n\n" + line
 		}
 		if cat := strings.TrimSpace(a.skillsCatalogBlock()); cat != "" {
-			return base + "\n\n" + cat
+			base += "\n\n" + cat
 		}
-		return base
+		return a.withMCPCatalog(base)
 	}
-	return a.agentInstanceInstructions()
+	return a.withMCPCatalog(a.agentInstanceInstructions())
 }
 
 func (a *Agent) agentInstanceInstructions() string {

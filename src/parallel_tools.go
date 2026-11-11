@@ -436,6 +436,18 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 		if item.Name == "data_processing_help" {
 			return dataHelp(item.Arguments), ""
 		}
+		if item.Name == "mcp_tools" {
+			var p struct {
+				Server string `json:"server"`
+				Query  string `json:"query"`
+			}
+			if e := decodeArgs(item.Arguments, &p); e != nil {
+				return e.Error(), ""
+			}
+			result := a.loadMCPTools(p.Server, p.Query)
+			a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
+			return result, ""
+		}
 		if isMCPTool(item.Name) {
 			argsJSON := item.Arguments
 			secret := ""

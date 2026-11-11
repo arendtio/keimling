@@ -40,12 +40,13 @@ type MCPServerStatus struct {
 }
 
 type mcpSession struct {
-	name   string
-	cfg    MCPServerConfig
-	client *mcpclient.Client
-	tools  []mcp.Tool
-	status string
-	err    string
+	name         string
+	cfg          MCPServerConfig
+	client       *mcpclient.Client
+	tools        []mcp.Tool
+	instructions string
+	status       string
+	err          string
 }
 
 // MCPManager holds backend MCP clients (stdio/HTTP/SSE). The browser never talks to MCP servers.
@@ -54,6 +55,7 @@ type MCPManager struct {
 	sessions    map[string]*mcpSession
 	routes      map[string]mcpToolRoute
 	defs        []map[string]any
+	loaded      map[string]struct{}
 	sources     map[string]string
 	sourceNames map[string]string
 }
@@ -130,7 +132,7 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 	sess.cfg = cfg
 	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	cli, kind, err := dialMCP(cctx, cfg)
+	cli, kind, instructions, err := dialMCP(cctx, cfg)
 	if kind != "" {
 		sess.cfg.Type = kind
 	}
@@ -151,6 +153,7 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 		return
 	}
 	sess.client = cli
+	sess.instructions = strings.TrimSpace(instructions)
 	sess.status = "connected"
 	if listed != nil {
 		sess.tools = listed.Tools
@@ -160,49 +163,50 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 	m.mu.Unlock()
 }
 
-func dialMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, string, error) {
+func dialMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, string, string, error) {
 	kind := cfg.transportKind()
 	if kind == "streamableHttp" && !cfg.remoteTypeSet() {
-		cli, err := connectMCP(ctx, cfg)
+		cli, instructions, err := connectMCP(ctx, cfg)
 		if err == nil {
-			return cli, "streamableHttp", nil
+			return cli, "streamableHttp", instructions, nil
 		}
 		if legacySSEServer(err) {
 			sse := cfg
 			sse.Type = "sse"
-			cli, err2 := connectMCP(ctx, sse)
+			cli, instructions, err2 := connectMCP(ctx, sse)
 			if err2 == nil {
-				return cli, "sse", nil
+				return cli, "sse", instructions, nil
 			}
-			return nil, "sse", err2
+			return nil, "sse", "", err2
 		}
-		return nil, "streamableHttp", err
+		return nil, "streamableHttp", "", err
 	}
-	cli, err := connectMCP(ctx, cfg)
-	return cli, kind, err
+	cli, instructions, err := connectMCP(ctx, cfg)
+	return cli, kind, instructions, err
 }
 
 func legacySSEServer(err error) bool {
 	return err != nil && (errors.Is(err, transport.ErrLegacySSEServer) || strings.Contains(err.Error(), "legacy SSE"))
 }
 
-func connectMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, error) {
+func connectMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, string, error) {
 	cli, err := openMCPClient(cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if err := cli.Start(ctx); err != nil {
 		_ = cli.Close()
-		return nil, fmt.Errorf("start: %w", err)
+		return nil, "", fmt.Errorf("start: %w", err)
 	}
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{Name: "keimling", Version: "1.0.0"}
-	if _, err := cli.Initialize(ctx, initReq); err != nil {
+	res, err := cli.Initialize(ctx, initReq)
+	if err != nil {
 		_ = cli.Close()
-		return nil, fmt.Errorf("initialize: %w", err)
+		return nil, "", fmt.Errorf("initialize: %w", err)
 	}
-	return cli, nil
+	return cli, res.Instructions, nil
 }
 
 func openMCPClient(cfg MCPServerConfig) (*mcpclient.Client, error) {
@@ -453,7 +457,7 @@ func (a *Agent) mcpToolDefs() []map[string]any {
 	if a == nil || a.MCP == nil {
 		return nil
 	}
-	return a.MCP.ToolDefs()
+	return a.MCP.visibleDefs(a.activeChatContextLimit())
 }
 
 func (m *MCPManager) setServerSources(sources, names map[string]string) {

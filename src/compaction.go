@@ -163,6 +163,9 @@ func (a *Agent) checkpoint(next []json.RawMessage, level string) error {
 		return err
 	}
 	a.History = next
+	if a.MCP != nil {
+		a.MCP.clearLoaded()
+	}
 	if a.Client != nil {
 		a.Client.LastMainUsage = MainUsage{}
 	}
