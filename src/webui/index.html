@@ -736,6 +736,16 @@
         </form>
       </dialog>
 
+      <dialog id="screen-dialog" class="context-dialog" aria-labelledby="screen-dialog-title">
+        <form method="dialog" class="context-panel">
+          <h2 id="screen-dialog-title">Share a screen or window</h2>
+          <div id="screen-targets" class="screen-targets"></div>
+          <div class="skills-row confirm-actions">
+            <button type="submit" class="ghost" value="cancel">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+
       <dialog id="confirm-dialog" class="context-dialog confirm-dialog" aria-labelledby="confirm-text">
         <form method="dialog" class="context-panel">
           <p id="confirm-text" class="confirm-text"></p>
@@ -821,10 +831,6 @@
                 </div>
               </div>
             </div>
-            <div id="screen-preview" class="screen-preview" hidden>
-              <img id="screen-frame" alt="Live picture of the chosen screen or window">
-              <button id="screen-dismiss" type="button" class="ghost">Stop</button>
-            </div>
             <p id="voice-status" class="hint" hidden></p>
           </form>
         </div>
@@ -851,21 +857,32 @@
           </div>
         </header>
         <div id="side-now" class="side-panel" data-side="now">
-          <section class="side-block">
-            <h2>Plan</h2>
-            <p id="side-plan-empty" class="hint">No plan for this run.</p>
-            <ol id="side-plan" class="side-plan"></ol>
-          </section>
-          <section class="side-block" aria-label="Performance">
-            <h2>Performance</h2>
+          <section id="side-perf" class="side-block" aria-label="Performance">
+            <h2>Performance <span id="side-perf-mark" class="side-perf-mark" aria-hidden="true">✓</span></h2>
             <div id="side-dash" class="side-dash" data-state="idle">
               <div class="side-meter">
                 <div id="side-bars" class="side-bars" aria-hidden="true"></div>
                 <div id="side-mark" class="side-mark" aria-hidden="true"><span>120</span></div>
               </div>
               <div class="side-scan" aria-hidden="true"><span class="side-scan-eye"></span></div>
-              <p id="side-dash-read" class="side-dash-read">Done</p>
+              <p id="side-dash-read" class="side-dash-read"></p>
             </div>
+          </section>
+          <section id="side-share" class="side-block" hidden>
+            <h2>Screen</h2>
+            <p id="screen-status" class="hint"></p>
+            <div id="screen-preview" class="screen-preview" hidden>
+              <img id="screen-frame" alt="Live picture of the chosen screen or window">
+            </div>
+            <div class="screen-actions">
+              <button id="screen-input" type="button" class="ghost" aria-pressed="false" hidden title="Also share the keyboard and mouse">Keyboard and mouse</button>
+              <button id="screen-dismiss" type="button" class="ghost">Stop</button>
+            </div>
+          </section>
+          <section class="side-block">
+            <h2>Plan</h2>
+            <p id="side-plan-empty" class="hint">No plan for this run.</p>
+            <ol id="side-plan" class="side-plan"></ol>
           </section>
         </div>
         <div id="side-agents" class="side-panel" data-side="agents" hidden>

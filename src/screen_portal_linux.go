@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -23,12 +25,19 @@ const (
 	portalBusName = "org.freedesktop.portal.Desktop"
 	portalPath    = "/org/freedesktop/portal/desktop"
 	portalCast    = "org.freedesktop.portal.ScreenCast"
+	portalRemote  = "org.freedesktop.portal.RemoteDesktop"
 )
+
+func screenShareChooser() (string, []screenTarget) {
+	return "portal", nil
+}
 
 // openScreenCast opens the desktop chooser for a screen or a window and
 // returns a live PipeWire picture. WebKit's own capture dies while agreeing
-// on a picture format, so this process reads the stream.
-func openScreenCast(ctx context.Context) (*screenCast, error) {
+// on a picture format, so this process reads the stream. input asks the same
+// dialog for the keyboard and mouse as well.
+func openScreenCast(ctx context.Context, input bool, target string) (*screenCast, error) {
+	_ = target
 	bus, err := dialSessionBus()
 	if err != nil {
 		return nil, err
@@ -38,11 +47,18 @@ func openScreenCast(ctx context.Context) (*screenCast, error) {
 		bus.Close()
 		return nil, err
 	}
+	owner := portalCast
+	if input {
+		owner = portalRemote
+	}
 	handle := portalToken("keimling")
 	sessionTok := portalToken("ksess")
-	code, body, err := bus.portalRequest(ctx, name, portalCast, "CreateSession", "a{sv}", createSessionBody(handle, sessionTok), handle)
+	code, body, err := bus.portalRequest(ctx, name, owner, "CreateSession", "a{sv}", createSessionBody(handle, sessionTok), handle)
 	if err != nil {
 		bus.Close()
+		if input {
+			return nil, portalInputErr(err)
+		}
 		return nil, err
 	}
 	if code == 1 {
@@ -69,7 +85,11 @@ func openScreenCast(ctx context.Context) (*screenCast, error) {
 		return nil, err
 	}
 	srcTok := portalToken("ksrc")
-	code, _, err = bus.portalRequest(ctx, name, portalCast, "SelectSources", "oa{sv}", selectSourcesBody(session, srcTok), srcTok)
+	sourceTypes, restore := uint32(1|2), ""
+	if input {
+		sourceTypes, restore = screenShareRecall()
+	}
+	code, _, err = bus.portalRequest(ctx, name, portalCast, "SelectSources", "oa{sv}", selectSourcesBodyTypes(session, srcTok, sourceTypes), srcTok)
 	if err != nil {
 		return fail(err)
 	}
@@ -78,9 +98,26 @@ func openScreenCast(ctx context.Context) (*screenCast, error) {
 	}
 	if code != 0 {
 		return fail(fmt.Errorf("screen share failed (%d)", code))
+	}
+	if input {
+		devTok := portalToken("kdev")
+		code, _, err = bus.portalRequest(ctx, name, portalRemote, "SelectDevices", "oa{sv}", selectDevicesBodyRestore(session, devTok, restore), devTok)
+		if err != nil {
+			return fail(portalInputErr(err))
+		}
+		if code == 1 {
+			return fail(errScreenCancelled)
+		}
+		if code != 0 {
+			return fail(fmt.Errorf("keyboard and mouse were not allowed (%d)", code))
+		}
 	}
 	startTok := portalToken("kstart")
-	code, body, err = bus.portalRequest(ctx, name, portalCast, "Start", "osa{sv}", startCastBody(session, startTok), startTok)
+	startIface := portalCast
+	if input {
+		startIface = portalRemote
+	}
+	code, body, err = bus.portalRequest(ctx, name, startIface, "Start", "osa{sv}", startCastBody(session, startTok), startTok)
 	if err != nil {
 		return fail(err)
 	}
@@ -90,15 +127,30 @@ func openScreenCast(ctx context.Context) (*screenCast, error) {
 	if code != 0 {
 		return fail(fmt.Errorf("screen share failed (%d)", code))
 	}
-	node, err := portalStreamNode(body)
+	if input {
+		if dev, ok := portalResultUint(body, "devices"); ok && dev&3 == 0 {
+			return fail(fmt.Errorf("keyboard and mouse were not allowed"))
+		}
+	}
+	node, source, err := portalStream(body)
 	if err != nil {
 		return fail(err)
+	}
+	screenShareRemember(source, "")
+	if input {
+		if tok, ok := portalResultString(body, "restore_token"); ok {
+			screenShareRemember(0, tok)
+		}
 	}
 	fd, err := bus.openPipeWire(session)
 	if err != nil {
 		return fail(err)
 	}
-	cast := &screenCast{fd: fd}
+	var ctrl *screenControl
+	if input {
+		ctrl = linuxScreenControl(bus, session, node)
+	}
+	cast := &screenCast{fd: fd, control: ctrl}
 	cast.run = func(ctx context.Context, write func([]byte) error) error {
 		return streamPipeWire(ctx, cast.takeFD(), node, write)
 	}
@@ -106,7 +158,7 @@ func openScreenCast(ctx context.Context) (*screenCast, error) {
 		if fd := cast.takeFD(); fd >= 0 {
 			_ = syscall.Close(fd)
 		}
-		_ = bus.c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		bus.wake()
 		_ = bus.closeSession(session)
 		bus.Close()
 	}
@@ -125,13 +177,63 @@ func createSessionBody(handle, session string) []byte {
 }
 
 func selectSourcesBody(session, token string) []byte {
+	return selectSourcesBodyTypes(session, token, 1|2)
+}
+
+func selectSourcesBodyTypes(session, token string, types uint32) []byte {
+	if types != 1 && types != 2 {
+		types = 1 | 2
+	}
 	body := appendDBusString(nil, session)
 	var dict []byte
-	dict = dbusDictEntry(dict, "types", "u", dbusUint32Bytes(1|2))
+	dict = dbusDictEntry(dict, "types", "u", dbusUint32Bytes(types))
 	dict = dbusDictEntry(dict, "multiple", "b", dbusBoolBytes(false))
 	dict = dbusDictEntry(dict, "cursor_mode", "u", dbusUint32Bytes(2))
 	dict = dbusDictEntry(dict, "handle_token", "s", dbusStringBytes(token))
 	return appendDBusArray(body, 8, dict)
+}
+
+func selectDevicesBody(session, token string) []byte {
+	return selectDevicesBodyRestore(session, token, "")
+}
+
+func selectDevicesBodyRestore(session, token, restore string) []byte {
+	body := appendDBusString(nil, session)
+	var dict []byte
+	dict = dbusDictEntry(dict, "types", "u", dbusUint32Bytes(1|2))
+	dict = dbusDictEntry(dict, "persist_mode", "u", dbusUint32Bytes(1))
+	if strings.TrimSpace(restore) != "" {
+		dict = dbusDictEntry(dict, "restore_token", "s", dbusStringBytes(strings.TrimSpace(restore)))
+	}
+	dict = dbusDictEntry(dict, "handle_token", "s", dbusStringBytes(token))
+	return appendDBusArray(body, 8, dict)
+}
+
+var screenShareMemory struct {
+	mu      sync.Mutex
+	source  uint32
+	restore string
+}
+
+func screenShareRemember(source uint32, restore string) {
+	screenShareMemory.mu.Lock()
+	defer screenShareMemory.mu.Unlock()
+	if source == 1 || source == 2 {
+		screenShareMemory.source = source
+	}
+	if strings.TrimSpace(restore) != "" {
+		screenShareMemory.restore = strings.TrimSpace(restore)
+	}
+}
+
+func screenShareRecall() (uint32, string) {
+	screenShareMemory.mu.Lock()
+	defer screenShareMemory.mu.Unlock()
+	types := screenShareMemory.source
+	if types != 1 && types != 2 {
+		types = 1 | 2
+	}
+	return types, screenShareMemory.restore
 }
 
 func startCastBody(session, token string) []byte {
@@ -143,41 +245,156 @@ func startCastBody(session, token string) []byte {
 }
 
 func portalStreamNode(body []byte) (uint32, error) {
+	node, _, err := portalStream(body)
+	return node, err
+}
+
+func portalStream(body []byte) (uint32, uint32, error) {
 	_, off, err := dbusUint32(body, 0)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	if _, off, err = dbusUint32(body, off); err != nil {
-		return 0, err
+	n, off, err := dbusUint32(body, off)
+	if err != nil {
+		return 0, 0, err
 	}
 	for off%8 != 0 && off < len(body) {
 		off++
 	}
-	key, off, err := dbusString(body, off)
-	if err != nil {
-		return 0, err
+	end := off + int(n)
+	if end > len(body) {
+		end = len(body)
 	}
-	sig, off, err := dbusSignature(body, off)
-	if err != nil {
-		return 0, err
+	for off+8 < end {
+		key, next, err := dbusString(body, off)
+		if err != nil {
+			break
+		}
+		sig, next, err := dbusSignature(body, next)
+		if err != nil {
+			break
+		}
+		if key == "streams" && strings.HasPrefix(sig, "a(u") {
+			node, source, err := streamNodeAt(body, next)
+			return node, source, err
+		}
+		next, err = skipDBusValue(body, next, sig)
+		if err != nil {
+			return 0, 0, fmt.Errorf("screen share returned no stream")
+		}
+		off = next
+		for off%8 != 0 && off < end {
+			off++
+		}
 	}
-	if key != "streams" || !strings.HasPrefix(sig, "a(u") {
-		return 0, fmt.Errorf("screen share returned no stream")
-	}
-	for off%4 != 0 {
+	return 0, 0, fmt.Errorf("screen share returned no stream")
+}
+
+func streamNodeAt(body []byte, off int) (uint32, uint32, error) {
+	for off%4 != 0 && off < len(body) {
 		off++
 	}
-	if _, off, err = dbusUint32(body, off); err != nil {
-		return 0, err
+	_, off, err := dbusUint32(body, off)
+	if err != nil {
+		return 0, 0, fmt.Errorf("screen share returned no stream")
 	}
 	for off%8 != 0 && off < len(body) {
 		off++
 	}
-	node, _, err := dbusUint32(body, off)
+	node, off, err := dbusUint32(body, off)
 	if err != nil || node == 0 {
-		return 0, fmt.Errorf("screen share returned no stream")
+		return 0, 0, fmt.Errorf("screen share returned no stream")
 	}
-	return node, nil
+	return node, streamSourceType(body, off), nil
+}
+
+func streamSourceType(body []byte, off int) uint32 {
+	n, off, err := dbusUint32(body, off)
+	if err != nil || n == 0 {
+		return 0
+	}
+	for off%8 != 0 && off < len(body) {
+		off++
+	}
+	end := off + int(n)
+	if end > len(body) {
+		end = len(body)
+	}
+	for off+8 < end {
+		key, next, err := dbusString(body, off)
+		if err != nil {
+			return 0
+		}
+		sig, next, err := dbusSignature(body, next)
+		if err != nil {
+			return 0
+		}
+		if key == "source_type" && sig == "u" {
+			v, _, err := dbusUint32(body, next)
+			if err != nil {
+				return 0
+			}
+			return v
+		}
+		next, err = skipDBusValue(body, next, sig)
+		if err != nil {
+			return 0
+		}
+		off = next
+		for off%8 != 0 && off < end {
+			off++
+		}
+	}
+	return 0
+}
+
+func skipDBusValue(b []byte, off int, sig string) (int, error) {
+	if sig == "" || off > len(b) {
+		return 0, io.ErrUnexpectedEOF
+	}
+	switch sig[0] {
+	case 'y':
+		if off >= len(b) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return off + 1, nil
+	case 'b', 'i', 'u', 'h':
+		_, off, err := dbusUint32(b, off)
+		return off, err
+	case 'n', 'q':
+		for off%2 != 0 && off < len(b) {
+			off++
+		}
+		if off+2 > len(b) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return off + 2, nil
+	case 's', 'o':
+		_, off, err := dbusString(b, off)
+		return off, err
+	case 'g':
+		if off >= len(b) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		n := int(b[off])
+		off += 1 + n + 1
+		if off > len(b) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return off, nil
+	case 'd', 'x', 't':
+		for off%8 != 0 && off < len(b) {
+			off++
+		}
+		if off+8 > len(b) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return off + 8, nil
+	case 'a':
+		return dbusSkipArray(b, off, sig[1:])
+	default:
+		return 0, fmt.Errorf("unsupported portal value %s", sig)
+	}
 }
 
 // screenPipeWireArgs reads the portal stream without pinning a pixel format or
@@ -259,6 +476,7 @@ func (s *screenCast) takeFD() int {
 }
 
 type dbusClient struct {
+	mu      sync.Mutex
 	c       *net.UnixConn
 	serial  uint32
 	pending []byte
@@ -375,6 +593,8 @@ func dbusUnixAddress(addr string) (network, address string, err error) {
 }
 
 func (d *dbusClient) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	closeFDs(d.fds)
 	d.fds = nil
 	for _, msg := range d.signals {
@@ -384,7 +604,17 @@ func (d *dbusClient) Close() error {
 	if d.c == nil {
 		return nil
 	}
-	return d.c.Close()
+	err := d.c.Close()
+	d.c = nil
+	return err
+}
+
+func (d *dbusClient) wake() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.c != nil {
+		_ = d.c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}
 }
 
 func (d *dbusClient) hello() (string, error) {
@@ -501,6 +731,11 @@ func portalRequestPath(uniqueName, token string) string {
 }
 
 func (d *dbusClient) call(dest, path, iface, member, sig string, body []byte) (string, []byte, []int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.c == nil {
+		return "", nil, nil, fmt.Errorf("screen share stopped")
+	}
 	d.serial++
 	serial := d.serial
 	frame, err := dbusMethod(dest, path, iface, member, sig, serial, body)
@@ -875,4 +1110,283 @@ func dbusDictString(b []byte, off int, want string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("portal result has no %s", want)
+}
+
+func portalInputErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "UnknownMethod") || strings.Contains(msg, "UnknownInterface") {
+		return fmt.Errorf("this desktop cannot share keyboard and mouse")
+	}
+	return err
+}
+
+func appendDBusUint32(b []byte, v uint32) []byte {
+	for len(b)%4 != 0 {
+		b = append(b, 0)
+	}
+	return append(b, dbusUint32Bytes(v)...)
+}
+
+func appendDBusInt32(b []byte, v int32) []byte {
+	return appendDBusUint32(b, uint32(v))
+}
+
+func appendDBusDouble(b []byte, v float64) []byte {
+	for len(b)%8 != 0 {
+		b = append(b, 0)
+	}
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], math.Float64bits(v))
+	return append(b, buf[:]...)
+}
+
+func pointerMoveBody(session string, stream uint32, x, y float64) []byte {
+	body := appendDBusString(nil, session)
+	body = appendDBusArray(body, 8, nil)
+	body = appendDBusUint32(body, stream)
+	body = appendDBusDouble(body, x)
+	body = appendDBusDouble(body, y)
+	return body
+}
+
+func pointerButtonBody(session string, button int32, down bool) []byte {
+	body := appendDBusString(nil, session)
+	body = appendDBusArray(body, 8, nil)
+	body = appendDBusInt32(body, button)
+	state := uint32(0)
+	if down {
+		state = 1
+	}
+	return appendDBusUint32(body, state)
+}
+
+func keysymBody(session string, sym int32, down bool) []byte {
+	return pointerButtonBody(session, sym, down)
+}
+
+func (d *dbusClient) notify(member, sig string, body []byte) error {
+	_, _, fds, err := d.call(portalBusName, portalPath, portalRemote, member, sig, body)
+	closeFDs(fds)
+	return err
+}
+
+func (d *dbusClient) pointerMove(session string, stream uint32, x, y int) error {
+	return d.notify("NotifyPointerMotionAbsolute", "oa{sv}udd", pointerMoveBody(session, stream, float64(x), float64(y)))
+}
+
+func (d *dbusClient) pointerButton(session string, button int32, down bool) error {
+	return d.notify("NotifyPointerButton", "oa{sv}iu", pointerButtonBody(session, button, down))
+}
+
+func (d *dbusClient) pointerClick(session string, stream uint32, x, y int, button string) error {
+	code := int32(272)
+	switch button {
+	case "right":
+		code = 273
+	case "middle":
+		code = 274
+	}
+	if err := d.pointerMove(session, stream, x, y); err != nil {
+		return err
+	}
+	if err := d.pointerButton(session, code, true); err != nil {
+		return err
+	}
+	return d.pointerButton(session, code, false)
+}
+
+func (d *dbusClient) pointerScroll(session string, dy int) error {
+	body := appendDBusString(nil, session)
+	body = appendDBusArray(body, 8, nil)
+	body = appendDBusUint32(body, 0)
+	body = appendDBusInt32(body, int32(dy))
+	err := d.notify("NotifyPointerAxisDiscrete", "oa{sv}ui", body)
+	if err == nil || !strings.Contains(err.Error(), "UnknownMethod") {
+		return err
+	}
+	body = appendDBusString(nil, session)
+	body = appendDBusArray(body, 8, nil)
+	body = appendDBusDouble(body, 0)
+	body = appendDBusDouble(body, float64(dy))
+	return d.notify("NotifyPointerAxis", "oa{sv}dd", body)
+}
+
+func (d *dbusClient) keyTap(session string, sym int32) error {
+	if err := d.notify("NotifyKeyboardKeysym", "oa{sv}iu", keysymBody(session, sym, true)); err != nil {
+		return err
+	}
+	return d.notify("NotifyKeyboardKeysym", "oa{sv}iu", keysymBody(session, sym, false))
+}
+
+func linuxScreenControl(bus *dbusClient, session string, node uint32) *screenControl {
+	ctrl := &screenControl{}
+	ready := func() error {
+		w, h := ctrl.size()
+		if w < 1 || h < 1 {
+			return fmt.Errorf("the picture is not ready")
+		}
+		return nil
+	}
+	ctrl.click = func(x, y float64, button string) error {
+		if err := ready(); err != nil {
+			return err
+		}
+		w, h := ctrl.size()
+		return bus.pointerClick(session, node, screenPixel(x, w), screenPixel(y, h), button)
+	}
+	ctrl.scroll = func(x, y float64, dy int) error {
+		if err := ready(); err != nil {
+			return err
+		}
+		w, h := ctrl.size()
+		if err := bus.pointerMove(session, node, screenPixel(x, w), screenPixel(y, h)); err != nil {
+			return err
+		}
+		return bus.pointerScroll(session, dy)
+	}
+	ctrl.key = func(name string) error {
+		sym, ok := linuxKeysym(name)
+		if !ok {
+			return fmt.Errorf("unknown key")
+		}
+		return bus.keyTap(session, sym)
+	}
+	ctrl.text = func(s string) error {
+		for _, r := range s {
+			sym, ok := keysymForRune(r)
+			if !ok {
+				continue
+			}
+			if err := bus.keyTap(session, sym); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return ctrl
+}
+
+func portalResultString(body []byte, want string) (string, bool) {
+	_, off, err := dbusUint32(body, 0)
+	if err != nil {
+		return "", false
+	}
+	n, off, err := dbusUint32(body, off)
+	if err != nil {
+		return "", false
+	}
+	for off%8 != 0 && off < len(body) {
+		off++
+	}
+	end := off + int(n)
+	if end > len(body) {
+		end = len(body)
+	}
+	for off+8 < end {
+		key, next, err := dbusString(body, off)
+		if err != nil {
+			return "", false
+		}
+		sig, next, err := dbusSignature(body, next)
+		if err != nil {
+			return "", false
+		}
+		if key == want && sig == "s" {
+			v, _, err := dbusString(body, next)
+			if err != nil || strings.TrimSpace(v) == "" {
+				return "", false
+			}
+			return v, true
+		}
+		next, err = skipDBusValue(body, next, sig)
+		if err != nil {
+			return "", false
+		}
+		off = next
+		for off%8 != 0 && off < end {
+			off++
+		}
+	}
+	return "", false
+}
+
+func portalResultUint(body []byte, want string) (uint32, bool) {
+	_, off, err := dbusUint32(body, 0)
+	if err != nil {
+		return 0, false
+	}
+	if _, off, err = dbusUint32(body, off); err != nil {
+		return 0, false
+	}
+	for off%8 != 0 && off < len(body) {
+		off++
+	}
+	for off+8 < len(body) {
+		key, next, err := dbusString(body, off)
+		if err != nil {
+			return 0, false
+		}
+		sig, next, err := dbusSignature(body, next)
+		if err != nil {
+			return 0, false
+		}
+		switch {
+		case sig == "u" || sig == "b":
+			v, n, err := dbusUint32(body, next)
+			if err != nil {
+				return 0, false
+			}
+			if key == want && sig == "u" {
+				return v, true
+			}
+			off = n
+		case sig == "s" || sig == "o":
+			_, n, err := dbusString(body, next)
+			if err != nil {
+				return 0, false
+			}
+			off = n
+		case strings.HasPrefix(sig, "a") && len(sig) > 1:
+			n, err := dbusSkipArray(body, next, sig[1:])
+			if err != nil {
+				return 0, false
+			}
+			off = n
+		default:
+			return 0, false
+		}
+		for off%8 != 0 && off < len(body) {
+			off++
+		}
+	}
+	return 0, false
+}
+
+func dbusSkipArray(b []byte, off int, elemSig string) (int, error) {
+	n, off, err := dbusUint32(b, off)
+	if err != nil {
+		return 0, err
+	}
+	align := 4
+	if elemSig != "" {
+		switch elemSig[0] {
+		case 'y', 'g':
+			align = 1
+		case 'n', 'q':
+			align = 2
+		case '(', '{', 'd', 'x', 't':
+			align = 8
+		}
+	}
+	for off%align != 0 && off < len(b) {
+		off++
+	}
+	off += int(n)
+	if off > len(b) {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return off, nil
 }

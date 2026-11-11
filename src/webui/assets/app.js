@@ -2247,7 +2247,16 @@
       text = "Still working · " + fmtSideDur(sideLastModel ? Date.now() - sideLastModel : 0);
     }
     if (dash) dash.dataset.state = state;
-    if (read) read.textContent = text;
+    if (read) read.textContent = state === "idle" ? "" : text;
+    var perfMark = document.getElementById("side-perf-mark");
+    if (perfMark) {
+      var glyph = "✓";
+      if (state === "thinking" || state === "quiet") glyph = "◐";
+      else if (state === "flow") glyph = "▸";
+      else if (state === "gas") glyph = "▲";
+      perfMark.textContent = glyph;
+      perfMark.dataset.state = state;
+    }
     renderSideBars();
   }
 
@@ -5805,6 +5814,11 @@
     if (status === "pending") return "Pending";
     return status || "Pending";
   }
+  function planStatusMark(status) {
+    if (status === "done") return "✓";
+    if (status === "in_progress") return "◐";
+    return "○";
+  }
   function renderSidePlan(charter) {
     var list = document.getElementById("side-plan");
     var empty = document.getElementById("side-plan-empty");
@@ -5819,7 +5833,9 @@
       if (charter && charter.position === i + 1) li.setAttribute("aria-current", "step");
       var st = document.createElement("span");
       st.className = "side-plan-status";
-      st.textContent = planStatusLabel(status);
+      st.textContent = planStatusMark(status);
+      st.title = planStatusLabel(status);
+      st.setAttribute("aria-label", planStatusLabel(status));
       var tx = document.createElement("span");
       tx.textContent = step.step || "";
       li.appendChild(st);
@@ -9296,18 +9312,49 @@
     }
   }
 
+  var screenTarget = "";
+  var screenInput = false;
+
+  function screenShareNote() {
+    var note = "Live screen share. This is the current frame and it replaces the previous one.";
+    if (screenInput) note += " Keyboard and mouse are shared. screen_click, screen_scroll, screen_key, and screen_type act on this picture. x and y are fractions of the picture, from 0 at the left or top to 1 at the right or bottom.";
+    return note;
+  }
+
+  function paintScreenInput() {
+    var btn = document.getElementById("screen-input");
+    if (!btn) return;
+    btn.hidden = !screenSaw;
+    btn.setAttribute("aria-pressed", screenInput ? "true" : "false");
+    btn.textContent = screenInput ? "Stop keyboard and mouse" : "Keyboard and mouse";
+    btn.title = screenInput ? "Stop sharing the keyboard and mouse. The picture stays." : "Also share the keyboard and mouse";
+  }
+
+  function setScreenStatus(text) {
+    var el = document.getElementById("screen-status");
+    if (el) el.textContent = text || "";
+  }
+
+  function revealScreenShare(text) {
+    var block = document.getElementById("side-share");
+    if (block) block.hidden = false;
+    if (text) setScreenStatus(text);
+    selectSidebar("now");
+  }
+
   function screenImageDataURL() {
     if (!screenLatest || !screenLatest.length) return "";
-    var edge = 768;
+    var edge = screenInput ? 1280 : 768;
     var quality = 0.6;
+    var limit = screenInput ? 180000 : 100000;
     var url = "";
     for (var attempt = 0; attempt < 3; attempt++) {
       url = scaledScreenDataURL(edge, quality);
-      if (url && url.length <= 100000) return url;
+      if (url && url.length <= limit) return url;
       edge = Math.round(edge * 0.7);
       quality = 0.5;
     }
-    if (url && url.length <= 160000) return url;
+    if (url && url.length <= 220000) return url;
     return "";
   }
 
@@ -9336,7 +9383,7 @@
         type: "message",
         role: "user",
         content: [
-          { type: "input_text", text: "Live screen share. This is the current frame and it replaces the previous one." },
+          { type: "input_text", text: screenShareNote() },
           { type: "input_image", image_url: picture },
         ],
       },
@@ -9353,8 +9400,9 @@
     if (screenPreview) screenPreview.hidden = false;
     if (!screenSaw) {
       screenSaw = true;
-      setVoiceStatus("Sharing.");
+      setScreenStatus(screenInput ? "Sharing keyboard and mouse." : "Sharing.");
     }
+    paintScreenInput();
   }
 
   function readScreenFrames(reader) {
@@ -9391,30 +9439,103 @@
     if (screenAbort) screenAbort.abort();
     screenAbort = null;
     screenBusy = false;
+    screenInput = false;
+    paintScreenInput();
     if (screenObjectURL) URL.revokeObjectURL(screenObjectURL);
     screenObjectURL = "";
     screenSaw = false;
     screenLatest = null;
     if (screenFrame) screenFrame.removeAttribute("src");
     if (screenPreview) screenPreview.hidden = true;
+    var shareBlock = document.getElementById("side-share");
+    if (shareBlock) shareBlock.hidden = true;
+    setScreenStatus("");
     setVoiceStatus("");
     setState(agentState);
   }
 
-  function shareScreen() {
-    stopScreenShare();
-    if (!window.fetch || !window.ReadableStream) {
-      setVoiceStatus("This window cannot show a live picture.");
+  function askScreenTarget(targets) {
+    return new Promise(function (resolve) {
+      var dlg = document.getElementById("screen-dialog");
+      var list = document.getElementById("screen-targets");
+      if (!dlg || !list || typeof dlg.showModal !== "function") {
+        resolve(targets[0] ? targets[0].id : "");
+        return;
+      }
+      while (list.firstChild) list.removeChild(list.firstChild);
+      targets.forEach(function (t) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "ghost";
+        b.textContent = t.name || t.id;
+        b.addEventListener("click", function () {
+          dlg.close("pick");
+          resolve(t.id);
+        });
+        list.appendChild(b);
+      });
+      function done(ev) {
+        dlg.removeEventListener("close", done);
+        if (!ev || dlg.returnValue !== "pick") resolve("");
+      }
+      dlg.addEventListener("close", done);
+      dlg.returnValue = "";
+      dlg.showModal();
+    });
+  }
+
+  function shareScreen(opts) {
+    if (!opts || typeof opts.picked === "undefined") opts = {};
+    var wantInput = !!opts.input;
+    var target = opts.target || "";
+    if (!opts.picked) {
+      fetch(apiURL("/api/screen/targets"), { headers: headers() }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      }).then(function (info) {
+        if (info && info.chooser === "list") {
+          var targets = info.targets || [];
+          if (!targets.length) {
+            revealScreenShare("No screen or window to share.");
+            return;
+          }
+          return askScreenTarget(targets).then(function (id) {
+            if (!id) {
+              revealScreenShare("Screen share was cancelled.");
+              return;
+            }
+            shareScreen({ input: wantInput, target: id, picked: true });
+          });
+        }
+        if (info && info.chooser === "unavailable") {
+          revealScreenShare("Screen share is not available on this system.");
+          return;
+        }
+        shareScreen({ input: wantInput, target: "", picked: true });
+      }).catch(function (err) {
+        revealScreenShare("Screen: " + ((err && err.message) || err || "failed"));
+      });
       return;
     }
+    stopScreenShare();
+    if (!window.fetch || !window.ReadableStream) {
+      revealScreenShare("This window cannot show a live picture.");
+      return;
+    }
+    screenTarget = target;
+    screenInput = wantInput;
+    paintScreenInput();
     var gen = ++screenGen;
     screenAbort = new AbortController();
     var signal = screenAbort.signal;
     screenBusy = true;
     screenSaw = false;
     setState(agentState);
-    setVoiceStatus("Choose a screen or window.");
-    fetch(apiURL("/api/screen/share"), { method: "POST", headers: headers(), signal: signal }).then(function (r) {
+    revealScreenShare(opts.note || (wantInput ? "Allow keyboard and mouse in the system dialog." : "Choose a screen or window."));
+    var q = [];
+    if (wantInput) q.push("input=1");
+    if (target) q.push("target=" + encodeURIComponent(target));
+    fetch(apiURL("/api/screen/share" + (q.length ? "?" + q.join("&") : "")), { method: "POST", headers: headers(), signal: signal }).then(function (r) {
       if (gen !== screenGen || signal.aborted) return;
       if (r.status === 409) {
         var cancel = new Error("cancelled");
@@ -9423,23 +9544,38 @@
       }
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
       if (!r.body || !r.body.getReader) throw new Error("This window cannot show a live picture.");
-      setVoiceStatus("Sharing.");
+      setScreenStatus(wantInput ? "Sharing keyboard and mouse." : "Sharing.");
       return readScreenFrames(r.body.getReader());
     }).catch(function (err) {
       if (gen !== screenGen || signal.aborted) return;
       var name = err && err.name;
-      if (name === "AbortError" || name === "NotAllowedError") setVoiceStatus("Screen share was cancelled.");
-      else setVoiceStatus("Screen: " + ((err && err.message) || err || "failed"));
+      var msg = (err && err.message) || err || "failed";
+      if (name === "AbortError" || name === "NotAllowedError") revealScreenShare("Screen share was cancelled.");
+      else if (wantInput) {
+        revealScreenShare("Keyboard and mouse: " + msg);
+        shareScreen({ input: false, target: target, picked: true, note: "Keyboard and mouse: " + msg });
+      } else revealScreenShare("Screen: " + msg);
     }).then(function () {
       if (gen !== screenGen) return;
-      if (!signal.aborted && screenSaw) setVoiceStatus("Screen share stopped.");
+      if (!signal.aborted && screenSaw) setScreenStatus("Screen share stopped.");
       screenBusy = false;
       screenAbort = null;
       setState(agentState);
     });
   }
 
-  if (screenBtn) screenBtn.addEventListener("click", shareScreen);
+  if (screenBtn) screenBtn.addEventListener("click", function () {
+    var block = document.getElementById("side-share");
+    if (block && !block.hidden && (screenBusy || screenSaw)) {
+      selectSidebar("now");
+      return;
+    }
+    shareScreen();
+  });
+  var screenInputBtn = document.getElementById("screen-input");
+  if (screenInputBtn) screenInputBtn.addEventListener("click", function () {
+    shareScreen({ input: !screenInput, target: screenTarget, picked: true });
+  });
   if (screenDismiss) screenDismiss.addEventListener("click", stopScreenShare);
   if (callBtn) callBtn.addEventListener("click", function () {
     if (callLive) hangUpCall();

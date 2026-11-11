@@ -243,6 +243,8 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			return err.Error()
 		}
 		return msg
+	case "screen_click", "screen_scroll", "screen_key", "screen_type":
+		return runScreenTool(name, args)
 	}
 	return "unknown tool"
 }

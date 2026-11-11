@@ -50,6 +50,10 @@ func agentToolCatalog() []agentTool {
 		{Name: "spawn_agent", Label: "Start an agent"},
 		{Name: "save_team", Label: "Save a team"},
 		{Name: "spawn_team", Label: "Start a team"},
+		{Name: "screen_click", Label: "Click the shared screen"},
+		{Name: "screen_scroll", Label: "Scroll the shared screen"},
+		{Name: "screen_key", Label: "Press a key on the shared screen"},
+		{Name: "screen_type", Label: "Type on the shared screen"},
 	}
 }
 
@@ -70,6 +74,7 @@ func agentToolGroups() []agentToolGroup {
 		{ID: "agents", Label: "Agents", Read: []string{"list_agents"}, Write: []string{"message_agent"}},
 		{ID: "define", Label: "Define agents", Read: []string{"agent_instructions"}, Write: []string{"save_agent", "spawn_agent", "save_team", "spawn_team"}},
 		{ID: "models", Label: "Models", Read: []string{}, Write: []string{"delegate"}},
+		{ID: "desktop", Label: "Desktop", Read: []string{}, Write: []string{"screen_click", "screen_scroll", "screen_key", "screen_type"}},
 	}
 }
 

@@ -474,7 +474,9 @@ func chatFileModelContent(body string, files []chatFile, images, audio, inlineSc
 			if f.Name == screenShareFileName {
 				if inlineScreen && images {
 					if part, ok := screenShareImagePart(f.Path); ok {
-						b.WriteString("  This is the live screen share. The current picture is included in this message and replaces any earlier frame.\n")
+						b.WriteString("  ")
+						b.WriteString(screenShareCaption())
+						b.WriteByte('\n')
 						parts = append(parts, part)
 						continue
 					}

@@ -4,12 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"sync"
 	"time"
 )
+
+// screenTarget is one screen or window the user can share.
+type screenTarget struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
 
 // screenShareFileName marks the live frame attached to a chat message.
 const screenShareFileName = "keimling-screen.jpg"
@@ -75,9 +83,24 @@ var errScreenCancelled = errors.New("cancelled")
 
 // screenCast is one live share chosen in the desktop dialog.
 type screenCast struct {
-	fd   int
-	run  func(context.Context, func([]byte) error) error
-	stop func()
+	fd      int
+	run     func(context.Context, func([]byte) error) error
+	stop    func()
+	control *screenControl
+}
+
+func (s *appServer) handleScreenTargets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	kind, targets := screenShareChooser()
+	if targets == nil {
+		targets = []screenTarget{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"chooser": kind, "targets": targets})
 }
 
 func (s *appServer) handleScreenShare(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +109,8 @@ func (s *appServer) handleScreenShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pick, stopPick := context.WithTimeout(r.Context(), 3*time.Minute)
-	cast, err := openScreenCast(pick)
+	input := r.URL.Query().Get("input") == "1" || r.URL.Query().Get("input") == "true"
+	cast, err := openScreenCast(pick, input, r.URL.Query().Get("target"))
 	stopPick()
 	if errors.Is(err, errScreenCancelled) || errors.Is(err, context.DeadlineExceeded) {
 		http.Error(w, "cancelled", http.StatusConflict)
@@ -102,6 +126,10 @@ func (s *appServer) handleScreenShare(w http.ResponseWriter, r *http.Request) {
 	defer cast.stop()
 	gen := beginScreenShare()
 	defer endScreenShare(gen)
+	if cast.control != nil {
+		attachScreenControl(cast.control)
+		defer detachScreenControl(cast.control)
+	}
 
 	frames := make(chan []byte, 1)
 	done := make(chan struct{})
@@ -138,6 +166,11 @@ func (s *appServer) handleScreenShare(w http.ResponseWriter, r *http.Request) {
 	}()
 	runErr := cast.run(r.Context(), func(frame []byte) error {
 		noteScreenShare(gen, frame)
+		if cast.control != nil {
+			if w, h, ok := jpegSize(frame); ok {
+				cast.control.setSize(w, h)
+			}
+		}
 		select {
 		case frames <- frame:
 		default:

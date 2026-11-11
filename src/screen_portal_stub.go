@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !windows && !darwin
 
 package main
 
@@ -7,9 +7,15 @@ import (
 	"fmt"
 )
 
-func openScreenCast(ctx context.Context) (*screenCast, error) {
+func screenShareChooser() (string, []screenTarget) {
+	return "unavailable", nil
+}
+
+func openScreenCast(ctx context.Context, input bool, target string) (*screenCast, error) {
+	_ = input
+	_ = target
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("screen share is only available on the Linux desktop")
+	return nil, fmt.Errorf("screen share is not available on this system")
 }

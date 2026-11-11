@@ -3,7 +3,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
+	"math"
 	"strings"
 	"testing"
 )
@@ -27,6 +30,60 @@ func TestScreenCastBodiesMatchPortal(t *testing.T) {
 	}
 }
 
+func TestLinuxChooserIsThePortal(t *testing.T) {
+	kind, targets := screenShareChooser()
+	if kind != "portal" || len(targets) != 0 {
+		t.Fatalf("%s %v", kind, targets)
+	}
+}
+
+func TestSelectDevicesAndPointerBody(t *testing.T) {
+	session := "/org/freedesktop/portal/desktop/session/1_2/sessionTOK"
+	body := selectDevicesBody(session, "devTOK")
+	got, _, err := dbusString(body, 0)
+	if err != nil || got != session {
+		t.Fatalf("session %q %v", got, err)
+	}
+	if !strings.Contains(string(body), "devTOK") {
+		t.Fatal("missing token")
+	}
+	move := pointerMoveBody(session, 7, 3, 4)
+	path, off, err := dbusString(move, 0)
+	if err != nil || path != session {
+		t.Fatalf("move session %q %v", path, err)
+	}
+	_, off, err = dbusUint32(move, off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for off%8 != 0 {
+		off++
+	}
+	node, off, err := dbusUint32(move, off)
+	if err != nil || node != 7 {
+		t.Fatalf("node %d %v", node, err)
+	}
+	for off%8 != 0 {
+		off++
+	}
+	x := math.Float64frombits(binary.LittleEndian.Uint64(move[off : off+8]))
+	if x != 3 {
+		t.Fatalf("x %v", x)
+	}
+}
+
+func TestPortalDevicesBit(t *testing.T) {
+	// response code 0, dict with devices = 3 (keyboard|pointer)
+	var dict []byte
+	dict = dbusDictEntry(dict, "devices", "u", dbusUint32Bytes(3))
+	body := appendDBusUint32(nil, 0)
+	body = appendDBusArray(body, 8, dict)
+	got, ok := portalResultUint(body, "devices")
+	if !ok || got != 3 {
+		t.Fatalf("devices %d %v", got, ok)
+	}
+}
+
 func TestPortalStreamNode(t *testing.T) {
 	raw, err := hex.DecodeString("00000000280000000700000073747265616d730009612875617b73767d29000008000000000000002a00000000000000")
 	if err != nil {
@@ -36,6 +93,140 @@ func TestPortalStreamNode(t *testing.T) {
 	if err != nil || node != 42 {
 		t.Fatalf("node %d %v", node, err)
 	}
+}
+
+func TestPortalStreamNodeAfterDevices(t *testing.T) {
+	var entries []byte
+	entries = dbusDictEntry(entries, "devices", "u", dbusUint32Bytes(1|2))
+	for len(entries)%8 != 0 {
+		entries = append(entries, 0)
+	}
+	entries = append(entries, streamsDictEntry(42)...)
+	body := appendDBusUint32(nil, 0)
+	body = appendDBusArray(body, 8, entries)
+	node, err := portalStreamNode(body)
+	if err != nil || node != 42 {
+		t.Fatalf("node %d %v", node, err)
+	}
+}
+
+// streamsDictEntry builds one a{sv} entry whose value is a single PipeWire node.
+// The buffer it is appended to must already be 8-aligned, as dict contents are.
+func TestWindowShareStaysAWindow(t *testing.T) {
+	props := dbusDictEntry(nil, "source_type", "u", dbusUint32Bytes(2))
+	body := appendDBusUint32(nil, 0)
+	body = appendDBusArray(body, 8, streamsDictEntryProps(42, props))
+	node, source, err := portalStream(body)
+	if err != nil || node != 42 || source != 2 {
+		t.Fatalf("node %d source %d %v", node, source, err)
+	}
+	screenShareMemory.mu.Lock()
+	screenShareMemory.source = 0
+	screenShareMemory.restore = ""
+	screenShareMemory.mu.Unlock()
+	screenShareRemember(source, "")
+	types, restore := screenShareRecall()
+	if types != 2 || restore != "" {
+		t.Fatalf("recall %d %q", types, restore)
+	}
+	session := "/org/freedesktop/portal/desktop/session/1_2/sessionTOK"
+	selected := selectSourcesBodyTypes(session, "srcTOK", types)
+	if got := dictUintAfterPath(t, selected, "types"); got != 2 {
+		t.Fatalf("types %d", got)
+	}
+	var reply []byte
+	reply = dbusDictEntry(reply, "devices", "u", dbusUint32Bytes(3))
+	for len(reply)%8 != 0 {
+		reply = append(reply, 0)
+	}
+	reply = dbusDictEntry(reply, "restore_token", "s", dbusStringBytes("winTOK"))
+	started := appendDBusUint32(nil, 0)
+	started = appendDBusArray(started, 8, reply)
+	tok, ok := portalResultString(started, "restore_token")
+	if !ok || tok != "winTOK" {
+		t.Fatalf("token %q %v", tok, ok)
+	}
+	screenShareRemember(0, tok)
+	_, restore = screenShareRecall()
+	devices := selectDevicesBodyRestore(session, "devTOK", restore)
+	if !strings.Contains(string(devices), "winTOK") || !strings.Contains(string(devices), "persist_mode") {
+		t.Fatal("restore was not offered")
+	}
+	screenShareMemory.mu.Lock()
+	screenShareMemory.source = 0
+	screenShareMemory.restore = ""
+	screenShareMemory.mu.Unlock()
+}
+
+func dictUintAfterPath(t *testing.T, body []byte, want string) uint32 {
+	t.Helper()
+	_, off, err := dbusString(body, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, off, err := dbusUint32(body, off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for off%8 != 0 {
+		off++
+	}
+	end := off + int(n)
+	for off+8 < end {
+		key, next, err := dbusString(body, off)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sig, next, err := dbusSignature(body, next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if key == want && sig == "u" {
+			v, _, err := dbusUint32(body, next)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return v
+		}
+		next, err = skipDBusValue(body, next, sig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		off = next
+		for off%8 != 0 && off < end {
+			off++
+		}
+	}
+	t.Fatalf("missing %s", want)
+	return 0
+}
+
+func streamsDictEntry(node uint32) []byte {
+	return streamsDictEntryProps(node, nil)
+}
+
+func streamsDictEntryProps(node uint32, props []byte) []byte {
+	buf := dbusDictEntry(nil, "streams", "a(ua{sv})", nil)
+	// Replace the empty value with a real array. The signature ends just before that value.
+	sig := dbusSignatureBytes("a(ua{sv})")
+	at := bytes.Index(buf, sig)
+	if at < 0 {
+		return buf
+	}
+	buf = buf[:at+len(sig)]
+	for len(buf)%4 != 0 {
+		buf = append(buf, 0)
+	}
+	lenAt := len(buf)
+	buf = append(buf, 0, 0, 0, 0)
+	for len(buf)%8 != 0 {
+		buf = append(buf, 0)
+	}
+	dataAt := len(buf)
+	buf = appendDBusUint32(buf, node)
+	buf = appendDBusArray(buf, 8, props)
+	binary.LittleEndian.PutUint32(buf[lenAt:lenAt+4], uint32(len(buf)-dataAt))
+	return buf
 }
 
 func TestPortalResponseURI(t *testing.T) {

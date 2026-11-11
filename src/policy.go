@@ -142,6 +142,9 @@ func forceApproval(name, args string) (bool, string) {
 		}
 		return false, ""
 	}
+	if screenTool(name) {
+		return false, ""
+	}
 	if name == "exec" {
 		var a struct {
 			Command     string `json:"command"`
@@ -415,7 +418,7 @@ type toolGate struct {
 
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "screen_click", "screen_scroll", "screen_key", "screen_type":
 		return true
 	default:
 		return false
