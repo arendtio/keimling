@@ -3,7 +3,7 @@
 package main
 
 /*
-#cgo LDFLAGS: -framework CoreGraphics -framework CoreFoundation -framework ApplicationServices
+#cgo LDFLAGS: -framework CoreGraphics -framework CoreFoundation -framework ApplicationServices -framework ScreenCaptureKit -framework Foundation
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -106,10 +106,10 @@ static int screenBoundsOf(int display, uint32_t id, double *x, double *y, double
 	return ok;
 }
 
+CGImageRef screenCaptureImage(int display, uint32_t targetID);
+
 static int screenGrab(int display, uint32_t id, uint8_t **rgba, int *w, int *h) {
-	CGImageRef img = NULL;
-	if (display) img = CGDisplayCreateImage(id);
-	else img = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, id, kCGWindowImageBoundsIgnoreFraming);
+	CGImageRef img = screenCaptureImage(display, id);
 	if (!img) return 0;
 	size_t width = CGImageGetWidth(img);
 	size_t height = CGImageGetHeight(img);
