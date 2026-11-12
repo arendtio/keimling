@@ -69,3 +69,13 @@
 - **Fit criterion:** A `data_processing` call whose arguments are longer than 160 characters still shows the program text in the command field of the tool card, on success and on a syntax error.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-DL-8 A run can take a file or a chat section
+
+- **Bin:** explicit requirement
+- **Statement:** A transformation shall be able to take a file path or a section of this chat as an input, the same way it takes a tool result. The program shall still not open a file or the journal itself. A large result of that run shall be returnable as a reference.
+- **Origin:** User, 2026-11-12 (quote: "dass man Referenzen reintun kann, Referenzen damit produzieren kann, dass man aus der Chat-Historie Referenzen ziehen kann"). Same day, confirming the shape: the harness resolves the address before the program runs.
+- **Rationale:** The model should name an address it already has. Copying a file or a stretch of the chat into the program text puts that text into the conversation.
+- **Fit criterion:** A run whose input is a file path returns a value taken from that file, and the program text does not contain the file. A run whose input is a history section id from search returns a value taken from that section. A program that calls a file or journal operation fails and does not read either. A large result can come back as a reference.
+- **Priority:** shall
+- **Status:** confirmed

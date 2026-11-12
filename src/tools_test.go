@@ -40,6 +40,37 @@ func TestFileTools(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
+func TestReadFileLargeWholeFileIsAPreview(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	body := strings.Repeat("line\n", 2000) + "MARKER-TAIL\n"
+	if err := os.WriteFile("big.txt", []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := executeTool(context.Background(), "read_file", `{"path":"big.txt","start_line":0,"end_line":0}`)
+	if strings.Contains(got, "MARKER-TAIL") || !strings.Contains(got, "path: big.txt") || !strings.Contains(got, "preview:") {
+		t.Fatalf("whole file: %s", got)
+	}
+	got = executeTool(context.Background(), "read_file", `{"path":"big.txt","start_line":2001,"end_line":2001}`)
+	if !strings.Contains(got, "MARKER-TAIL") || !strings.Contains(got, "hash:") {
+		t.Fatalf("range: %s", got)
+	}
+	if err := os.WriteFile("small.txt", []byte("exact\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = executeTool(context.Background(), "read_file", `{"path":"small.txt","start_line":0,"end_line":0}`)
+	if !strings.Contains(got, "exact\n") || !strings.Contains(got, "hash:") {
+		t.Fatalf("small: %s", got)
+	}
+}
+
 func TestExec(t *testing.T) {
 	got := executeTool(context.Background(), "exec", `{"command":"printf ok","timeout_seconds":5}`)
 	if !strings.Contains(got, "exit_code=0") || !strings.Contains(got, "ok") {

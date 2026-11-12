@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -14,7 +17,8 @@ previous tool outputs. Use this instead of Python/shell
 for data processing.
 
 INPUT
-input_ref: reference returned by an MCP, CLI or data_processing call. Empty string when every value is named in inputs.
+input_ref: a tool result ref, a file path, or a history section id from search_history (task-1 or episode-1). Empty string when every value is named in inputs.
+The harness reads a path or a section before the program runs. The program cannot open a file or the journal.
 inputs: [{name, ref}, ...] further results. Each name becomes a variable. Use [] when only input_ref is needed.
 code: DataLang program
 timeout_ms?: execution timeout in milliseconds (default 30000). Any positive integer; there is no shorter cap.
@@ -181,7 +185,7 @@ func dataLangTools() []map[string]any {
 	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 	return []map[string]any{
 		toolDef("data_processing", dataRunDescription, map[string]any{
-			"input_ref": str("Reference returned by an earlier MCP, CLI, or data_processing result. Empty string when every value is named in inputs."),
+			"input_ref": str("A tool result ref, a file path, or a history section id from search_history. Empty string when every value is named in inputs."),
 			"inputs": map[string]any{
 				"type":        "array",
 				"description": "Named extra references. Use an empty array when only input_ref is needed. Each name becomes a variable.",
@@ -189,7 +193,7 @@ func dataLangTools() []map[string]any {
 					"type": "object",
 					"properties": map[string]any{
 						"name": str("Variable name"),
-						"ref":  str("Result reference"),
+						"ref":  str("A tool result ref, a file path, or a history section id"),
 					},
 					"required":             []string{"name", "ref"},
 					"additionalProperties": false,
@@ -292,14 +296,11 @@ func (a *Agent) dataVars(primary string, extras []struct {
 }, allowEmpty bool) (map[string]any, error) {
 	vars := map[string]any{}
 	if strings.TrimSpace(primary) != "" {
-		item, err := a.toolResults().get(primary)
+		value, err := a.resolveDataAddress(primary)
 		if err != nil {
 			return nil, err
 		}
-		if item.kind == "unsupported" {
-			return nil, dataErr("UNSUPPORTED_INPUT", "binary tool output is not interpreted")
-		}
-		vars["input"] = item.value
+		vars["input"] = value
 	}
 	seen := map[string]bool{}
 	for _, extra := range extras {
@@ -311,19 +312,123 @@ func (a *Agent) dataVars(primary string, extras []struct {
 			return nil, &dataError{Code: "SYNTAX", Message: "duplicate input name " + name}
 		}
 		seen[name] = true
-		item, err := a.toolResults().get(extra.Ref)
+		value, err := a.resolveDataAddress(extra.Ref)
+		if err != nil {
+			return nil, err
+		}
+		vars[name] = value
+	}
+	if len(vars) == 0 && !allowEmpty {
+		return nil, dataErr("INVALID_REF", "missing result reference")
+	}
+	return vars, nil
+}
+
+func resultRef(ref string) bool {
+	if len(ref) < 2 || ref[0] != 'r' {
+		return false
+	}
+	for _, c := range ref[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func historySectionRef(ref string) bool {
+	for _, kind := range []string{"task", "episode"} {
+		n := 0
+		if _, err := fmt.Sscanf(ref, kind+"-%d", &n); err != nil || n < 1 {
+			continue
+		}
+		if fmt.Sprintf("%s-%d", kind, n) == ref {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Agent) resolveDataAddress(ref string) (any, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, dataErr("INVALID_REF", "missing result reference")
+	}
+	if resultRef(ref) {
+		item, err := a.toolResults().get(ref)
 		if err != nil {
 			return nil, err
 		}
 		if item.kind == "unsupported" {
 			return nil, dataErr("UNSUPPORTED_INPUT", "binary tool output is not interpreted")
 		}
-		vars[name] = item.value
+		return item.value, nil
 	}
-	if len(vars) == 0 && !allowEmpty {
-		return nil, dataErr("INVALID_REF", "missing result reference")
+	if historySectionRef(ref) {
+		return a.historySectionValue(ref)
 	}
-	return vars, nil
+	return fileRefValue(ref)
+}
+
+func (a *Agent) historySectionValue(id string) (any, error) {
+	if a == nil || strings.TrimSpace(a.Cfg.SessionPath) == "" {
+		return nil, dataErr("INVALID_REF", "no history for this chat")
+	}
+	events, err := originalEvents(a.Cfg.SessionPath)
+	if err != nil {
+		return nil, dataErr("INVALID_REF", err.Error())
+	}
+	idx := buildHistoryIndex(events, loadHistoryIndex(a.Cfg.SessionPath))
+	start, end := 0, 0
+	found := false
+	for _, s := range idx.Sections {
+		if s.ID == id {
+			start, end, found = s.Start, s.End, true
+			break
+		}
+	}
+	if !found {
+		return nil, dataErr("INVALID_REF", "unknown history section "+id)
+	}
+	var out []any
+	var n int
+	for i := start; i <= end && i <= len(events); i++ {
+		n += len(events[i-1])
+		if n > dataStoreByteLimit {
+			return nil, dataErr("RESULT_TOO_LARGE", "history section is too large")
+		}
+		var v any
+		if json.Unmarshal(events[i-1], &v) != nil {
+			out = append(out, string(events[i-1]))
+			continue
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func fileRefValue(path string) (any, error) {
+	if privatePath(path) {
+		return nil, dataErr("INVALID_REF", "access denied")
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, dataErr("INVALID_REF", err.Error())
+	}
+	if st.IsDir() {
+		return nil, dataErr("INVALID_REF", "path is a directory")
+	}
+	if st.Size() > 8<<20 {
+		return nil, dataErr("RESULT_TOO_LARGE", "file is larger than 8 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, dataErr("INVALID_REF", err.Error())
+	}
+	if !utf8.Valid(data) {
+		return nil, dataErr("UNSUPPORTED_INPUT", "not a UTF-8 text file")
+	}
+	return string(data), nil
 }
 
 func dataProcessingLabel(name, args string) string {

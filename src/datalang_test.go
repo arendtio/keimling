@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -364,6 +365,45 @@ func TestDataLangJoinsNamedInputs(t *testing.T) {
 	dup := a.runDataTool(`{"input_ref":"` + orderRef + `","inputs":[{"name":"input","ref":"` + userRef + `"}],"code":"return input","timeout_ms":1000}`)
 	if !strings.Contains(dup, "duplicate input name") {
 		t.Fatal(dup)
+	}
+}
+
+func TestDataLangReadsAFileAndAHistorySection(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	if err := os.WriteFile("notes.txt", []byte("alpha\nbeta\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{}
+	got := a.runDataTool(`{"input_ref":"notes.txt","inputs":[],"code":"return input","timeout_ms":1000,"output_mode":"inline"}`)
+	if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") {
+		t.Fatalf("file: %s", got)
+	}
+	denied := a.runDataTool(`{"input_ref":"notes.txt","inputs":[],"code":"return read_file(input)","timeout_ms":1000}`)
+	if !strings.Contains(denied, "unknown") && !strings.Contains(strings.ToLower(denied), "error") {
+		t.Fatalf("program touched the file itself: %s", denied)
+	}
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	j, err := OpenJournal(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"role": "user", "content": "UNIQUE-HISTORY-SENTENCE"})
+	if err := j.AppendItem(raw); err != nil {
+		t.Fatal(err)
+	}
+	j.Close()
+	a.Cfg.SessionPath = path
+	got = a.runDataTool(`{"input_ref":"task-1","inputs":[],"code":"return input","timeout_ms":1000,"output_mode":"inline"}`)
+	if !strings.Contains(got, "UNIQUE-HISTORY-SENTENCE") {
+		t.Fatalf("history: %s", got)
 	}
 }
 

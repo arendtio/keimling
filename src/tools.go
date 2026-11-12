@@ -63,6 +63,41 @@ func killTrackedCommands() {
 }
 
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return "sha256:" + hex.EncodeToString(h[:]) }
+func readFilePreview(path string, st os.FileInfo) string {
+	const preview = 1024
+	if st.Size() > 8<<20 {
+		f, err := os.Open(path)
+		if err != nil {
+			return err.Error()
+		}
+		defer f.Close()
+		buf := make([]byte, preview)
+		n, err := f.Read(buf)
+		if n == 0 && err != nil {
+			return err.Error()
+		}
+		if !utf8.Valid(buf[:n]) {
+			return "not a UTF-8 text file"
+		}
+		return fmt.Sprintf("path: %s\nbytes: %d\npreview:\n%s", path, st.Size(), buf[:n])
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err.Error()
+	}
+	if !utf8.Valid(data) {
+		return "not a UTF-8 text file"
+	}
+	prev := data
+	if len(prev) > preview {
+		prev = prev[:preview]
+		if i := bytes.LastIndexByte(prev, '\n'); i > 0 {
+			prev = prev[:i+1]
+		}
+	}
+	return fmt.Sprintf("path: %s\nbytes: %d\nlines: %d\npreview:\n%s", path, len(data), len(fileLines(data)), prev)
+}
+
 func fileLines(b []byte) [][]byte {
 	if len(b) == 0 {
 		return nil
@@ -192,8 +227,11 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if err != nil {
 			return err.Error()
 		}
+		if x.StartLine == 0 && x.EndLine == 0 && st.Size() > int64(dataModelLimit) {
+			return readFilePreview(x.Path, st)
+		}
 		if st.Size() > 8<<20 {
-			return "file too large (>8 MiB); use exec for targeted inspection"
+			return "file too large (>8 MiB); use a line range"
 		}
 		data, err := os.ReadFile(x.Path)
 		if err != nil {

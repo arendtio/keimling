@@ -11,3 +11,9 @@
 **As** a user, **I want** the agent to join or compare two tool results in one transform, **so that** a lookup or a set check does not require a script.
 
 **Acceptance:** traces REQ-DL-5 and REQ-DL-6. Two stored lists are combined by reference: rows whose key is absent from the second list drop out, and a field from the matching row is attached. The default timeout is 30 seconds, and a longer requested timeout is kept.
+
+## US-65 — Name a file or a chat section instead of copying it
+
+**As** a user, **I want** a transform to take a file path or a section of this chat, **so that** the agent does not copy that text into the conversation in order to filter it.
+
+**Acceptance:** traces REQ-DL-8 and REQ-RF-1. A large whole-file read shows a preview and the path. A named line range is exact. A transform given that path returns a value from the file. A transform given a history section id returns a value from that section. The program does not open the file or the journal itself.

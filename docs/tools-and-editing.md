@@ -18,9 +18,11 @@ Failed tools are rendered as errors (red `✗`), never as a green checkmark.
 ## Reading files
 
 `read_file` reads a whole file (`start_line` and `end_line` both `0`) or an
-**inclusive** line range such as 50–75, and returns a SHA-256 hash of the exact,
-unmodified bytes of that range. Limits: 8 MiB per file, 64 KiB per selected
-range, UTF-8 only.
+**inclusive** line range such as 50–75. A whole file of 4 KiB or less, and a
+named line range, returns a SHA-256 of the exact bytes. A larger whole file
+returns the path, the size, and a short preview. A line range is at most 64 KiB
+and the file itself at most 8 MiB. UTF-8 only. The path can be passed to
+`data_processing`.
 
 ## Editing files
 
