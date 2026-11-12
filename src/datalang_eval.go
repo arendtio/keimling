@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,11 +34,19 @@ type stmt struct {
 
 type program struct{ stmts []stmt }
 
+// dlHost is the process side of mcp() and all(). Nil in a program that only
+// transforms values already in hand.
+type dlHost struct {
+	call    func(name string, args any) (any, error)
+	allowed map[string]bool
+}
+
 type dlEnv struct {
 	vars     map[string]any
 	dot      any
 	hasDot   bool
 	deadline time.Time
+	host     *dlHost
 }
 
 func (e *dlEnv) tick() error {
@@ -47,11 +56,46 @@ func (e *dlEnv) tick() error {
 	return nil
 }
 
+// mcpProgramNames lists the tool names written as string literals in mcp().
+// calls is true when the program contains any mcp() call, including one whose
+// name is computed. A computed name is not part of the approval.
+func mcpProgramNames(p *program) (literals []string, calls bool) {
+	if p == nil {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	var walk func(*ex)
+	walk = func(e *ex) {
+		if e == nil {
+			return
+		}
+		if e.kind == "call" && e.name == "mcp" && e.recv == nil {
+			calls = true
+			if len(e.args) > 0 && e.args[0] != nil && e.args[0].kind == "str" && e.args[0].str != "" && !seen[e.args[0].str] {
+				seen[e.args[0].str] = true
+				literals = append(literals, e.args[0].str)
+			}
+		}
+		walk(e.recv)
+		for _, arg := range e.args {
+			walk(arg)
+		}
+	}
+	for _, st := range p.stmts {
+		walk(st.expr)
+	}
+	return literals, calls
+}
+
 func runDataLang(code string, input any, timeout time.Duration) (any, error) {
 	return evalDataLang(code, map[string]any{"input": input}, timeout)
 }
 
 func evalDataLang(code string, vars map[string]any, timeout time.Duration) (any, error) {
+	return evalDataLangHost(code, vars, timeout, nil)
+}
+
+func evalDataLangHost(code string, vars map[string]any, timeout time.Duration, host *dlHost) (any, error) {
 	if timeout <= 0 {
 		timeout = dataDefaultTimeout
 	}
@@ -62,7 +106,7 @@ func evalDataLang(code string, vars map[string]any, timeout time.Duration) (any,
 	if err != nil {
 		return nil, err
 	}
-	env := &dlEnv{vars: vars, deadline: time.Now().Add(timeout)}
+	env := &dlEnv{vars: vars, deadline: time.Now().Add(timeout), host: host}
 	var result any
 	returned := false
 	for _, st := range prog.stmts {
@@ -383,6 +427,56 @@ func indexOf(base, idx any) (any, error) {
 
 func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, error) {
 	switch name {
+	case "all":
+		if hasRecv || len(args) == 0 {
+			return nil, dataErr("TYPE_ERROR", "all expects one or more calls")
+		}
+		out := make([]any, len(args))
+		errs := make([]error, len(args))
+		var wg sync.WaitGroup
+		for i, arg := range args {
+			wg.Add(1)
+			go func(i int, arg *ex) {
+				defer wg.Done()
+				out[i], errs[i] = eval(arg, env)
+			}(i, arg)
+		}
+		wg.Wait()
+		for _, err := range errs {
+			if err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
+	case "mcp":
+		if hasRecv || len(args) != 2 {
+			return nil, dataErr("TYPE_ERROR", "mcp expects a name and an args object")
+		}
+		if env.host == nil || env.host.call == nil {
+			return nil, dataErr("MCP", "mcp is not available")
+		}
+		namev, err := eval(args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		tool, ok := namev.(string)
+		if !ok || strings.TrimSpace(tool) == "" {
+			return nil, dataErr("TYPE_ERROR", "mcp name must be a string")
+		}
+		if env.host.allowed == nil || !env.host.allowed[tool] {
+			return nil, dataErr("MCP", "tool was not part of the approval")
+		}
+		arg, err := eval(args[1], env)
+		if err != nil {
+			return nil, err
+		}
+		if arg == nil {
+			arg = map[string]any{}
+		}
+		if _, ok := arg.(map[string]any); !ok {
+			return nil, dataErr("TYPE_ERROR", "mcp args must be an object")
+		}
+		return env.host.call(tool, arg)
 	case "filter", "map", "sort", "group":
 		arr, pred, err := higherArgs(name, recv, hasRecv, args, env)
 		if err != nil {

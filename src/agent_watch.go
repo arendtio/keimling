@@ -337,7 +337,7 @@ func (a *Agent) runWatchChain(ctx context.Context, steps []WatchStep, input stri
 		if name == "exec" {
 			result = a.runExecWithCredentials(ctx, args)
 		} else {
-			result, _ = a.invokeTool(ctx, "", Item{Type: "function_call", Name: name, Arguments: args})
+			result, _ = a.invokeTool(ctx, nil, "", Item{Type: "function_call", Name: name, Arguments: args})
 		}
 		result = a.attachDataRef(name, result)
 		last = result

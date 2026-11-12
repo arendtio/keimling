@@ -299,6 +299,10 @@
         <label>Max steps
           <input id="set-max-steps" type="number" min="1" step="1">
         </label>
+        <label>MCP calls at once
+          <input id="set-mcp-parallel" type="number" min="1" step="1" value="10">
+        </label>
+        <p class="hint">How many MCP calls may talk to servers at once. Each stdio server still runs one call at a time.</p>
         <label>Context limit
           <input id="set-context-limit" type="number" min="1000" step="1000">
         </label>

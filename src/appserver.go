@@ -1720,6 +1720,7 @@ type agentSettings struct {
 	AutopilotInstructions      *string         `json:"autopilot_instructions,omitempty"`
 	AutopilotInstructionsReset *bool           `json:"autopilot_instructions_reset,omitempty"`
 	MaxSteps                   *int            `json:"max_steps,omitempty"`
+	MCPParallel                *int            `json:"mcp_parallel,omitempty"`
 	ContextLimit               *int            `json:"context_limit,omitempty"`
 	VoiceModel                 string          `json:"voice_model,omitempty"`
 	VoiceProviderID            *string         `json:"voice_provider_id,omitempty"`
@@ -1766,6 +1767,7 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"autopilot_instructions":        effectiveGlobal,
 		"autopilot_instructions_custom": globalCustom,
 		"max_steps":                     steps,
+		"mcp_parallel":                  mcpParallelLimit(s.agent.Cfg.MCPParallel),
 		"context_limit":                 limit,
 		"voice_model":                   s.agent.Cfg.VoiceModel,
 		"voice_provider_id":             s.agent.Cfg.VoiceProviderID,
@@ -1919,6 +1921,12 @@ func (s *appServer) applySettings(body agentSettings) error {
 			return fmt.Errorf("max_steps must be positive")
 		}
 		cfg.MaxSteps = *body.MaxSteps
+	}
+	if body.MCPParallel != nil {
+		if *body.MCPParallel < 1 {
+			return fmt.Errorf("mcp_parallel must be positive")
+		}
+		cfg.MCPParallel = *body.MCPParallel
 	}
 	if body.ContextLimit != nil {
 		if *body.ContextLimit < 1000 {
@@ -2408,6 +2416,7 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 		fc.Search = cfg.Search
 		fc.ServicesChosen = true
 		fc.MaxSteps = cfg.MaxSteps
+		fc.MCPParallel = cfg.MCPParallel
 		fc.ContextLimit = cfg.ContextLimit
 		if writeOpenAIKey {
 			k := ""

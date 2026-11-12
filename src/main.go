@@ -43,6 +43,7 @@ type Config struct {
 	Web                                                                      bool
 	CompactParallel                                                          bool // parallel leaf distill/summarize (API); off for local models
 	MaxSteps, ContextLimit                                                   int
+	MCPParallel                                                              int // simultaneous MCP calls; 0 means 10
 }
 
 var errAPIKeyMissing = errors.New("API key not found")
@@ -106,6 +107,7 @@ type fileConfig struct {
 	ServicesChosen        bool                       `json:"services_chosen,omitempty"`
 	Search                searchConfig               `json:"search,omitempty"`
 	MaxSteps              int                        `json:"max_steps,omitempty"`
+	MCPParallel           int                        `json:"mcp_parallel,omitempty"`
 	ContextLimit          int                        `json:"context_limit,omitempty"`
 	Presentation          string                     `json:"presentation"`
 	Listen                string                     `json:"listen"`
@@ -554,7 +556,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, RealtimeModel: strings.TrimSpace(fc.RealtimeModel), RealtimeProviderID: realtimeProviderID, RealtimeVoice: strings.TrimSpace(fc.RealtimeVoice), HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, RealtimeModel: strings.TrimSpace(fc.RealtimeModel), RealtimeProviderID: realtimeProviderID, RealtimeVoice: strings.TrimSpace(fc.RealtimeVoice), HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, MCPParallel: mcpParallelLimit(fc.MCPParallel), ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
 	a.Cfg.ConversationMode = a.Cfg.Mode
 	a.applyDefinitionApproval()

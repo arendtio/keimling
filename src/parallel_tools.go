@@ -110,42 +110,10 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 	}
 	allowed := g.Allow
 	if g.Ask {
-		preview := renderApprovalPreview(item.Name, item.Arguments)
-		if preview != "" {
-			a.print(preview)
-		}
-		if a.ApprovalCh != nil {
-			a.emitJSON("approval", map[string]any{
-				"name":    item.Name,
-				"command": toolCommandLabel(item.Name, item.Arguments),
-				"reason":  reason,
-				"preview": preview,
-			})
-			a.emit("status", "awaiting_approval")
-			select {
-			case <-ctx.Done():
-				return toolAdmit{}, ctx.Err()
-			case allowed = <-a.ApprovalCh:
-			}
-			a.emitJSON("approval", map[string]any{"clear": true})
-			a.emit("status", "running")
-		} else if a.Control != nil && isTerminal(0) {
-			var e error
-			allowed, e = a.Control.requestApproval(ctx)
-			if e != nil {
-				return toolAdmit{}, e
-			}
-		} else {
-			a.print("Approve? [Y/n] ")
-			if reader == nil {
-				return toolAdmit{}, fmt.Errorf("approval requires a terminal reader")
-			}
-			answer, e := reader.ReadString('\n')
-			if e != nil {
-				return toolAdmit{}, e
-			}
-			answer = strings.ToLower(strings.TrimSpace(answer))
-			allowed = answer == "" || answer == "y" || answer == "yes" || answer == "j" || answer == "ja"
+		var err error
+		allowed, err = a.waitApproval(ctx, reader, item.Name, toolCommandLabel(item.Name, item.Arguments), reason, renderApprovalPreview(item.Name, item.Arguments))
+		if err != nil {
+			return toolAdmit{}, err
 		}
 	}
 	return toolAdmit{Allowed: allowed, Deny: g.Deny, Reason: reason}, nil
@@ -153,6 +121,17 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 
 func (a *Agent) runFunctionCalls(ctx context.Context, message string, reader *bufio.Reader, items []Item) error {
 	for i := 0; i < len(items); {
+		if isMCPTool(items[i].Name) {
+			j := i + 1
+			for j < len(items) && isMCPTool(items[j].Name) {
+				j++
+			}
+			if err := a.runMCPWave(ctx, reader, items[i:j]); err != nil {
+				return err
+			}
+			i = j
+			continue
+		}
 		if !toolCallParallel(items[i].Name, items[i].Arguments) {
 			if err := a.handleFunctionCall(ctx, message, reader, items[i]); err != nil {
 				return err
@@ -283,7 +262,7 @@ func (a *Agent) handleFunctionCall(ctx context.Context, message string, reader *
 				pre = strings.TrimSpace(pre + "\n" + shellNote)
 			}
 		}
-		result, raw = a.invokeTool(ctx, message, item)
+		result, raw = a.invokeTool(ctx, reader, message, item)
 		post := runPluginHooks("postToolUse", item.Name+"\n"+result)
 		if item.Name == "exec" {
 			if shellNote := runPluginHooks("afterShellExecution", result); shellNote != "" {
@@ -297,7 +276,7 @@ func (a *Agent) handleFunctionCall(ctx context.Context, message string, reader *
 	return a.recordToolResult(ctx, item, result, raw, adm.Allowed)
 }
 
-func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (result, rawExec string) {
+func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message string, item Item) (result, rawExec string) {
 	switch item.Name {
 	case "update_plan":
 		var p struct {
@@ -431,7 +410,7 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 			return answer, ""
 		}
 		if item.Name == "data_processing" {
-			return a.runDataTool(item.Arguments), ""
+			return a.runDataProgram(ctx, reader, item.Arguments), ""
 		}
 		if item.Name == "data_processing_help" {
 			return dataHelp(item.Arguments), ""
@@ -449,32 +428,12 @@ func (a *Agent) invokeTool(ctx context.Context, message string, item Item) (resu
 			return result, ""
 		}
 		if isMCPTool(item.Name) {
-			argsJSON := item.Arguments
-			secret := ""
-			if a.Credentials != nil {
-				prepared, sec, credErr := a.Credentials.prepareToolArgs(item.Name, item.Arguments)
-				if credErr != nil {
-					return "credential error: " + credErr.Error(), ""
-				}
-				argsJSON = prepared
-				secret = sec
+			done := a.callMCPTool(ctx, item.Name, item.Arguments)
+			if done.stored {
+				a.toolDataPending = &dataPending{kind: done.kind, value: done.value}
 			}
-			display, kind, value, stored := a.ensureMCP().callStored(ctx, item.Name, argsJSON)
-			display = redactSecret(display, secret)
-			if stored && secret != "" {
-				if b, err := json.Marshal(value); err == nil {
-					var redacted any
-					if json.Unmarshal([]byte(redactSecret(string(b), secret)), &redacted) == nil {
-						value = redacted
-					}
-				}
-			}
-			if stored {
-				a.toolDataPending = &dataPending{kind: kind, value: value}
-			}
-			result = display
-			a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
-			return result, ""
+			a.println("\033[35m⬡ MCP\033[0m " + truncate(done.display, 240))
+			return done.display, ""
 		}
 		run := func() string {
 			if item.Name == "exec" {

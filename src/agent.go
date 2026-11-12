@@ -58,6 +58,11 @@ type Agent struct {
 	branchHold      *tailSnap
 	branchPending   int
 	branchUserReady bool
+	// mcpSlots is the shared cap for chat MCP calls and DataLang mcp().
+	mcpGateOnce sync.Once
+	mcpSlots    *mcpRunGate
+	// mcpInvoke, when set, replaces the MCP server call. Tests use it.
+	mcpInvoke func(ctx context.Context, name, args string) (display, kind string, value any, stored bool)
 }
 
 func (a *Agent) emit(kind, text string) {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -88,6 +90,14 @@ For recursive grammars, lookahead, backreferences, multiline
 templates and detailed capture semantics, call
 data_processing_help(topic="parser").
 
+MCP
+mcp(name, args) calls one connected MCP tool and returns its value.
+name is the exposed tool name, written as a string. args is an object.
+all(mcp("mcp__a__one", {}), mcp("mcp__b__two", {})) runs those calls together.
+The program is approved once before it starts, from those string names.
+A name computed while the program runs is not called.
+A program that only calls MCP tools may leave input_ref empty and inputs [].
+
 OUTPUT
 Small results are returned inline. Large results receive
 a new reference for subsequent data_processing calls.`
@@ -161,7 +171,11 @@ Example
   }
   return parse(input, node)
 
-Errors include the offset, line, column, and the tokens that were expected.`
+Errors include the offset, line, column, and the tokens that were expected.
+
+mcp(name, args) calls one MCP tool. name is a string literal.
+all(...) evaluates each argument at the same time.
+A tool name that is not a string literal in the program is not called.`
 
 func dataLangTools() []map[string]any {
 	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
@@ -207,6 +221,10 @@ func (a *Agent) toolResults() *dataStore {
 }
 
 func (a *Agent) runDataTool(args string) string {
+	return a.runDataProgram(context.Background(), nil, args)
+}
+
+func (a *Agent) runDataProgram(ctx context.Context, reader *bufio.Reader, args string) string {
 	var in struct {
 		InputRef string `json:"input_ref"`
 		Inputs   []struct {
@@ -220,11 +238,44 @@ func (a *Agent) runDataTool(args string) string {
 	if err := decodeArgs(args, &in); err != nil {
 		return dataErrorJSON(dataErr("SYNTAX", err.Error()))
 	}
-	vars, err := a.dataVars(in.InputRef, in.Inputs)
+	prog, err := parseProgram(in.Code)
 	if err != nil {
 		return dataErrorJSON(err)
 	}
-	value, err := evalDataLang(in.Code, vars, dataTimeout(in.TimeoutMS))
+	names, calls := mcpProgramNames(prog)
+	vars, err := a.dataVars(in.InputRef, in.Inputs, calls)
+	if err != nil {
+		return dataErrorJSON(err)
+	}
+	if calls {
+		ok, err := a.allowMCPProgram(ctx, reader, names)
+		if err != nil {
+			return err.Error()
+		}
+		if !ok {
+			return "DENIED by user"
+		}
+	}
+	host := &dlHost{allowed: map[string]bool{}}
+	for _, name := range names {
+		host.allowed[name] = true
+	}
+	host.call = func(name string, args any) (any, error) {
+		raw, err := json.Marshal(args)
+		if err != nil {
+			return nil, dataErr("MCP", err.Error())
+		}
+		done := a.callMCPTool(ctx, name, string(raw))
+		if !done.stored {
+			msg := strings.TrimSpace(done.display)
+			if msg == "" {
+				msg = "MCP call failed"
+			}
+			return nil, dataErr("MCP", msg)
+		}
+		return done.value, nil
+	}
+	value, err := evalDataLangHost(in.Code, vars, dataTimeout(in.TimeoutMS), host)
 	if err != nil {
 		return dataErrorJSON(err)
 	}
@@ -238,7 +289,7 @@ func (a *Agent) runDataTool(args string) string {
 func (a *Agent) dataVars(primary string, extras []struct {
 	Name string `json:"name"`
 	Ref  string `json:"ref"`
-}) (map[string]any, error) {
+}, allowEmpty bool) (map[string]any, error) {
 	vars := map[string]any{}
 	if strings.TrimSpace(primary) != "" {
 		item, err := a.toolResults().get(primary)
@@ -269,7 +320,7 @@ func (a *Agent) dataVars(primary string, extras []struct {
 		}
 		vars[name] = item.value
 	}
-	if len(vars) == 0 {
+	if len(vars) == 0 && !allowEmpty {
 		return nil, dataErr("INVALID_REF", "missing result reference")
 	}
 	return vars, nil

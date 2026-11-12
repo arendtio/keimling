@@ -228,6 +228,7 @@
   var threadAutopilotSaved = "";
   var threadAutopilotUndoText = "";
   var setMaxSteps = document.getElementById("set-max-steps");
+  var setMCPParallel = document.getElementById("set-mcp-parallel");
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
   var setVoiceProvider = document.getElementById("set-voice-provider");
@@ -1907,6 +1908,7 @@
     applyAutopilotSettingsFields(j);
     if (setAutopilotInstructionsUndo) setAutopilotInstructionsUndo.hidden = true;
     setMaxSteps.value = j.max_steps != null ? j.max_steps : 200;
+    if (setMCPParallel) setMCPParallel.value = j.mcp_parallel != null ? j.mcp_parallel : 10;
     setContextLimit.value = j.context_limit != null ? j.context_limit : 128000;
     if (setVoiceModel && !setVoiceProvider) setVoiceModel.value = j.voice_model || "";
     syncHiddenProviderFields();
@@ -1949,6 +1951,7 @@
       mode: setMode.value,
       autopilot: setAutopilot.checked,
       max_steps: parseInt(setMaxSteps.value, 10),
+      mcp_parallel: setMCPParallel ? parseInt(setMCPParallel.value, 10) : 10,
       context_limit: parseInt(setContextLimit.value, 10),
     };
     if (agentSettingsLoaded) {

@@ -25,6 +25,7 @@ func TestWorkInstructionsStateTheRulesThatChangeTheWork(t *testing.T) {
 		"without new tool output",
 		"reversible default",
 		"Call independent reads",
+		"mcp(name, args)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q", want)
