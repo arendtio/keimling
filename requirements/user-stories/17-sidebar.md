@@ -29,3 +29,9 @@
 **As** a user, **I want** one Sidebar entry instead of More, **so that** context, artifacts, and autopilot instructions are that area rather than separate dialogs.
 
 **Acceptance:** traces REQ-SB-2. Autopilot instructions keep save, undo, and reset on that surface. After the app is opened again, the side area is open or closed as it was, on the same view, at the same width.
+
+## US-51 — Keep the chat readable beside the sidebar
+
+**As** a user, **I want** the chat to stay a steady width, **so that** a long message or a wide sidebar does not stretch or squeeze the conversation.
+
+**Acceptance:** traces REQ-SB-8. A very long line stays inside the chat column. The side area beside the chat stops widening while the chat is still about 600 pixels wide.

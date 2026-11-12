@@ -71,3 +71,13 @@ The side area is the place for what the user looks at beside the chat. Artifacts
 - **Fit criterion:** With the side area showing the plan, an agent request to show an artifact opens the side area on that artifact. A later request to show a second artifact replaces the visible one. The plan remains available without being the visible content.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SB-8 The chat keeps its width
+
+- **Bin:** explicit requirement
+- **Statement:** The chat shall keep a width of its own. A long message shall not make the chat wider. While the side area is open beside the chat, widening that area shall leave the chat at least about 600 pixels wide.
+- **Origin:** User, 2026-11-12 (quote: "die Breite von unserem Gesprächs-Chat irgendwie wachsen kann" and "der soll nicht breiter werden, nur weil da irgendwie lange Nachrichten reinkommen" and "wenn man die Sidebar öffnet, dann kann man sie quasi so weit öffnen, wie man will, der Gesprächs-Chat hat keine Mindestbreite" and "so 'ne Mindestbreite von 600 Pixeln").
+- **Rationale:** The chat is the place the user reads. A long line or a wide side area should not push that place out of shape.
+- **Fit criterion:** A message with a very long line leaves the chat column the same width, and the line scrolls or wraps inside it. Dragging the side area wider stops while the chat is still about 600 pixels wide. On a window too narrow for that floor plus the side area, the chat keeps the room it can.
+- **Priority:** shall
+- **Status:** confirmed

@@ -6,7 +6,8 @@
 
 **Acceptance**
 
-- Settings → Connection shows **Currently connected**, **My connections (this machine)**, and **On this server**.
+- Settings → Backend shows **Currently connected**, **My connections (this machine)**, and **On this server**.
+- A long plugin path stays inside the settings dialog. The dialog is wide enough for its sections and stays within the window.
 - Client book persists in `~/.config/keimling/connections.json` (CLI can resolve `--connect` by name/id).
 - Server book remains editable on the process; connecting to a server entry adopts/updates the client book.
 - Continue still navigates or resumes (reload), as today.

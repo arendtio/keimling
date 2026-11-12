@@ -149,6 +149,9 @@ body {
 }
 .gate-card {
   width: min(26rem, 100%);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 0 auto 2rem;
   display: grid;
   gap: 0.85rem;
@@ -156,9 +159,9 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 2px);
-  overflow: visible;
+  overflow-x: clip;
 }
-.gate-card.gate-wide { width: min(36rem, 100%); }
+.gate-card.gate-wide { width: min(44rem, 100%); }
 .gate.login .gate-card { width: min(22rem, 100%); }
 .gate.login #gate-title { display: none; }
 .gate.login .settings-tabs,
@@ -168,12 +171,15 @@ body {
 #login-panel label { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.2rem 0 0.8rem; }
 .settings-tabs {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   gap: 0;
   border-bottom: 1px solid var(--line);
   margin: 0.15rem 0 0.25rem;
 }
 .settings-tab {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   background: transparent;
   color: var(--muted);
   border: 0;
@@ -182,12 +188,20 @@ body {
   font-weight: 600;
   padding: 0.55rem 0.4rem 0.65rem;
   margin-bottom: -1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .settings-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
-.settings-pane { display: grid; gap: 0.85rem; }
+.settings-pane {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
+}
 .settings-lead {
   margin: 0;
   font-size: 0.9rem;
@@ -428,13 +442,16 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .shell {
   --artifact-width: 32rem;
+  --chat-min: calc(600px + 0.65rem);
   display: grid;
+  width: 100%;
+  max-width: 100%;
   grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr);
   align-items: start;
   min-height: 100vh;
 }
 .shell.artifact-open:not(.artifact-overlay) {
-  grid-template-columns: minmax(0, var(--sidebar)) minmax(0, 1fr) var(--artifact-width);
+  grid-template-columns: minmax(0, var(--sidebar)) minmax(min(var(--chat-min), 100%), 1fr) minmax(0, var(--artifact-width));
 }
 .sidebar {
   position: sticky;
@@ -816,6 +833,12 @@ button.wide { width: 100%; max-width: 100%; }
   display: flex;
   gap: 0.35rem;
   align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+}
+#plugin-list li {
+  flex-direction: column;
+  align-items: stretch;
 }
 .profile-list .profile-pick {
   flex: 1 1 auto;
@@ -827,6 +850,9 @@ button.wide { width: 100%; max-width: 100%; }
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .profile-list button.profile-pick { cursor: pointer; }
 .profile-list .profile-pick.active {
@@ -837,6 +863,7 @@ button.wide { width: 100%; max-width: 100%; }
   font-size: 0.75rem;
   color: var(--muted);
   font-weight: 400;
+  overflow-wrap: anywhere;
 }
 .plugin-code {
   display: flex;
@@ -846,11 +873,19 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .plugin-code-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+.plugin-code-row span {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .profile-list .profile-row-actions {
   display: flex;
@@ -1073,11 +1108,14 @@ button.wide { width: 100%; max-width: 100%; }
   box-sizing: border-box;
 }
 .column {
-  width: min(var(--col), calc(100% - 2rem));
+  width: 100%;
+  max-width: min(var(--col), calc(100% - 2rem));
+  min-width: 0;
   margin: 0 auto;
   padding-top: 0.85rem;
   display: grid;
   gap: 0.85rem;
+  overflow-x: clip;
 }
 
 .block {
@@ -1206,7 +1244,12 @@ button.wide { width: 100%; max-width: 100%; }
   color: color-mix(in srgb, var(--accent) 55%, var(--muted));
 }
 
-.thread { display: grid; gap: 0.85rem; }
+.thread {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
+}
 
 .chapter-overview {
   border: 0;
@@ -1284,6 +1327,8 @@ button.wide { width: 100%; max-width: 100%; }
   border-radius: 0;
   padding: 0.05rem 0 0.25rem;
   background: transparent;
+  min-width: 0;
+  max-width: 100%;
 }
 .chapter-fold > summary {
   cursor: pointer;
@@ -1303,11 +1348,15 @@ button.wide { width: 100%; max-width: 100%; }
   display: grid;
   gap: 0.65rem;
   padding-bottom: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .msg {
   padding: 0.85rem 1rem;
   border-radius: var(--radius);
+  min-width: 0;
+  max-width: 100%;
 }
 .chapter-overview > .msg,
 .chapter-fold-body > .msg {
@@ -1398,6 +1447,8 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .msg .body {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1406,6 +1457,8 @@ button.wide { width: 100%; max-width: 100%; }
   line-height: 1.55;
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .msg.assistant .body > :first-child { margin-top: 0; }
 .msg.assistant .body > :last-child { margin-bottom: 0; }
@@ -1438,6 +1491,11 @@ button.wide { width: 100%; max-width: 100%; }
   padding: 0.1em 0.35em;
   border-radius: 0.25rem;
 }
+.msg.assistant .body pre,
+.msg.assistant .body table {
+  max-width: 100%;
+  min-width: 0;
+}
 .msg.assistant .body pre {
   margin: 0;
   padding: 0.65rem 0.75rem;
@@ -1445,6 +1503,15 @@ button.wide { width: 100%; max-width: 100%; }
   background: color-mix(in srgb, var(--chrome) 75%, var(--panel));
   border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+.msg.assistant .body table {
+  display: block;
+  overflow-x: auto;
+}
+.msg .body img,
+.msg.assistant .body img {
+  max-width: 100%;
+  height: auto;
 }
 .msg.assistant .body pre code {
   background: transparent;

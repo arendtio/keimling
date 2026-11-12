@@ -101,6 +101,7 @@
   var BG_DARK_DEFAULT = "#202326";
   var ARTIFACT_WIDTH_MIN = 280;
   var ARTIFACT_WIDTH_MAX_RATIO = 0.72;
+  var CHAT_MIN_PX = 600;
   var bgLightEl = document.getElementById("bg-light");
   var bgDarkEl = document.getElementById("bg-dark");
   var bgResetBtn = document.getElementById("bg-reset");
@@ -6851,9 +6852,22 @@
     if (u.charAt(0) === "/") return apiURL(u);
     return u;
   }
+  function artifactMaxPx() {
+    var side = 0;
+    var el = document.querySelector(".sidebar");
+    if (el) side = el.getBoundingClientRect().width;
+    var room = Math.floor(window.innerWidth - side - CHAT_MIN_PX);
+    var ratio = Math.floor(window.innerWidth * ARTIFACT_WIDTH_MAX_RATIO);
+    var max = Math.min(ratio, room);
+    return max < 0 ? 0 : max;
+  }
   function clampArtifactWidth(px) {
-    var max = Math.floor(window.innerWidth * ARTIFACT_WIDTH_MAX_RATIO);
-    if (max < ARTIFACT_WIDTH_MIN) max = ARTIFACT_WIDTH_MIN;
+    var max = artifactMaxPx();
+    if (max < ARTIFACT_WIDTH_MIN) {
+      if (px < 0) return 0;
+      if (px > max) return max;
+      return Math.round(px);
+    }
     if (px < ARTIFACT_WIDTH_MIN) return ARTIFACT_WIDTH_MIN;
     if (px > max) return max;
     return Math.round(px);
@@ -9806,6 +9820,11 @@
   window.addEventListener("resize", function () {
     if (geometryTimer) clearTimeout(geometryTimer);
     geometryTimer = setTimeout(persistWindowGeometry, 400);
+    if (!shellEl || !artifactPane || artifactPane.hidden || artifactViewMode === "overlay") return;
+    var saved = 0;
+    try { saved = parseInt(localStorage.getItem(STORAGE_ARTIFACT_WIDTH) || "", 10); } catch (e) {}
+    if (!(saved > 0)) saved = artifactPane.getBoundingClientRect().width;
+    applyArtifactWidth(saved);
   });
   window.addEventListener("pagehide", persistWindowGeometry);
 
