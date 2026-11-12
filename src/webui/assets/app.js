@@ -5162,10 +5162,11 @@
     budgetLineEl.textContent = parts.length ? parts.join(" · ") : "—";
     var tip = [];
     if (sess.priced && sess.estimate_usd != null) tip.push("Session estimate from token usage × model prices");
+    if (prov.supported && prov.error) tip.push(prov.error);
     if (prov.supported && !prov.error && prov.remaining_usd != null) {
       tip.push(prov.kind === "openrouter"
         ? "OpenRouter key limit_remaining (per-key cap), not account credit balance"
-        : "Provider remaining budget");
+        : "Key budget minus spend");
     }
     tip.push("Click to refresh");
     budgetLineEl.title = tip.join(". ");

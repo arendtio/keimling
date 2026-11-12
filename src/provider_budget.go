@@ -104,7 +104,7 @@ func fetchProviderBudget(ctx context.Context, kind, baseURL, apiKey string) prov
 		return info
 	case "litellm":
 		info.Supported = true
-		rem, lim, usage, err := fetchLiteLLMUserBudget(ctx, baseURL, apiKey)
+		rem, lim, usage, err := fetchLiteLLMKeyBudget(ctx, baseURL, apiKey)
 		if err != nil {
 			info.Error = err.Error()
 			return info
@@ -163,13 +163,13 @@ func fetchOpenRouterKeyBudget(ctx context.Context, baseURL, apiKey string) (rema
 	return doc.Data.LimitRemaining, doc.Data.Limit, doc.Data.Usage, nil
 }
 
-func fetchLiteLLMUserBudget(ctx context.Context, baseURL, apiKey string) (remaining, limit, usage *float64, err error) {
+func fetchLiteLLMKeyBudget(ctx context.Context, baseURL, apiKey string) (remaining, limit, usage *float64, err error) {
 	root := providerRootURL(baseURL)
 	if root == "" {
 		return nil, nil, nil, fmt.Errorf("litellm base url required")
 	}
-	url := root + "/user/info"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// The key in Authorization is the key being read. It is not put in the URL.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/key/info", nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -185,24 +185,22 @@ func fetchLiteLLMUserBudget(ctx context.Context, baseURL, apiKey string) (remain
 		return nil, nil, nil, err
 	}
 	if res.StatusCode != http.StatusOK {
-		return nil, nil, nil, fmt.Errorf("litellm user/info HTTP %d: %s", res.StatusCode, truncate(string(b), 200))
+		return nil, nil, nil, fmt.Errorf("litellm key/info HTTP %d: %s", res.StatusCode, truncate(string(b), 200))
 	}
 	var doc struct {
-		UserInfo *struct {
+		Info *struct {
 			MaxBudget *float64 `json:"max_budget"`
 			Spend     *float64 `json:"spend"`
-		} `json:"user_info"`
+		} `json:"info"`
 		MaxBudget *float64 `json:"max_budget"`
 		Spend     *float64 `json:"spend"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return nil, nil, nil, fmt.Errorf("litellm user/info parse: %w", err)
+		return nil, nil, nil, fmt.Errorf("litellm key/info parse: %w", err)
 	}
-	var maxB, spend *float64
-	if doc.UserInfo != nil {
-		maxB, spend = doc.UserInfo.MaxBudget, doc.UserInfo.Spend
-	} else {
-		maxB, spend = doc.MaxBudget, doc.Spend
+	maxB, spend := doc.MaxBudget, doc.Spend
+	if doc.Info != nil {
+		maxB, spend = doc.Info.MaxBudget, doc.Info.Spend
 	}
 	if maxB == nil {
 		return nil, nil, spend, nil

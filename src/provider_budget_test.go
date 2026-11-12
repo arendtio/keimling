@@ -33,17 +33,23 @@ func TestFetchOpenRouterKeyBudget(t *testing.T) {
 	}
 }
 
-func TestFetchLiteLLMUserBudget(t *testing.T) {
+func TestFetchLiteLLMKeyBudget(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/user/info" {
+		if r.URL.Path != "/key/info" {
 			t.Fatalf("path %s", r.URL.Path)
 		}
+		if r.URL.RawQuery != "" {
+			t.Fatalf("key was put in the URL: %s", r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer k" {
+			t.Fatalf("auth %s", r.Header.Get("Authorization"))
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"user_info": map[string]any{"max_budget": 50.0, "spend": 12.5},
+			"info": map[string]any{"max_budget": 50.0, "spend": 12.5},
 		})
 	}))
 	defer srv.Close()
-	rem, lim, usage, err := fetchLiteLLMUserBudget(context.Background(), srv.URL+"/v1", "k")
+	rem, lim, usage, err := fetchLiteLLMKeyBudget(context.Background(), srv.URL+"/v1", "k")
 	if err != nil {
 		t.Fatal(err)
 	}

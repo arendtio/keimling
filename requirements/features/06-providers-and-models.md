@@ -34,7 +34,7 @@ remote catalogs.
   - OpenRouter: `GET {base}/key` → `limit_remaining` (remaining **per-key
     spending cap**, not account credit balance). Account credits need
     Management-Key `GET /credits` and are out of scope for the normal API key.
-  - LiteLLM: `GET {base}/user/info` (or compatible) → budget − spend.
+  - LiteLLM: `GET {base}/key/info` with the key as the bearer. The key’s `max_budget` minus its `spend` is the remaining amount. `GET /user/info` is the user, not the key.
   - Others: omit remaining.
 - Fetch sparsely: on session load, when status becomes idle, manual refresh;
   server cache TTL ~90s.
