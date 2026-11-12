@@ -32,7 +32,7 @@
 
 ## US-34 — An MCP tool can be always allowed
 
-**As** a user, **I want** to mark one MCP tool as always allowed, **so that** ask and auto do not stop on it.
+**As** a user, **I want** to mark one MCP tool as always allowed, including a tool from a plugin server, **so that** ask and auto do not stop on it.
 
 **Acceptance:** traces REQ-CB-6. The mark is on the tool, once. Clearing it brings the question back. A credential injected outside the model does not add a question.
 

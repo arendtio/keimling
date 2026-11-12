@@ -71,6 +71,18 @@ func TestMarketplaceRecognizesTheCatalogAndLoadsEveryPlugin(t *testing.T) {
 	if len(st.Plugins) != 2 || st.Plugins[0] != "notes-kit" || st.Plugins[1] != "review-kit" {
 		t.Fatalf("plugins: %+v notes %v", st.Plugins, st.Notes)
 	}
+	if len(st.Active) != 0 {
+		t.Fatalf("plugins started on: %+v", st.Active)
+	}
+	if LoadSkillRegistry(t.TempDir()).Get("review-diff") != nil || LoadSkillRegistry(t.TempDir()).Get("note-taking") != nil {
+		t.Fatal("marketplace plugin contributed before it was activated")
+	}
+	if _, err := setPluginUnit(st.ID, "review-kit", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setPluginUnit(st.ID, "notes-kit", true); err != nil {
+		t.Fatal(err)
+	}
 	reg := LoadSkillRegistry(t.TempDir())
 	if reg.Get("review-diff") == nil || reg.Get("note-taking") == nil {
 		t.Fatal("marketplace skills missing")
@@ -241,7 +253,39 @@ func TestClaudeMarketplaceUsesARelativeSource(t *testing.T) {
 	if st.Layout != "marketplace" || len(st.Plugins) != 1 || st.Plugins[0] != "docs-kit" {
 		t.Fatalf("status: %+v", st)
 	}
+	if _, ok := LoadMCPServerConfigs("")["docs"]; ok {
+		t.Fatal("claude mcp loaded before the plugin was activated")
+	}
+	if _, err := setPluginUnit(st.ID, "docs-kit", true); err != nil {
+		t.Fatal(err)
+	}
 	if LoadMCPServerConfigs("")["docs"].Command != "echo" {
 		t.Fatal("claude mcp was not loaded")
+	}
+}
+
+func TestEnabledMarketplaceKeepsPluginsUntilOneIsTurnedOff(t *testing.T) {
+	withTempAgentHomes(t)
+	root := t.TempDir()
+	writeMarketplaceFixture(t, root)
+	rec := pluginRecord{ID: "plugin-old", Kind: "dir", Location: root, Enabled: true}
+	if err := writePluginFile(pluginFile{Sources: []pluginRecord{rec}}); err != nil {
+		t.Fatal(err)
+	}
+	if LoadSkillRegistry(t.TempDir()).Get("review-diff") == nil || LoadSkillRegistry(t.TempDir()).Get("note-taking") == nil {
+		t.Fatal("existing marketplace lost its plugins")
+	}
+	if _, err := setPluginUnit("plugin-old", "notes-kit", false); err != nil {
+		t.Fatal(err)
+	}
+	reg := LoadSkillRegistry(t.TempDir())
+	if reg.Get("note-taking") != nil {
+		t.Fatal("turned-off plugin still contributed")
+	}
+	if reg.Get("review-diff") == nil {
+		t.Fatal("the other plugin was turned off too")
+	}
+	if _, ok := LoadMCPServerConfigs("")["docs"]; !ok {
+		t.Fatal("the plugin that stayed on lost its server")
 	}
 }

@@ -8,9 +8,9 @@
 
 ## US-42 — Use a Cursor or Claude marketplace
 
-**As** a user, **I want** to add a marketplace repository the same way I add a plugin, **so that** every plugin it lists is available here.
+**As** a user, **I want** to add a marketplace repository the same way I add a plugin, and turn on only the plugins I want, **so that** the rest stay off until I activate them.
 
-**Acceptance:** traces REQ-PL-3, REQ-PL-4, and REQ-PL-5. The kind is recognized from the catalog or the plugin manifest. All listed plugins come on with the marketplace. Rules, skills, slash commands, agents, and MCP servers from those plugins are available.
+**Acceptance:** traces REQ-PL-3, REQ-PL-4, and REQ-PL-5. The kind is recognized from the catalog or the plugin manifest. Listed plugins stay off until the user activates each one, and each one can be turned off again. Rules, skills, slash commands, agents, and MCP servers come from the plugins that are on.
 
 ## US-43 — Grant running code from a marketplace plugin once
 

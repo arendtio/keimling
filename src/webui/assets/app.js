@@ -38,8 +38,8 @@
   var skillsInstallPreviewBtn = document.getElementById("skills-install-preview-btn");
   var skillsReviewOut = document.getElementById("skills-review-out");
   var currentSkillPreview = null;
-  var openMcpBtn = document.getElementById("open-mcp");
-  var mcpDialog = document.getElementById("mcp-dialog");
+  var mcpToolDialog = document.getElementById("mcp-tool-dialog");
+  var mcpToolName = "";
   var mcpList = document.getElementById("mcp-list");
   var mcpName = document.getElementById("mcp-name");
   var mcpKind = document.getElementById("mcp-kind");
@@ -1023,6 +1023,45 @@
       if (p.error) bits.push(p.error);
       meta.textContent = bits.join(" · ");
       li.appendChild(meta);
+      if (p.layout === "marketplace" && p.plugins && p.plugins.length) {
+        var units = document.createElement("div");
+        units.className = "plugin-units";
+        if (!p.enabled) {
+          var held = document.createElement("p");
+          held.className = "hint";
+          held.textContent = "Marketplace is off. Checked plugins come back when you turn it on.";
+          units.appendChild(held);
+        }
+        var active = {};
+        (p.active || []).forEach(function (unitName) { active[unitName] = true; });
+        p.plugins.forEach(function (unitName) {
+          var row = document.createElement("label");
+          row.className = "check";
+          var pick = document.createElement("input");
+          pick.type = "checkbox";
+          pick.checked = !!active[unitName];
+          pick.disabled = !p.enabled;
+          pick.addEventListener("change", function () {
+            pick.disabled = true;
+            fetch(apiURL("/api/plugins/unit"), {
+              method: "POST",
+              headers: headers(),
+              body: JSON.stringify({ id: p.id, name: unitName, enabled: pick.checked }),
+            })
+              .then(readAPIResult)
+              .then(loadPlugins)
+              .catch(function (err) {
+                pick.checked = !pick.checked;
+                showPluginErr(String(err.message || err));
+              })
+              .finally(function () { pick.disabled = !p.enabled; });
+          });
+          row.appendChild(pick);
+          row.appendChild(document.createTextNode(unitName));
+          units.appendChild(row);
+        });
+        li.appendChild(units);
+      }
       if (p.agents && p.agents.length) {
         var starts = document.createElement("div");
         starts.className = "profile-row-actions";
@@ -1124,7 +1163,7 @@
           .catch(function (err) { showPluginErr(String(err.message || err)); });
       });
       on.appendChild(box);
-      on.appendChild(document.createTextNode(" Enabled"));
+      on.appendChild(document.createTextNode(p.layout === "marketplace" ? " Marketplace on" : " On"));
       actions.appendChild(on);
       if (p.kind === "git") {
         var refresh = document.createElement("button");
@@ -1178,6 +1217,10 @@
     connectBtn.hidden = tab !== "connection";
     if (tab === "secrets" && connected) loadCredentialsUI();
     if (tab === "plugins" && connected) loadPlugins();
+    if (tab === "mcp" && connected) {
+      syncMcpKindUI();
+      loadMcpList().catch(function (err) { showMcpErr(String(err.message || err)); });
+    }
     if (tab === "themes") renderThemeList();
   }
 
@@ -6567,14 +6610,16 @@
   }
 
   function showMcpErr(msg) {
-    if (!mcpErr) return;
-    if (!msg) {
-      mcpErr.hidden = true;
-      mcpErr.textContent = "";
-      return;
-    }
-    mcpErr.hidden = false;
-    mcpErr.textContent = msg;
+    [mcpErr, document.getElementById("mcp-tool-err")].forEach(function (el) {
+      if (!el) return;
+      if (!msg) {
+        el.hidden = true;
+        el.textContent = "";
+        return;
+      }
+      el.hidden = false;
+      el.textContent = msg;
+    });
   }
   function mcpAddPair(list, namePh, valuePh) {
     if (!list) return;
@@ -6720,55 +6765,72 @@
       list.appendChild(li);
     });
   }
-  function renderMcpServers(servers) {
-    renderSideMcp(servers);
-    if (!mcpList) return;
-    mcpList.innerHTML = "";
-    if (!servers || !servers.length) {
-      var empty = document.createElement("li");
-      empty.className = "skill-meta";
-      empty.textContent = "No MCP servers configured.";
-      mcpList.appendChild(empty);
-      return;
-    }
-    servers.forEach(function (s) {
-      var li = document.createElement("li");
-      var title = document.createElement("div");
-      title.className = "skill-name";
-      title.textContent = s.name || "";
-      var meta = document.createElement("div");
-      meta.className = "skill-meta";
-      var errText = s.error || "";
-      if (/authorization required/i.test(errText)) errText = "The server requires a bearer token or sign-in.";
-      var authNote = "";
-      if (s.oauth === "signed_in") authNote = " · signed in";
-      else if (s.oauth === "expired") authNote = " · sign-in expired";
-      else if (s.auth === "bearer" || s.auth === "headers" || s.auth === "env") authNote = " · secret set";
-      var from = "";
-      if (s.source === "cursor") from = " · .cursor/mcp.json";
-      else if (s.source === "project") from = " · .keimling/mcp.json";
-      else if (s.source === "config") from = " · config.json";
-      else if (s.source === "plugin") from = " · plugin " + (s.source_name || "");
-      meta.textContent = (s.transport || "") + " · " + (s.status || "") + from + authNote +
+  function mcpServerByName(name) {
+    var found = null;
+    (mcpServersCache || []).forEach(function (s) {
+      if (s && s.name === name) found = s;
+    });
+    return found;
+  }
+  function mcpServerNote(s) {
+    var errText = s.error || "";
+    if (/authorization required/i.test(errText)) errText = "The server requires a bearer token or sign-in.";
+    var authNote = "";
+    if (s.oauth === "signed_in") authNote = " · signed in";
+    else if (s.oauth === "expired") authNote = " · sign-in expired";
+    else if (s.auth === "bearer" || s.auth === "headers" || s.auth === "env") authNote = " · secret set";
+    var from = "";
+    if (s.source === "cursor") from = " · .cursor/mcp.json";
+    else if (s.source === "project") from = " · .keimling/mcp.json";
+    else if (s.source === "config") from = " · config.json";
+    else if (s.source === "plugin") from = " · plugin " + (s.source_name || "");
+    return {
+      line: (s.transport || "") + " · " + (s.status || "") + from + authNote +
         (errText ? " — " + errText : "") +
-        (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : "");
-      var tools = document.createElement("div");
-      tools.className = "mcp-tools";
+        (s.tools && s.tools.length ? " · " + s.tools.length + " tools" : ""),
+      errText: errText,
+      from: from,
+    };
+  }
+  function mcpToolNames(s) {
+    var names = (s.tools || []).slice();
+    (s.allow || []).forEach(function (name) {
+      if (names.indexOf(name) < 0) names.push(name);
+    });
+    return names;
+  }
+  function fillMcpToolDialog(s) {
+    var title = document.getElementById("mcp-tool-title");
+    var meta = document.getElementById("mcp-tool-meta");
+    var list = document.getElementById("mcp-tool-list");
+    var actions = document.getElementById("mcp-tool-actions");
+    if (!list || !s) return;
+    if (title) title.textContent = s.name || "Allow tools";
+    var note = mcpServerNote(s);
+    if (meta) meta.textContent = (s.transport || "") + " · " + (s.status || "") + note.from + (note.errText ? " — " + note.errText : "");
+    list.innerHTML = "";
+    var names = mcpToolNames(s);
+    if (!names.length) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "This server has not listed tools yet. Reload after it connects, then open it again.";
+      list.appendChild(empty);
+    } else {
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Always allow runs that tool in ask and auto without a question. Uncheck to ask again.";
+      list.appendChild(hint);
       var allowed = {};
       (s.allow || []).forEach(function (name) { allowed[name] = true; });
-      (s.tools || []).forEach(function (toolName) {
+      names.forEach(function (toolName) {
         var row = document.createElement("label");
         row.className = "check";
         var box = document.createElement("input");
         box.type = "checkbox";
         box.checked = !!allowed[toolName];
-        if (s.source === "plugin") {
-          box.disabled = true;
-          box.title = "This server comes from a plugin";
-        }
         box.addEventListener("change", function () {
-          if (s.source === "plugin") return;
           box.disabled = true;
+          showMcpErr("");
           fetch(apiURL("/api/mcp/allow"), {
             method: "POST",
             headers: headers(),
@@ -6788,15 +6850,31 @@
         });
         row.appendChild(box);
         row.appendChild(document.createTextNode(" Always allow " + toolName));
-        tools.appendChild(row);
+        list.appendChild(row);
       });
-      if (s.source !== "plugin") {
+    }
+    if (!actions) return;
+    actions.innerHTML = "";
+    if (s.url) {
+      var sign = document.createElement("button");
+      sign.type = "button";
+      sign.className = "ghost";
+      sign.textContent = s.oauth === "signed_in" ? "Sign in again" : "Sign in";
+      sign.addEventListener("click", function () {
+        showMcpErr("");
+        sign.disabled = true;
+        mcpSignIn(s.name, s.url).catch(function (e) { showMcpErr(e.message || e); })
+          .finally(function () { sign.disabled = false; });
+      });
+      actions.appendChild(sign);
+    }
+    if (s.source !== "plugin") {
       var rm = document.createElement("button");
       rm.type = "button";
+      rm.className = "ghost";
       rm.textContent = "Remove";
       rm.addEventListener("click", function (ev) {
         ev.preventDefault();
-        ev.stopPropagation();
         askConfirm("Remove MCP server " + (s.name || "") + "?", "Remove").then(function (yes) {
           if (!yes) return;
           showMcpErr("");
@@ -6815,6 +6893,8 @@
               });
             })
             .then(function (j) {
+              if (mcpToolDialog && typeof mcpToolDialog.close === "function") mcpToolDialog.close();
+              mcpToolName = "";
               return loadMcpList().then(function () {
                 if (j && j.warning) showMcpErr(j.warning);
               });
@@ -6823,32 +6903,54 @@
             .finally(function () { rm.disabled = false; });
         });
       });
-      }
-      li.appendChild(title);
-      li.appendChild(meta);
-      if (s.tools && s.tools.length) {
-        var allowHint = document.createElement("p");
-        allowHint.className = "hint";
-        allowHint.textContent = "Always allow runs that tool in ask and auto without a question. Uncheck to ask again.";
-        li.appendChild(allowHint);
-        li.appendChild(tools);
-      }
-      if (s.url) {
-        var sign = document.createElement("button");
-        sign.type = "button";
-        sign.className = "ghost";
-        sign.textContent = s.oauth === "signed_in" ? "Sign in again" : "Sign in";
-        sign.addEventListener("click", function () {
-          showMcpErr("");
-          sign.disabled = true;
-          mcpSignIn(s.name, s.url).catch(function (e) { showMcpErr(e.message || e); })
-            .finally(function () { sign.disabled = false; });
-        });
-        li.appendChild(sign);
-      }
-      if (rm) li.appendChild(rm);
-      mcpList.appendChild(li);
-    });
+      actions.appendChild(rm);
+    }
+  }
+  function openMcpToolDialog(name) {
+    var s = mcpServerByName(name);
+    if (!s || !mcpToolDialog) return;
+    mcpToolName = name;
+    showMcpErr("");
+    fillMcpToolDialog(s);
+    if (typeof mcpToolDialog.showModal === "function") mcpToolDialog.showModal();
+    else mcpToolDialog.setAttribute("open", "");
+  }
+  function renderMcpServers(servers) {
+    renderSideMcp(servers);
+    if (!mcpList) return;
+    mcpList.innerHTML = "";
+    if (!servers || !servers.length) {
+      var empty = document.createElement("li");
+      empty.className = "skill-meta";
+      empty.textContent = "No MCP servers configured.";
+      mcpList.appendChild(empty);
+    } else {
+      servers.forEach(function (s) {
+        var li = document.createElement("li");
+        var head = document.createElement("div");
+        head.className = "skill-head";
+        var title = document.createElement("div");
+        title.className = "skill-name";
+        title.textContent = s.name || "";
+        var open = document.createElement("button");
+        open.type = "button";
+        open.className = "ghost";
+        open.textContent = "Allow tools";
+        open.addEventListener("click", function () { openMcpToolDialog(s.name); });
+        head.appendChild(title);
+        head.appendChild(open);
+        var meta = document.createElement("div");
+        meta.className = "skill-meta";
+        meta.textContent = mcpServerNote(s).line;
+        li.appendChild(head);
+        li.appendChild(meta);
+        mcpList.appendChild(li);
+      });
+    }
+    if (mcpToolName && mcpToolDialog && (mcpToolDialog.open || mcpToolDialog.hasAttribute("open"))) {
+      var fresh = mcpServerByName(mcpToolName);
+      if (fresh) fillMcpToolDialog(fresh);
+    }
   }
   function loadMcpList() {
     return fetch(apiURL("/api/mcp"), { headers: headers() })
@@ -6863,24 +6965,13 @@
         renderMcpServers(mcpServersCache);
       });
   }
-  function openMcpDialog() {
-    if (!connected || !mcpDialog) return;
+  function openMcpSettings() {
+    if (!connected) return;
     showMcpErr("");
-    syncMcpKindUI();
-    loadMcpList()
-      .then(function () {
-        if (typeof mcpDialog.showModal === "function") mcpDialog.showModal();
-        else mcpDialog.setAttribute("open", "");
-      })
-      .catch(function (err) {
-        appendLive("\n[mcp] " + err + "\n");
-      });
-  }
-  if (openMcpBtn) {
-    openMcpBtn.addEventListener("click", openMcpDialog);
+    showGate({ manage: true, keepApp: true, tab: "mcp" });
   }
   var sideMcpManage = document.getElementById("side-mcp-manage");
-  if (sideMcpManage) sideMcpManage.addEventListener("click", openMcpDialog);
+  if (sideMcpManage) sideMcpManage.addEventListener("click", openMcpSettings);
 
   function artifactSrc(art) {
     if (!art) return "";

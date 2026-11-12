@@ -186,6 +186,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/plugins", s.requireSecret(http.HandlerFunc(s.handlePlugins)))
 	s.mux.Handle("/api/plugins/add", s.requireSecret(http.HandlerFunc(s.handlePluginAdd)))
 	s.mux.Handle("/api/plugins/enabled", s.requireSecret(http.HandlerFunc(s.handlePluginEnabled)))
+	s.mux.Handle("/api/plugins/unit", s.requireSecret(http.HandlerFunc(s.handlePluginUnit)))
 	s.mux.Handle("/api/plugins/refresh", s.requireSecret(http.HandlerFunc(s.handlePluginRefresh)))
 	s.mux.Handle("/api/plugins/remove", s.requireSecret(http.HandlerFunc(s.handlePluginRemove)))
 	s.mux.Handle("/api/plugins/code", s.requireSecret(http.HandlerFunc(s.handlePluginCode)))

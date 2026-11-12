@@ -227,7 +227,65 @@ func loadMCPServers(configPath string) (map[string]MCPServerConfig, map[string]s
 		}
 		put(name, "plugin", labels[name], cfg)
 	}
+	applyPluginAllow(configs, sources)
 	return configs, sources, names
+}
+
+func mcpAllowPath() string {
+	return filepath.Join(keimlingConfigDir(), "mcp-allow.json")
+}
+
+func readMCPAllowOverlay() map[string][]string {
+	b, err := os.ReadFile(mcpAllowPath())
+	if err != nil {
+		return nil
+	}
+	var m map[string][]string
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+func writeMCPAllowOverlay(server string, tools []string) error {
+	m := readMCPAllowOverlay()
+	if m == nil {
+		m = map[string][]string{}
+	}
+	if len(tools) == 0 {
+		delete(m, server)
+	} else {
+		m[server] = append([]string(nil), tools...)
+	}
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	path := mcpAllowPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func applyPluginAllow(configs map[string]MCPServerConfig, sources map[string]string) {
+	overlay := readMCPAllowOverlay()
+	for name, tools := range overlay {
+		if sources[name] != "plugin" || len(tools) == 0 {
+			continue
+		}
+		cfg, ok := configs[name]
+		if !ok {
+			continue
+		}
+		cfg.AllowTools = append([]string(nil), tools...)
+		configs[name] = cfg
+	}
 }
 
 func mcpFileSource(path, configPath string) string {
@@ -277,17 +335,10 @@ func setMCPToolAllow(server, tool string, allow bool, configPath string) ([]stri
 	if server == "" || tool == "" {
 		return nil, fmt.Errorf("server and tool required")
 	}
-	configs, sources, names := loadMCPServers(configPath)
+	configs, sources, _ := loadMCPServers(configPath)
 	cfg, ok := configs[server]
 	if !ok {
 		return nil, fmt.Errorf("unknown MCP server")
-	}
-	if sources[server] == "plugin" {
-		label := names[server]
-		if label == "" {
-			label = "a plugin"
-		}
-		return nil, fmt.Errorf("server %q comes from plugin %s", server, label)
 	}
 	next := make([]string, 0, len(cfg.AllowTools)+1)
 	seen := false
@@ -303,6 +354,12 @@ func setMCPToolAllow(server, tool string, allow bool, configPath string) ([]stri
 	}
 	if allow && !seen {
 		next = append(next, tool)
+	}
+	if sources[server] == "plugin" {
+		if err := writeMCPAllowOverlay(server, next); err != nil {
+			return nil, err
+		}
+		return next, nil
 	}
 	if sources[server] == "config" {
 		err := updateConfiguration(configPath, func(fc *fileConfig) {

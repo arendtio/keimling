@@ -22,11 +22,13 @@ const (
 var pluginNameRe = regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`)
 
 type pluginRecord struct {
-	ID       string   `json:"id"`
-	Kind     string   `json:"kind"` // git | dir
-	Location string   `json:"location"`
-	Enabled  bool     `json:"enabled"`
-	Grants   []string `json:"grants,omitempty"`
+	ID        string   `json:"id"`
+	Kind      string   `json:"kind"` // git | dir
+	Location  string   `json:"location"`
+	Enabled   bool     `json:"enabled"`
+	Grants    []string `json:"grants,omitempty"`
+	PluginSet bool     `json:"plugin_set,omitempty"` // marketplace choices have been stored
+	Units     []string `json:"units,omitempty"`      // marketplace plugin names the user turned on
 }
 
 type pluginFile struct {
@@ -43,6 +45,7 @@ type pluginStatus struct {
 	Description string             `json:"description,omitempty"`
 	Version     string             `json:"version,omitempty"`
 	Plugins     []string           `json:"plugins,omitempty"`
+	Active      []string           `json:"active,omitempty"`
 	Skills      []string           `json:"skills,omitempty"`
 	Rules       []string           `json:"rules,omitempty"`
 	Commands    []string           `json:"commands,omitempty"`
@@ -147,7 +150,7 @@ func addPluginSource(location string) (pluginStatus, error) {
 			return inspectPlugin(src, false)
 		}
 	}
-	rec := pluginRecord{ID: newStampedID("plugin"), Kind: kind, Location: loc, Enabled: true}
+	rec := pluginRecord{ID: newStampedID("plugin"), Kind: kind, Location: loc, Enabled: true, PluginSet: true}
 	if kind == "git" {
 		if err := syncPluginGit(rec, true); err != nil {
 			return pluginStatus{}, err
@@ -229,6 +232,9 @@ func removePlugin(id string) error {
 }
 
 func listPluginStatus() ([]pluginStatus, error) {
+	if err := migratePluginUnits(); err != nil {
+		return nil, err
+	}
 	f, err := readPluginFile()
 	if err != nil {
 		return nil, err

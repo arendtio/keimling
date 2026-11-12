@@ -370,12 +370,52 @@
       </div>
 
       <div id="pane-mcp" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">MCP servers are configured globally for this Keimling install. Tools appear as <code>mcp__server__tool</code>.</p>
-        <button type="button" id="open-mcp">Manage MCP servers…</button>
+        <p class="settings-lead">MCP servers for this Keimling install. Open a server to choose which tools run without a question. Tools appear as <code>mcp__server__tool</code>.</p>
+        <ul id="mcp-list" class="skills-list" aria-label="MCP servers"></ul>
+        <div class="skills-row">
+          <button type="button" id="mcp-reload-btn" class="ghost">Reload</button>
+        </div>
+        <h3 class="settings-section-title">Add server</h3>
+        <div class="skills-row">
+          <input id="mcp-name" type="text" placeholder="name" autocomplete="off">
+          <select id="mcp-kind" aria-label="How to reach the server">
+            <option value="stdio">Local command</option>
+            <option value="url">Remote URL</option>
+          </select>
+        </div>
+        <div class="skills-row" id="mcp-stdio-row">
+          <input id="mcp-command" type="text" placeholder="command and args (e.g. npx -y @modelcontextprotocol/server-everything)" autocomplete="off">
+        </div>
+        <div id="mcp-env-row">
+          <div id="mcp-env-list"></div>
+          <button type="button" id="mcp-env-add" class="ghost">Add variable</button>
+        </div>
+        <div class="skills-row" id="mcp-url-row" hidden>
+          <input id="mcp-url" type="text" placeholder="https://…" autocomplete="off">
+        </div>
+        <div class="skills-row" id="mcp-auth-row" hidden>
+          <select id="mcp-auth" aria-label="How the server checks you">
+            <option value="none">No auth</option>
+            <option value="bearer">Bearer token</option>
+            <option value="headers">Headers</option>
+            <option value="oauth">Sign in</option>
+          </select>
+        </div>
+        <div class="skills-row" id="mcp-token-row" hidden>
+          <input id="mcp-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token" aria-label="Bearer token">
+        </div>
+        <div id="mcp-headers-row" hidden>
+          <div id="mcp-header-list"></div>
+          <button type="button" id="mcp-header-add" class="ghost">Add header</button>
+        </div>
+        <div class="skills-row">
+          <button type="button" id="mcp-add-btn">Add</button>
+        </div>
+        <p id="mcp-err" class="gate-err" hidden></p>
       </div>
 
       <div id="pane-plugins" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">Add a Git repository or a checked-out directory. Keimling treats it as a marketplace when it finds a marketplace catalog, and as one plugin otherwise. An enabled marketplace turns on every plugin it lists. Skills, rules, slash commands, agents, and MCP servers are available immediately. Hooks and executables stay off until you activate them.</p>
+        <p class="settings-lead">Add a Git repository or a checked-out directory. Keimling treats it as a marketplace when it finds a marketplace catalog, and as one plugin otherwise. Each plugin in a marketplace stays off until you turn it on, and you can turn one off again. Hooks and executables stay off until you activate that code.</p>
         <ul id="plugin-list" class="profile-list" aria-label="Plugins"></ul>
         <label>Git URL or directory
           <input id="plugin-location" type="text" autocomplete="off" placeholder="https://github.com/org/plugins or /path/to/checkout">
@@ -661,59 +701,16 @@
         </form>
       </dialog>
 
-      <dialog id="mcp-dialog" class="context-dialog">
-        <form method="dialog" class="context-panel" id="mcp-form">
+      <dialog id="mcp-tool-dialog" class="context-dialog" aria-labelledby="mcp-tool-title">
+        <form method="dialog" class="context-panel" id="mcp-tool-form">
           <header class="context-head">
-            <h2>MCP</h2>
+            <h2 id="mcp-tool-title">Allow tools</h2>
             <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
           </header>
-          <p class="hint">Model Context Protocol servers run in the Keimling backend (no browser CORS). A remote URL is tried as HTTP, then as SSE. Tools are exposed as mcp__server__tool.</p>
-          <section>
-            <h3>Servers</h3>
-            <ul id="mcp-list" class="skills-list"></ul>
-            <div class="skills-row">
-              <button type="button" id="mcp-reload-btn" class="ghost">Reload</button>
-            </div>
-          </section>
-          <section>
-            <h3>Add server</h3>
-            <div class="skills-row">
-              <input id="mcp-name" type="text" placeholder="name" autocomplete="off">
-              <select id="mcp-kind" aria-label="How to reach the server">
-                <option value="stdio">Local command</option>
-                <option value="url">Remote URL</option>
-              </select>
-            </div>
-            <div class="skills-row" id="mcp-stdio-row">
-              <input id="mcp-command" type="text" placeholder="command and args (e.g. npx -y @modelcontextprotocol/server-everything)" autocomplete="off">
-            </div>
-            <div id="mcp-env-row">
-              <div id="mcp-env-list"></div>
-              <button type="button" id="mcp-env-add" class="ghost">Add variable</button>
-            </div>
-            <div class="skills-row" id="mcp-url-row" hidden>
-              <input id="mcp-url" type="text" placeholder="https://…" autocomplete="off">
-            </div>
-            <div class="skills-row" id="mcp-auth-row" hidden>
-              <select id="mcp-auth" aria-label="How the server checks you">
-                <option value="none">No auth</option>
-                <option value="bearer">Bearer token</option>
-                <option value="headers">Headers</option>
-                <option value="oauth">Sign in</option>
-              </select>
-            </div>
-            <div class="skills-row" id="mcp-token-row" hidden>
-              <input id="mcp-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token" aria-label="Bearer token">
-            </div>
-            <div id="mcp-headers-row" hidden>
-              <div id="mcp-header-list"></div>
-              <button type="button" id="mcp-header-add" class="ghost">Add header</button>
-            </div>
-            <div class="skills-row">
-              <button type="button" id="mcp-add-btn">Add</button>
-            </div>
-          </section>
-          <p id="mcp-err" class="gate-err" hidden></p>
+          <p id="mcp-tool-meta" class="hint"></p>
+          <div id="mcp-tool-list"></div>
+          <div class="skills-row" id="mcp-tool-actions"></div>
+          <p id="mcp-tool-err" class="gate-err" hidden></p>
         </form>
       </dialog>
 

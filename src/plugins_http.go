@@ -74,6 +74,30 @@ func (s *appServer) handlePluginEnabled(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(st)
 }
 
+func (s *appServer) handlePluginUnit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Enabled *bool  `json:"enabled"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" || strings.TrimSpace(body.Name) == "" || body.Enabled == nil {
+		http.Error(w, "id, name, and enabled required", http.StatusBadRequest)
+		return
+	}
+	st, err := setPluginUnit(body.ID, body.Name, *body.Enabled)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.applyPluginChange(r)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(st)
+}
+
 func (s *appServer) handlePluginRefresh(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -122,7 +122,139 @@ func describePlugin(rec pluginRecord, fetch bool) pluginStatus {
 	sort.Strings(st.Commands)
 	sort.Strings(st.Agents)
 	sort.Strings(st.Plugins)
+	if layout == "marketplace" {
+		for _, name := range st.Plugins {
+			if pluginUnitOn(rec, name) {
+				st.Active = append(st.Active, name)
+			}
+		}
+	}
 	return st
+}
+
+// pluginUnitOn reports whether a marketplace plugin contributes. A source that
+// has never stored a choice still contributes every plugin it already had on.
+func pluginUnitOn(src pluginRecord, name string) bool {
+	if !src.PluginSet {
+		return true
+	}
+	for _, n := range src.Units {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// migratePluginUnits records a choice for sources saved before per-plugin
+// switches existed. An enabled marketplace keeps the plugins it was already
+// running. A source that was off starts with none on.
+func migratePluginUnits() error {
+	f, err := readPluginFile()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range f.Sources {
+		src := &f.Sources[i]
+		if src.PluginSet {
+			continue
+		}
+		if !src.Enabled {
+			src.PluginSet = true
+			src.Units = nil
+			changed = true
+			continue
+		}
+		root, err := pluginRoot(*src, false)
+		if err != nil {
+			continue
+		}
+		units, _, layout, _, err := loadSourceUnits(root)
+		if err != nil {
+			continue
+		}
+		src.PluginSet = true
+		if layout == "marketplace" {
+			var names []string
+			for _, unit := range units {
+				if unit.Name != "" {
+					names = append(names, unit.Name)
+				}
+			}
+			sort.Strings(names)
+			src.Units = names
+		}
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return writePluginFile(f)
+}
+
+func setPluginUnit(id, name string, on bool) (pluginStatus, error) {
+	if err := migratePluginUnits(); err != nil {
+		return pluginStatus{}, err
+	}
+	id = strings.TrimSpace(id)
+	name = strings.TrimSpace(name)
+	if id == "" || name == "" {
+		return pluginStatus{}, fmt.Errorf("plugin name required")
+	}
+	f, err := readPluginFile()
+	if err != nil {
+		return pluginStatus{}, err
+	}
+	for i := range f.Sources {
+		if f.Sources[i].ID != id {
+			continue
+		}
+		root, err := pluginRoot(f.Sources[i], false)
+		if err != nil {
+			return pluginStatus{}, err
+		}
+		units, _, layout, _, err := loadSourceUnits(root)
+		if err != nil {
+			return pluginStatus{}, err
+		}
+		if layout != "marketplace" {
+			return pluginStatus{}, fmt.Errorf("this source is one plugin")
+		}
+		known := false
+		for _, unit := range units {
+			if unit.Name == name {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return pluginStatus{}, fmt.Errorf("unknown plugin %q", name)
+		}
+		have := map[string]bool{}
+		var next []string
+		for _, n := range f.Sources[i].Units {
+			if n == name && !on {
+				continue
+			}
+			if n == "" || have[n] {
+				continue
+			}
+			have[n] = true
+			next = append(next, n)
+		}
+		if on && !have[name] {
+			next = append(next, name)
+		}
+		sort.Strings(next)
+		f.Sources[i].PluginSet = true
+		f.Sources[i].Units = next
+		if err := writePluginFile(f); err != nil {
+			return pluginStatus{}, err
+		}
+		return describePlugin(f.Sources[i], false), nil
+	}
+	return pluginStatus{}, fmt.Errorf("unknown plugin %q", id)
 }
 
 func loadSourceUnits(root string) (units []pluginUnit, notes []string, layout, title string, err error) {
@@ -331,6 +463,9 @@ func readLooseManifest(path string) (pluginManifest, error) {
 }
 
 func eachEnabledUnit(fn func(pluginRecord, pluginUnit)) {
+	if err := migratePluginUnits(); err != nil {
+		return
+	}
 	f, err := readPluginFile()
 	if err != nil {
 		return
@@ -343,11 +478,14 @@ func eachEnabledUnit(fn func(pluginRecord, pluginUnit)) {
 		if err != nil {
 			continue
 		}
-		units, _, _, _, err := loadSourceUnits(root)
+		units, _, layout, _, err := loadSourceUnits(root)
 		if err != nil {
 			continue
 		}
 		for _, unit := range units {
+			if layout == "marketplace" && !pluginUnitOn(src, unit.Name) {
+				continue
+			}
 			fn(src, unit)
 		}
 	}
@@ -834,44 +972,27 @@ func pluginExecDir() string {
 	dir := filepath.Join(dataHome(), "keimling", "plugins", "bin")
 	_ = os.RemoveAll(dir)
 	n := 0
-	f, err := readPluginFile()
-	if err != nil {
-		return ""
-	}
-	for _, src := range f.Sources {
-		if !src.Enabled {
-			continue
-		}
-		root, err := pluginRoot(src, false)
-		if err != nil {
-			continue
-		}
-		units, _, _, _, err := loadSourceUnits(root)
-		if err != nil {
-			continue
-		}
-		for _, unit := range units {
-			for _, code := range pluginCodeEntries(unit.Root) {
-				if code.Kind != "exec" || !pluginGrantHas(src, code.Name) {
-					continue
-				}
-				target := filepath.Join(unit.Root, "bin", code.Name)
-				if !withinRoot(unit.Root, target) {
-					continue
-				}
-				if n == 0 {
-					if err := os.MkdirAll(dir, 0o700); err != nil {
-						return ""
-					}
-				}
-				link := filepath.Join(dir, code.Name)
-				if err := os.Symlink(target, link); err != nil {
-					continue
-				}
-				n++
+	eachEnabledUnit(func(src pluginRecord, unit pluginUnit) {
+		for _, code := range pluginCodeEntries(unit.Root) {
+			if code.Kind != "exec" || !pluginGrantHas(src, code.Name) {
+				continue
 			}
+			target := filepath.Join(unit.Root, "bin", code.Name)
+			if !withinRoot(unit.Root, target) {
+				continue
+			}
+			if n == 0 {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					return
+				}
+			}
+			link := filepath.Join(dir, code.Name)
+			if err := os.Symlink(target, link); err != nil {
+				continue
+			}
+			n++
 		}
-	}
+	})
 	if n == 0 {
 		return ""
 	}
@@ -947,21 +1068,30 @@ func startPluginAgent(sourceID, agentName, workspaceID string) (AgentInstanceMet
 	if err != nil {
 		return AgentInstanceMeta{}, err
 	}
-	units, _, _, _, err := loadSourceUnits(root)
+	units, _, layout, _, err := loadSourceUnits(root)
 	if err != nil {
 		return AgentInstanceMeta{}, err
 	}
 	var found *pluginText
 	var pluginName string
+	inactive := false
 	for _, unit := range units {
 		for _, ag := range pluginAgentFiles(unit.Root) {
-			if ag.Name == agentName {
-				cp := ag
-				found = &cp
-				pluginName = unit.Name
-				break
+			if ag.Name != agentName {
+				continue
 			}
+			if layout == "marketplace" && !pluginUnitOn(*rec, unit.Name) {
+				inactive = true
+				continue
+			}
+			cp := ag
+			found = &cp
+			pluginName = unit.Name
+			break
 		}
+	}
+	if found == nil && inactive {
+		return AgentInstanceMeta{}, fmt.Errorf("plugin is off")
 	}
 	if found == nil {
 		return AgentInstanceMeta{}, fmt.Errorf("unknown agent %q", agentName)

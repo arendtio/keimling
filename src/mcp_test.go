@@ -269,6 +269,34 @@ func TestMCPToolAllowUpdatesWinningFile(t *testing.T) {
 	}
 }
 
+func TestPluginMCPToolCanBeAllowed(t *testing.T) {
+	withTempAgentHomes(t)
+	root := t.TempDir()
+	writePluginFixture(t, root)
+	if _, err := addPluginSource(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setMCPToolAllow("review", "mcp__review__ping", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !mcpToolAlwaysAllowed("", "mcp__review__ping") {
+		t.Fatal("plugin tool was not allowed")
+	}
+	b, err := os.ReadFile(filepath.Join(root, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "allow_tools") || strings.Contains(string(b), "mcp__review__ping") {
+		t.Fatalf("plugin file changed: %s", b)
+	}
+	if _, err := setMCPToolAllow("review", "mcp__review__ping", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if mcpToolAlwaysAllowed("", "mcp__review__ping") {
+		t.Fatal("plugin tool stayed allowed")
+	}
+}
+
 func TestMCPServerConfigValidate(t *testing.T) {
 	if err := (MCPServerConfig{}).validate(); err == nil {
 		t.Fatal("expected error")

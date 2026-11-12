@@ -865,6 +865,10 @@ button.wide { width: 100%; max-width: 100%; }
   font-weight: 400;
   overflow-wrap: anywhere;
 }
+.plugin-units {
+  display: grid;
+  gap: 0.3rem;
+}
 .plugin-code {
   display: flex;
   flex-direction: column;
@@ -2055,6 +2059,10 @@ button.wide { width: 100%; max-width: 100%; }
 }
 #skills-dialog {
   max-width: min(720px, 94vw);
+}
+#mcp-tool-dialog .context-panel {
+  max-height: min(86vh, 820px);
+  overflow: auto;
 }
 #skills-dialog .context-panel {
   max-height: min(86vh, 820px);

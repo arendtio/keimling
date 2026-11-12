@@ -30,13 +30,13 @@
 - **Priority:** shall
 - **Status:** confirmed
 
-## REQ-PL-4 An enabled marketplace turns on every listed plugin
+## REQ-PL-4 Each marketplace plugin starts off and can be turned off alone
 
 - **Bin:** explicit requirement
-- **Statement:** An enabled marketplace shall enable every plugin in its catalog. There is no separate switch per plugin.
-- **Origin:** User, 2026-11-07 (quote: "wenn ich 'n Marketplace habe, dann sollten automatisch alle Plugins an sein").
-- **Rationale:** The marketplace is one source, the same way one plugin source is on or off.
-- **Fit criterion:** Adding a marketplace whose catalog lists three plugins makes all three contribute without a further per-plugin choice. Turning that source off stops all three. Turning it on again resumes all three.
+- **Statement:** A marketplace shall list its plugins without turning them on. The user shall activate each plugin, and shall be able to turn any one of them off again. Turning the marketplace off shall stop the plugins that were on. Turning it on again shall resume those plugins, and shall leave off the plugins the user had not activated.
+- **Origin:** User, 2026-11-12 (quote: "bei Plugin Marketplaces, initial jedes plugin aktivieren muss und jederzeit auch einzelne plugins deaktivieren kann"). This replaces the 2026-11-07 statement that an enabled marketplace turns every listed plugin on.
+- **Rationale:** A marketplace can contain plugins the user does not want running. One switch for the whole catalog cannot express that.
+- **Fit criterion:** Adding a marketplace whose catalog lists three plugins contributes none of them until the user turns one on. That plugin contributes its components. Turning it off stops only that plugin. Turning the marketplace off stops the plugins that were on. Turning the marketplace on again resumes those, and a plugin that was left off stays off. A plugin that appears in the catalog later stays off until the user activates it.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -65,3 +65,5 @@
 REQ-PL-1 and REQ-PL-2 describe a single Agent Plugin. For that layout, one source is the directory that contains `plugin.json`. The manifest `$schema` must be `https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`. Skills are the immediate children of `skills/`. MCP servers come only from `mcp.json` with the matching MCP schema. `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` expand in stdio `args`, `env`, and `cwd`. `./` commands are resolved inside the plugin root. The subprocess working directory is the plugin root when `cwd` is omitted. Unknown servers are skipped and reported on the source. A skill or server name the user already has stays the user's; the plugin fills in names that are not already configured. The user types the URL or path and presses Add; that is the confirmation. The row's checkbox and Remove are the take-back. The MCP list does not remove a server that exists only because the plugin is on.
 
 REQ-PL-3 supersedes the earlier note that a marketplace catalog is not read. The catalog files are `.cursor-plugin/marketplace.json` and `.claude-plugin/marketplace.json`. When both a catalog and a plugin manifest exist, the catalog is the source. Language-server integration, color themes, and editor-tab hooks have no place in this product; the user accepted that boundary on 2026-11-07. Slash-command files are prompts. The one-time grant in REQ-PL-6 covers entries that run: hooks, exec, and a command that executes.
+
+REQ-PL-4 keeps the marketplace checkbox as the source switch. Each listed plugin has its own checkbox. A marketplace that was already on before this rule, with no per-plugin choice stored, keeps the plugins it had, so an existing setup does not go dark. A marketplace added after this rule starts with every plugin off. The choice is stored with the source, not in the marketplace checkout.
