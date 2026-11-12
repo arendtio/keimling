@@ -1589,6 +1589,15 @@ button.wide { width: 100%; max-width: 100%; }
 .tool-line.stopped .tool-line-ran {
   color: var(--danger);
 }
+#composer-more.low-on { color: var(--accent); }
+#low-context { justify-content: space-between; }
+#low-context .menu-state {
+  margin-left: auto;
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
 .tool-line-name {
   flex: 0 0 auto;
   color: var(--fg);

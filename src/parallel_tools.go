@@ -415,17 +415,19 @@ func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message st
 		if item.Name == "data_processing_help" {
 			return dataHelp(item.Arguments), ""
 		}
-		if item.Name == "mcp_tools" {
+		if item.Name == "find_tools" || item.Name == "builtin_tools" || item.Name == "mcp_tools" {
 			var p struct {
-				Server string `json:"server"`
 				Query  string `json:"query"`
+				Server string `json:"server"`
 			}
 			if e := decodeArgs(item.Arguments, &p); e != nil {
 				return e.Error(), ""
 			}
-			result := a.loadMCPTools(p.Server, p.Query)
-			a.println("\033[35m⬡ MCP\033[0m " + truncate(result, 240))
-			return result, ""
+			q := strings.TrimSpace(p.Query)
+			if q == "" {
+				q = strings.TrimSpace(p.Server)
+			}
+			return a.findTools(q), ""
 		}
 		if isMCPTool(item.Name) {
 			done := a.callMCPTool(ctx, item.Name, item.Arguments)

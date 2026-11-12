@@ -352,6 +352,8 @@
   var stopBtn = document.getElementById("stop");
   var composerMoreBtn = document.getElementById("composer-more");
   var composerMoreMenu = document.getElementById("composer-more-menu");
+  var lowContextBtn = document.getElementById("low-context");
+  var lowContextOn = false;
   var voiceStatus = document.getElementById("voice-status");
 
   var es = null;
@@ -5379,6 +5381,7 @@
       workspaceRootEl.title = j.workspace_root;
     }
     renderBudgetLine(j.budget);
+    applyLowContext(!!j.low_context);
     renderChapters();
     renderThread();
     var next = j.busy ? "running" : (j.state || "idle");
@@ -7673,6 +7676,39 @@
     });
   }
   mountGlyphs();
+  function applyLowContext(on) {
+    lowContextOn = !!on;
+    if (lowContextBtn) {
+      lowContextBtn.setAttribute("aria-checked", lowContextOn ? "true" : "false");
+      lowContextBtn.title = lowContextOn
+        ? "On. Internal tools are names until a search loads one."
+        : "Off. Internal tools stay in the request.";
+    }
+    var state = document.getElementById("low-context-state");
+    if (state) state.textContent = lowContextOn ? "On" : "Off";
+    if (composerMoreBtn) {
+      composerMoreBtn.classList.toggle("low-on", lowContextOn);
+      composerMoreBtn.title = lowContextOn ? "Reduce context is on" : "More";
+    }
+  }
+  if (lowContextBtn) {
+    lowContextBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!connected) return;
+      var next = !lowContextOn;
+      applyLowContext(next);
+      fetch(apiURL("/api/threads/low-context"), {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ enabled: next }),
+      }).then(function (r) {
+        if (!r.ok) throw new Error("save failed");
+      }).catch(function () {
+        applyLowContext(!next);
+      });
+    });
+  }
   if (composerMoreBtn) {
     composerMoreBtn.addEventListener("click", function (e) {
       e.preventDefault();
@@ -7965,7 +8001,7 @@
         connectEvents();
         renderChapters();
         renderThread();
-        return Promise.all([loadThreads(), loadAgents()]);
+        return Promise.all([loadThreads(), loadAgents(), refreshSidebar()]);
       })
       .then(function () {
         msg.focus();

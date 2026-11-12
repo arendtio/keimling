@@ -30,6 +30,8 @@ type Client struct {
 	StreamProgress func(deltaChars int, elapsed time.Duration, kind string)
 	// builtChatBody is the last Responses request this client marshaled.
 	builtChatBody []byte
+	// chatTools, when set, is the tool list for this chat request.
+	chatTools *[]map[string]any
 }
 
 func NewClient(key string) *Client {
@@ -152,8 +154,12 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 	if instructions == "" {
 		instructions = keimlingBaseInstructions()
 	}
+	tools := filterGrantedTools(definitions(web, extraTools), grant)
+	if c.chatTools != nil {
+		tools = *c.chatTools
+	}
 	reqBody := map[string]any{
-		"model": model, "store": false, "stream": true, "input": input, "tools": filterGrantedTools(definitions(web, extraTools), grant), "parallel_tool_calls": true, "include": []string{"reasoning.encrypted_content"},
+		"model": model, "store": false, "stream": true, "input": input, "tools": tools, "parallel_tool_calls": true, "include": []string{"reasoning.encrypted_content"},
 		"instructions": instructions,
 	}
 	reqBody["reasoning"] = map[string]any{"effort": reasoning}

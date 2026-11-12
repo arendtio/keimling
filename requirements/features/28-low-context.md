@@ -1,0 +1,11 @@
+# Feature: Reduce context
+
+## REQ-LC-1 Shrink the internal tools when the chat asks
+
+- **Bin:** explicit requirement
+- **Statement:** The chat plus menu shall offer Reduce context, and the row shall say Off or On. Off is the ordinary state. While it is off, the model shall receive the internal tool schemas. While it is on, the model shall see the names of the internal tools and not their descriptions or parameters, and a search shall be able to load up to five of those schemas. Loaded schemas shall leave again when the context is compacted. The choice shall belong to the open chat and shall still be the same when that chat is opened again. There shall be one search, and it shall find internal tools and MCP tools.
+- **Origin:** User, 2026-11-12 (quote: "über dieses Plus-Menü im Chat, würde ich gerne einen Low-Context-Modus aktivieren" and "auch die internen Tools nicht vollständig mit in den Kontext laden" and "einen lokalen Model-Server nutze und der hat teilweise sehr wenig Kontext"). Same day (quote: "wenn das aus ist, dann ist da kein Icon" and "auch sieht, wenn's aus ist und eigentlich ist aus ja auch 'n guter Zustand" and "vielleicht sollte man irgendwie die Option Reduce Context nennen" and "eine Suche und die sollte eigentlich immer alles finden, sowohl die eingebauten Tools als auch die MCP Tools" and "die eingebauten Tools können wir von mir standardmäßig in den Kontext packen" and "Nur im Low Context Modus blenden wir sie aus").
+- **Rationale:** The internal tool schemas are paid on every turn. On a small local context that cost is a large share of the window. Off is the useful default, so the control has to show it. Two searches make the model pick one and cost a second definition.
+- **Fit criterion:** The plus row reads Reduce context and shows Off. Turning it on shows On, and the next request lists internal tool names and leaves out their schemas. Asking for one internal tool by name loads its schema onto the next request of that chat, and that schema is gone after compaction. Another chat does not receive it. Turning it off shows Off, and the next request includes the internal schemas again. Opening the chat again leaves the choice as it was. The request advertises one search. That search returns an internal tool and an MCP tool. It does not advertise a second search.
+- **Priority:** shall
+- **Status:** confirmed

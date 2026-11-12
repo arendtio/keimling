@@ -46,4 +46,4 @@
 
 **As** a user, **I want** the sidebar to change when I change chats, **so that** I am looking at this conversation.
 
-**Acceptance:** traces REQ-SB-10. Switching threads or opening an agent replaces the sidebar content with that chat's.
+**Acceptance:** traces REQ-SB-10. Switching threads, opening an agent, or starting a new thread replaces the sidebar content with that chat's at that moment. A new thread shows an empty context before a message is sent.

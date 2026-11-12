@@ -254,7 +254,7 @@ func canonicalTool(name string) string {
 }
 
 func toolNameGranted(grant []string, name string) bool {
-	if name == "data_processing" || name == "data_processing_help" {
+	if name == "data_processing" || name == "data_processing_help" || name == "find_tools" {
 		return true
 	}
 	if name == "mcp_tools" {
@@ -432,9 +432,9 @@ func (a *Agent) modelInstructions() string {
 		if cat := strings.TrimSpace(a.skillsCatalogBlock()); cat != "" {
 			base += "\n\n" + cat
 		}
-		return a.withMCPCatalog(base)
+		return a.withBuiltinList(a.withMCPCatalog(base))
 	}
-	return a.withMCPCatalog(a.agentInstanceInstructions())
+	return a.withBuiltinList(a.withMCPCatalog(a.agentInstanceInstructions()))
 }
 
 func (a *Agent) agentInstanceInstructions() string {

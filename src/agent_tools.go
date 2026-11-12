@@ -44,7 +44,8 @@ func (a *Agent) chatExtraTools() []map[string]any {
 		return nil
 	}
 	extra := append(a.mcpToolDefs(), a.credentialToolDefs()...)
-	return append(extra, a.agentExtraTools()...)
+	extra = append(extra, a.agentExtraTools()...)
+	return append(extra, findToolsDef())
 }
 
 func (a *Agent) agentExtraTools() []map[string]any {

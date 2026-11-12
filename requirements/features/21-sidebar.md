@@ -95,9 +95,9 @@ The side area is the place for what the user looks at beside the chat. Artifacts
 ## REQ-SB-10 The side area follows the open chat
 
 - **Bin:** explicit requirement
-- **Statement:** The side area shall show the open chat. Switching to another thread or to an agent shall change that content at that moment.
-- **Origin:** User, 2026-11-12 (quote: "der Inhalt der Sidebar nicht immer wechselt, wenn man den Chat wechselt, also den Thread oder zum Agenten hin" and "der Inhalt der Sidebar immer zum aktuell geöffneten Chatverlauf und sollte sich dementsprechend auch in dem Moment ändern, wo ich den Chat wechsel").
+- **Statement:** The side area shall show the open chat. Switching to another thread, opening an agent, or starting a new thread shall change that content at that moment.
+- **Origin:** User, 2026-11-12 (quote: "der Inhalt der Sidebar nicht immer wechselt, wenn man den Chat wechselt, also den Thread oder zum Agenten hin" and "der Inhalt der Sidebar immer zum aktuell geöffneten Chatverlauf und sollte sich dementsprechend auch in dem Moment ändern, wo ich den Chat wechsel"). Same day (quote: "wenn ich jetzt auf Neu, also New Thread drücke, dann erscheint zwar im Chatfenster erstmal 'ne neue, 'ne leere Liste" and "der Kontext in der Sidebar bleibt immer noch die alte").
 - **Rationale:** The side area is read as belonging to the conversation on screen. Leaving the previous chat's context up makes that conversation look current.
-- **Fit criterion:** With the side area open, switching threads replaces the context, the plan, the instructions, and the artifacts with those of the thread now open. Switching to an agent does the same for that agent. Switching back shows the chat that is open then.
+- **Fit criterion:** With the side area open, switching threads replaces the context, the plan, the instructions, and the artifacts with those of the thread now open. Starting a new thread does that at the click, before a message is sent. Switching to an agent does the same for that agent. Switching back shows the chat that is open then.
 - **Priority:** shall
 - **Status:** confirmed

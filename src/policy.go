@@ -94,7 +94,7 @@ func softSuspicion(name, args string) (SoftSuspicion, bool) {
 // forceApproval is the non-bypassable floor. Soft regex hits are NOT returned here;
 // they go through the review model instead.
 func forceApproval(name, args string) (bool, string) {
-	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "list_watches" || name == "cancel_watch" || name == "list_agents" || name == "allow_peer" || name == "message_agent" || name == "stop_agent" || name == "list_credentials" || name == "mcp_tools" || defineAgentTool(name) || (name == "create_watch" && watchIsTimeOnly(args)) {
+	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "list_watches" || name == "cancel_watch" || name == "list_agents" || name == "allow_peer" || name == "message_agent" || name == "stop_agent" || name == "list_credentials" || name == "find_tools" || name == "mcp_tools" || name == "builtin_tools" || defineAgentTool(name) || (name == "create_watch" && watchIsTimeOnly(args)) {
 		return false, ""
 	}
 	if isMCPTool(name) {
@@ -418,7 +418,7 @@ type toolGate struct {
 
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "mcp_tools", "screen_click", "screen_scroll", "screen_key", "screen_type":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "screen_click", "screen_scroll", "screen_key", "screen_type":
 		return true
 	default:
 		return false

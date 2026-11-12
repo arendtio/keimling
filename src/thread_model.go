@@ -483,6 +483,12 @@ func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra 
 	var resp Response
 	var err error
 	input = expandChatFiles(input, t.SeeImages, t.HearAudio)
+	if a.lowContextOn() {
+		full := filterGrantedTools(definitions(a.Cfg.Web, extra), a.instanceToolGrant())
+		narrow := a.narrowBuiltinTools(full)
+		a.Client.chatTools = &narrow
+		defer func() { a.Client.chatTools = nil }()
+	}
 	a.withChatEndpoint(func(model, reasoning string) {
 		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.modelInstructions(), extra, a.instanceToolGrant())
 	})

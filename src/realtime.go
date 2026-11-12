@@ -219,6 +219,9 @@ func realtimeToolList(a *Agent) []map[string]any {
 		return []map[string]any{}
 	}
 	tools := filterGrantedTools(definitions(a.Cfg.Web, a.chatExtraTools()), a.instanceToolGrant())
+	if a.lowContextOn() {
+		tools = a.narrowBuiltinTools(tools)
+	}
 	out := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
 		copy := map[string]any{}

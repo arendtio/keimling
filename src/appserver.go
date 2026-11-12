@@ -160,6 +160,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/threads/delete", s.requireSecret(http.HandlerFunc(s.handleThreadDelete)))
 	s.mux.Handle("/api/threads/autopilot", s.requireSecret(http.HandlerFunc(s.handleThreadAutopilot)))
 	s.mux.Handle("/api/threads/model", s.requireSecret(http.HandlerFunc(s.handleThreadModel)))
+	s.mux.Handle("/api/threads/low-context", s.requireSecret(http.HandlerFunc(s.handleLowContext)))
 	s.mux.Handle("/api/threads/deliver", s.requireSecret(http.HandlerFunc(s.handleThreadDeliver)))
 	s.mux.Handle("/api/context", s.requireSecret(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("/api/instance/reset", s.requireSecret(http.HandlerFunc(s.handleInstanceReset)))
@@ -349,6 +350,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"workspace_id":          s.agent.Cfg.WorkspaceID,
 		"workspace_root":        s.agent.Cfg.WorkspaceRoot,
 		"thread_id":             threadID,
+		"low_context":           s.threadLowContext(threadID),
 		"running_thread":        runningID,
 		"background_busy":       background && s.isBusy(),
 		"agent_instance_id":     s.agent.Cfg.AgentInstanceID,
@@ -366,6 +368,42 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		}(),
 		"budget": s.budgetSnapshot(r.Context(), false),
 	})
+}
+
+func (s *appServer) threadLowContext(threadID string) bool {
+	if s == nil || s.agent == nil || strings.TrimSpace(threadID) == "" {
+		return false
+	}
+	meta, err := readThreadMeta(s.agent.Cfg.WorkspaceID, threadID)
+	if err != nil {
+		return false
+	}
+	return meta.LowContext
+}
+
+func (s *appServer) handleLowContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	id := s.viewedThread()
+	if err := s.agent.setLowContext(id, body.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "enabled": body.Enabled, "thread_id": id})
 }
 
 func (s *appServer) viewedThread() string {

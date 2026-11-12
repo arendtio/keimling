@@ -43,6 +43,7 @@ type ThreadMeta struct {
 	AutopilotInstructions string           `json:"autopilot_instructions,omitempty"`
 	ModelProviderID       string           `json:"model_provider_id,omitempty"`
 	ModelID               string           `json:"model_id,omitempty"`
+	LowContext            bool             `json:"low_context,omitempty"`
 	ReasoningOwners       []reasoningOwner `json:"reasoning_owners,omitempty"`
 }
 

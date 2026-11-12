@@ -66,6 +66,11 @@ type Agent struct {
 	// sentByThread keeps the last chat request body per thread.
 	sentMu       sync.Mutex
 	sentByThread map[string][]byte
+	// Schemas a chat has loaded. Keyed by thread. A new chat starts empty.
+	// Compaction clears that chat. Another chat does not inherit them.
+	builtinMu       sync.Mutex
+	builtinByThread map[string]map[string]struct{}
+	mcpByThread     map[string]map[string]struct{}
 }
 
 func (a *Agent) emit(kind, text string) {

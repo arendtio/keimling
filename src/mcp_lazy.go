@@ -73,7 +73,7 @@ func (m *MCPManager) serverCatalog() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("Connected MCP servers. Tool definitions are not loaded. Call mcp_tools with the server name and a short query for the job, then call a returned tool by its exact name. Loaded tools stay until the context is compacted.\n")
+	b.WriteString("Connected MCP servers. Their tool definitions are not loaded. Call find_tools with a short query or an exact name. Then call a returned tool by its exact name. Loaded tools stay until the context is compacted.\n")
 	for _, name := range names {
 		s := m.sessions[name]
 		tools := make([]mcpToolName, 0, len(s.tools))
@@ -101,25 +101,38 @@ func (m *MCPManager) visibleDefs() []map[string]any {
 		return nil
 	}
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if len(m.connectedNamesLocked()) == 0 {
+	if len(m.connectedNamesLocked()) == 0 || len(m.loaded) == 0 {
+		m.mu.RUnlock()
 		return nil
-	}
-	out := []map[string]any{mcpToolsDef()}
-	if len(m.loaded) == 0 {
-		return out
 	}
 	names := make([]string, 0, len(m.loaded))
 	for name := range m.loaded {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	m.mu.RUnlock()
+	return m.defsNamed(names)
+}
+
+func (m *MCPManager) defsNamed(want []string) []map[string]any {
+	if m == nil || len(want) == 0 {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	byName := map[string]map[string]any{}
 	for _, d := range m.defs {
 		name, _ := d["name"].(string)
 		byName[name] = d
 	}
+	names := append([]string(nil), want...)
+	sort.Strings(names)
+	var out []map[string]any
+	seen := map[string]struct{}{}
 	for _, name := range names {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
 		if d, ok := byName[name]; ok {
 			out = append(out, d)
 		}
@@ -127,11 +140,50 @@ func (m *MCPManager) visibleDefs() []map[string]any {
 	return out
 }
 
-func mcpToolsDef() map[string]any {
-	return toolDef("mcp_tools", "Load up to 5 tool definitions from one connected MCP server. server is the server name from the MCP servers list. query says what the job needs. Then call a returned tool by its exact name. Loaded tools stay until the context is compacted.", map[string]any{
-		"server": map[string]any{"type": "string", "description": "Server name"},
-		"query":  map[string]any{"type": "string", "description": "What the job needs, or empty when the server has only a few tools"},
-	}, "server", "query")
+func (m *MCPManager) search(query string, allow func(string) bool) []mcpHit {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if allow == nil {
+		allow = func(string) bool { return true }
+	}
+	var hits []mcpHit
+	for _, server := range m.connectedNamesLocked() {
+		sess := m.sessions[server]
+		if sess == nil {
+			continue
+		}
+		for _, tool := range sess.tools {
+			exposed := m.exposedLocked(server, tool.Name)
+			if exposed == "" || !allow(exposed) {
+				continue
+			}
+			hits = append(hits, mcpHit{
+				exposed: exposed,
+				score:   mcpSearchScore(server+" "+tool.Name, tool.Description, query),
+				def:     m.defLocked(exposed),
+			})
+		}
+	}
+	return hits
+}
+
+func (m *MCPManager) noteLoaded(names []string) {
+	if m == nil || len(names) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.loaded == nil {
+		m.loaded = map[string]struct{}{}
+	}
+	for _, name := range names {
+		if strings.TrimSpace(name) != "" {
+			m.loaded[name] = struct{}{}
+		}
+	}
 }
 
 func (m *MCPManager) clearLoaded() {

@@ -4,7 +4,7 @@
 
 **As** a user with many MCP servers, **I want** the model to see what each server is for and to load only the tools it is about to use, **so that** the context is not already full of tools it will not call.
 
-**Acceptance:** traces REQ-MCP-1. Every connected server appears as one short line, and its tool schemas stay out until loaded. Loading tools for one job returns at most five, and those can be called. Compaction removes them. Built-in tools stay loaded.
+**Acceptance:** traces REQ-MCP-1. Every connected server appears as one short line, and its tool schemas stay out until the one search loads them. That search also finds an internal tool, returns at most five, and a loaded MCP tool can be called. Compaction removes it from that chat. A new chat does not include it. Built-in tools stay loaded while Reduce context is off. There is no separate MCP search.
 
 ## US-62 — Allow a tool program once, before it runs
 
