@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"embed"
@@ -897,18 +898,82 @@ func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
-	c := s.agent.ensureCharter()
-	b := s.agent.contextBudget()
+	c, b, raw := s.contextForView()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"charter":  c,
 		"markdown": c.RenderMarkdown(),
 		"budget":   b,
-		"raw":      s.agent.rawContextView(),
+		"raw":      raw,
 	})
 }
 
+// contextForView is the open chat. While a run holds another thread, this is
+// the thread on screen, not the one the run is writing.
+func (s *appServer) contextForView() (*Charter, ContextBudget, map[string]any) {
+	viewID := s.viewedThread()
+	runningID := ""
+	if s.agent != nil {
+		runningID = s.agent.Cfg.ThreadID
+	}
+	background := viewID != "" && viewID != runningID && s.agent != nil && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
+	if !background {
+		c := s.agent.ensureCharter()
+		return c, s.agent.contextBudget(), s.agent.rawContextView()
+	}
+	c, err := loadCharter(threadSessionPath(s.agent.Cfg.WorkspaceID, viewID))
+	if err != nil || c == nil {
+		c = &Charter{Version: charterVersion}
+	}
+	raw := s.agent.rawContextFor(viewID)
+	limit := s.agent.effectiveChatTargetFor(viewID).ContextLimit
+	if limit <= 0 {
+		limit = s.agent.Cfg.ContextLimit
+	}
+	used := 0
+	if n, ok := raw["est_tokens"].(int); ok {
+		used = n
+	}
+	return c, budgetNumbers(limit, used), raw
+}
+
+func (a *Agent) keepLastChatRequest() {
+	if a == nil || a.Client == nil || len(a.Client.builtChatBody) == 0 {
+		return
+	}
+	a.noteSentChat(a.Cfg.ThreadID, a.Client.builtChatBody)
+}
+
+func (a *Agent) noteSentChat(threadID string, body []byte) {
+	if a == nil || len(body) == 0 {
+		return
+	}
+	a.sentMu.Lock()
+	defer a.sentMu.Unlock()
+	if a.sentByThread == nil {
+		a.sentByThread = map[string][]byte{}
+	}
+	a.sentByThread[threadID] = append([]byte(nil), body...)
+}
+
+func (a *Agent) lastChatRequestFor(threadID string) []byte {
+	if a == nil {
+		return nil
+	}
+	a.sentMu.Lock()
+	defer a.sentMu.Unlock()
+	return append([]byte(nil), a.sentByThread[threadID]...)
+}
+
 func (a *Agent) rawContextView() map[string]any {
+	id := ""
+	if a != nil {
+		id = a.Cfg.ThreadID
+	}
+	return a.rawContextFor(id)
+}
+
+func (a *Agent) rawContextFor(threadID string) map[string]any {
 	type part struct {
 		Name      string `json:"name"`
 		Text      string `json:"text"`
@@ -919,31 +984,49 @@ func (a *Agent) rawContextView() map[string]any {
 	add := func(name, text string) {
 		parts = append(parts, part{Name: name, Text: text, Chars: len(text), EstTokens: len(text)/4 + 1})
 	}
-	if a == nil {
-		return map[string]any{"parts": parts}
+	measured := 0
+	if a != nil && a.Client != nil && a.Client.LastMainUsage.Available {
+		measured = int(a.Client.LastMainUsage.InputTokens)
 	}
-	instr := a.modelInstructions()
-	add("instructions", instr)
-	tools := filterGrantedTools(definitions(a.Cfg.Web, a.agentExtraTools()), a.instanceToolGrant())
-	if tb, err := json.MarshalIndent(tools, "", "  "); err == nil {
-		add("tools", string(tb))
+	body := a.lastChatRequestFor(threadID)
+	if len(body) == 0 {
+		return map[string]any{
+			"parts":                 parts,
+			"est_tokens":            0,
+			"measured_input_tokens": measured,
+			"note":                  "No chat request has been sent to the model in this session.",
+		}
 	}
-	for i, item := range a.wireModelInput() {
-		add(fmt.Sprintf("input %d", i+1), string(item))
+	var sent struct {
+		Instructions string            `json:"instructions"`
+		Tools        json.RawMessage   `json:"tools"`
+		Input        []json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(body, &sent); err != nil {
+		add("request", string(body))
+	} else {
+		add("instructions", sent.Instructions)
+		if len(sent.Tools) > 0 {
+			var pretty bytes.Buffer
+			if json.Indent(&pretty, sent.Tools, "", "  ") == nil {
+				add("tools", pretty.String())
+			} else {
+				add("tools", string(sent.Tools))
+			}
+		}
+		for i, item := range sent.Input {
+			add(fmt.Sprintf("input %d", i+1), string(item))
+		}
 	}
 	est := 0
 	for _, p := range parts {
 		est += p.EstTokens
 	}
-	measured := 0
-	if a.Client != nil && a.Client.LastMainUsage.Available {
-		measured = int(a.Client.LastMainUsage.InputTokens)
-	}
 	return map[string]any{
 		"parts":                 parts,
 		"est_tokens":            est,
 		"measured_input_tokens": measured,
-		"note":                  "The charter is the short durable summary. The token count is the full request: instructions, tool definitions, and the transcript. Each input part is what is sent. Raw command output kept for the tool card is not included.",
+		"note":                  "This is the last chat request sent to the model: its instructions, its tool definitions, and its transcript.",
 	}
 }
 

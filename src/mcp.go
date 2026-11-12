@@ -457,7 +457,7 @@ func (a *Agent) mcpToolDefs() []map[string]any {
 	if a == nil || a.MCP == nil {
 		return nil
 	}
-	return a.MCP.visibleDefs(a.activeChatContextLimit())
+	return a.MCP.visibleDefs()
 }
 
 func (m *MCPManager) setServerSources(sources, names map[string]string) {

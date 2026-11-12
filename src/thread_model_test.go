@@ -412,6 +412,58 @@ func TestModelChoiceStaysOnViewedThread(t *testing.T) {
 	}
 }
 
+func TestContextViewFollowsTheOpenThread(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := createParkedThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCharter, err := json.Marshal(&Charter{Version: charterVersion, Goal: "other-goal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(charterPath(threadSessionPath(ws.ID, other.ID)), otherCharter, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{
+		Cfg:     Config{WorkspaceID: ws.ID, ThreadID: running.ID, SessionPath: session},
+		Charter: &Charter{Version: charterVersion, Goal: "running-goal"},
+	}
+	a.noteSentChat(running.ID, []byte(`{"instructions":"run","tools":[{"name":"exec"}],"input":[]}`))
+	a.noteSentChat(other.ID, []byte(`{"instructions":"view","tools":[{"name":"mcp__mail__list"}],"input":[]}`))
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.viewThread = other.ID
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/context", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("context: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "other-goal") || !strings.Contains(body, "mcp__mail__list") {
+		t.Fatalf("open thread missing: %s", body)
+	}
+	if strings.Contains(body, "running-goal") || strings.Contains(body, `"name":"exec"`) || strings.Contains(body, `"name": "exec"`) {
+		t.Fatalf("running thread leaked: %s", body)
+	}
+	if a.Cfg.ThreadID != running.ID {
+		t.Fatalf("worker moved: %s", a.Cfg.ThreadID)
+	}
+}
+
 func writeModelConfig(t *testing.T, path string, fc fileConfig) {
 	t.Helper()
 	b, err := json.MarshalIndent(fc, "", "  ")

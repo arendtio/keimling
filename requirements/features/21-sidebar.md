@@ -81,3 +81,23 @@ The side area is the place for what the user looks at beside the chat. Artifacts
 - **Fit criterion:** A message with a very long line leaves the chat column the same width, and the line scrolls or wraps inside it. Dragging the side area wider stops while the chat is still about 600 pixels wide. On a window too narrow for that floor plus the side area, the chat keeps the room it can.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SB-9 The context view is the last chat request
+
+- **Bin:** explicit requirement
+- **Statement:** The Context view shall show the last chat request that was sent to the model, and nothing that was not in that request. Before a request has been sent in this session, the view shall not show tool definitions. A tool definition shall appear there only when that request included it.
+- **Origin:** User, 2026-11-12 (quote: "ich hätte aber gerne genau das sichtbar, was ans Modell geht in dieser Sidebar in dem Context-Tab"). Same day (quote: "warum gibt es 'ne Liste Tools on the request? Also sind die jetzt da drin oder sind die nicht drin?" and "Mich interessiert nur der Kontext, der wirklich zum Model geschickt wird" and "Ich möchte dort den aktuellen Stand des Kontextes haben, der zuletzt an das Model geschickt wurde" and "wenn die Liste nicht an das Model geht, dann möchte ich sie dort auch nicht sehen").
+- **Rationale:** A separate tool list reads as a catalog of what the model could receive. The user is checking what the last request actually contained.
+- **Fit criterion:** After a chat request, the Context view shows that request's instructions, tool definitions, and transcript. A tool that was not in the request does not appear. Before any request in the session, no tool schema is shown. There is no tool list apart from the definitions inside that request.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-SB-10 The side area follows the open chat
+
+- **Bin:** explicit requirement
+- **Statement:** The side area shall show the open chat. Switching to another thread or to an agent shall change that content at that moment.
+- **Origin:** User, 2026-11-12 (quote: "der Inhalt der Sidebar nicht immer wechselt, wenn man den Chat wechselt, also den Thread oder zum Agenten hin" and "der Inhalt der Sidebar immer zum aktuell geöffneten Chatverlauf und sollte sich dementsprechend auch in dem Moment ändern, wo ich den Chat wechsel").
+- **Rationale:** The side area is read as belonging to the conversation on screen. Leaving the previous chat's context up makes that conversation look current.
+- **Fit criterion:** With the side area open, switching threads replaces the context, the plan, the instructions, and the artifacts with those of the thread now open. Switching to an agent does the same for that agent. Switching back shows the chat that is open then.
+- **Priority:** shall
+- **Status:** confirmed

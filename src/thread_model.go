@@ -486,5 +486,6 @@ func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra 
 	a.withChatEndpoint(func(model, reasoning string) {
 		resp, err = a.Client.Respond(ctx, model, reasoning, input, a.Cfg.Web, a.modelInstructions(), extra, a.instanceToolGrant())
 	})
+	a.keepLastChatRequest()
 	return resp, err
 }

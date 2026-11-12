@@ -35,3 +35,15 @@
 **As** a user, **I want** the chat to stay a steady width, **so that** a long message or a wide sidebar does not stretch or squeeze the conversation.
 
 **Acceptance:** traces REQ-SB-8. A very long line stays inside the chat column. The side area beside the chat stops widening while the chat is still about 600 pixels wide.
+
+## US-52 — See the last request the model received
+
+**As** a user, **I want** the Context tab to show the last chat request, **so that** I can see what was actually sent.
+
+**Acceptance:** traces REQ-SB-9. After a request, Sent to the model is that request. A tool that was not in it does not appear. Before a request in this session, no tool schema is shown.
+
+## US-53 — Keep the sidebar on the open chat
+
+**As** a user, **I want** the sidebar to change when I change chats, **so that** I am looking at this conversation.
+
+**Acceptance:** traces REQ-SB-10. Switching threads or opening an agent replaces the sidebar content with that chat's.

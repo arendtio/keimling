@@ -63,6 +63,9 @@ type Agent struct {
 	mcpSlots    *mcpRunGate
 	// mcpInvoke, when set, replaces the MCP server call. Tests use it.
 	mcpInvoke func(ctx context.Context, name, args string) (display, kind string, value any, stored bool)
+	// sentByThread keeps the last chat request body per thread.
+	sentMu       sync.Mutex
+	sentByThread map[string][]byte
 }
 
 func (a *Agent) emit(kind, text string) {
@@ -401,9 +404,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 				}
 			}
 		}()
-		extraTools := append(a.mcpToolDefs(), a.credentialToolDefs()...)
-		extraTools = append(extraTools, a.agentExtraTools()...)
-		resp, err := a.respondMain(ctx, a.modelInput(), extraTools)
+		resp, err := a.respondMain(ctx, a.modelInput(), a.chatExtraTools())
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil

@@ -2863,6 +2863,30 @@
     });
   }
 
+  function refreshSidebar() {
+    if (!connected) return Promise.resolve();
+    resetSideSamples();
+    renderSidePerf();
+    var jobs = [
+      refreshSideContext(),
+      loadThreadAutopilot(),
+      loadArtifactsList().then(function (items) {
+        var key = artifactKey(currentArtifact);
+        if (!key) return;
+        var still = (items || []).some(function (art) { return artifactKey(art) === key; });
+        if (still) return;
+        if (items && items.length) showArtifact(sortArtifacts(items)[0]);
+        else {
+          currentArtifact = null;
+          setArtifactEmpty(true);
+        }
+      }).catch(function () {}),
+      loadMcpList().catch(function () {})
+    ];
+    if (sideTab === "agents") jobs.push(loadAgentBoard());
+    return Promise.all(jobs);
+  }
+
   function afterWorkspaceAttach(j) {
     j = j || {};
     currentWorkspaceID = j.id || currentWorkspaceID;
@@ -2880,7 +2904,7 @@
     return loadSession()
       .then(function () {
         connectEvents();
-        return Promise.all([loadWorkspaces(), loadThreads(), loadAgents()]);
+        return Promise.all([loadWorkspaces(), loadThreads(), loadAgents(), refreshSidebar()]);
       })
       .then(function () {
         if (msg) msg.focus();
@@ -2900,7 +2924,7 @@
     return loadSession()
       .then(function () {
         connectEvents();
-        return Promise.all([loadWorkspaces(), loadThreads(), loadAgents()]);
+        return Promise.all([loadWorkspaces(), loadThreads(), loadAgents(), refreshSidebar()]);
       })
       .then(function () {
         if (msg) msg.focus();
@@ -3169,7 +3193,7 @@
       })
       .then(function () {
         connectEvents();
-        return Promise.all([loadThreads(), loadAgents()]);
+        return Promise.all([loadThreads(), loadAgents(), refreshSidebar()]);
       })
       .catch(function (err) {
         appendLive("\n[threads] " + String((err && err.message) || err || "") + "\n");
@@ -3198,7 +3222,7 @@
       })
       .then(function () {
         connectEvents();
-        return Promise.all([loadThreads(), loadAgents()]);
+        return Promise.all([loadThreads(), loadAgents(), refreshSidebar()]);
       })
       .catch(function (err) {
         appendLive("\n[threads] " + err + "\n");
@@ -4349,6 +4373,15 @@
     return line;
   }
 
+  function toolSummaryRest(name, cmd) {
+    var line = toolFirstLine(cmd);
+    var n = String(name || "").trim();
+    if (!n || n === "exec") return line;
+    if (line === n) return "";
+    if (line.indexOf(n + " ") === 0) return line.slice(n.length).trim();
+    return line;
+  }
+
   function toolCard(m) {
     var name = m.name || "tool";
     var cmd = m.command || m.text || name;
@@ -4365,10 +4398,11 @@
     if (status === "stopped") wrap.className += " stopped";
     var ranLabel = status === "failed" ? "Failed" : status === "stopped" ? "Stopped" : "Ran";
     var summary = document.createElement("summary");
+    var rest = toolSummaryRest(name, cmd);
     summary.innerHTML =
       '<span class="tool-line-ran">' + ranLabel + "</span>" +
       '<span class="tool-line-name">' + esc(name) + "</span>" +
-      '<code class="tool-line-cmd">' + esc(toolFirstLine(cmd)) + "</code>" +
+      (rest ? '<code class="tool-line-cmd">' + esc(rest) + "</code>" : "") +
       (filtered ? '<span class="tool-line-funnel" title="Output filtered for model">▽</span>' : "") +
       (m.pending ? '<span class="tool-line-pending">…</span>' : "");
     wrap.appendChild(summary);

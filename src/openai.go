@@ -28,6 +28,8 @@ type Client struct {
 	StreamText    func(string)
 	// StreamProgress reports streamed rune counts by kind: thinking | text | tool.
 	StreamProgress func(deltaChars int, elapsed time.Duration, kind string)
+	// builtChatBody is the last Responses request this client marshaled.
+	builtChatBody []byte
 }
 
 func NewClient(key string) *Client {
@@ -159,6 +161,7 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 		delete(reqBody, "include")
 	}
 	b, _ := json.Marshal(reqBody)
+	c.builtChatBody = append([]byte(nil), b...)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint("responses"), bytes.NewReader(b))
 	if err != nil {
 		return Response{}, err

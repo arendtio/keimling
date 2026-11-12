@@ -41,6 +41,12 @@ func (a *Agent) contextBudgetFromUsed(used int) ContextBudget {
 			}
 		}
 	}
+	b := budgetNumbers(limit, used)
+	b.Source = source
+	return b
+}
+
+func budgetNumbers(limit, used int) ContextBudget {
 	remaining := 0
 	usedPct := 0.0
 	remPct := 100.0
@@ -64,7 +70,7 @@ func (a *Agent) contextBudgetFromUsed(used int) ContextBudget {
 		Remaining:    remaining,
 		UsedPct:      usedPct,
 		RemainingPct: remPct,
-		Source:       source,
+		Source:       "estimate",
 		Warn:         limit > 0 && usedPct >= budgetWarnPct,
 	}
 }

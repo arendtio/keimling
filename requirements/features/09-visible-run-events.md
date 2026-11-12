@@ -37,3 +37,12 @@ Fit: the API input for the following turn contains the note text.
 Progress such as thinking, generating, and tokens per second is visible while
 the run is going and does not have to remain afterward. The CLI text stream
 is not rendered as a second chat log.
+
+### REQ-VE-5 Tool name once
+
+The closed tool line shows the tool name once. Arguments follow that name.
+The name may be bold.
+
+Origin: User, 2026-11-12 (quote: "Ich habe das gefühl da steht die der Methodenname immer zweimal. aber einmal würde reichen. Fett gedruck ist ok.").
+
+Fit: A call shown as `RAN mcp_tools mcp_tools {"query":…}` shows `RAN` and `mcp_tools` once, then the arguments. The same for `mcp__Operations__project_status`.

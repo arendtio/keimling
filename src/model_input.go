@@ -207,6 +207,7 @@ func (a *Agent) wireModelInput() []json.RawMessage {
 	if a != nil {
 		t := a.callChatTarget()
 		items = prepareReasoningInput(items, t.ProviderID, t.Model, a.reasoningOwnerMap())
+		items = expandChatFiles(items, t.SeeImages, t.HearAudio)
 	}
 	if normalized, err := normalizeResponseInput(items); err == nil {
 		return normalized

@@ -1592,7 +1592,7 @@ button.wide { width: 100%; max-width: 100%; }
 .tool-line-name {
   flex: 0 0 auto;
   color: var(--fg);
-  font-weight: 500;
+  font-weight: 700;
 }
 .tool-line-cmd {
   flex: 1 1 auto;
@@ -2647,6 +2647,7 @@ button.wide { width: 100%; max-width: 100%; }
 .side-mcp .side-mcp-meta { color: var(--muted); font-size: 0.82rem; }
 .side-mcp .side-mcp-err { color: var(--muted); font-size: 0.82rem; }
 #side-context .context-panes { max-height: none; }
+#side-context .context-body { min-width: 0; max-width: 100%; }
 #side-context .context-panel,
 #side-instructions .context-panel { padding-top: 0.35rem; }
 .artifact-pane.mode-dock #side-artifacts .artifact-paper,

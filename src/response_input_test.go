@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -103,6 +104,26 @@ func TestRawContextOmitsStoredCommandOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &Agent{History: []json.RawMessage{item}, Charter: &Charter{Version: charterVersion}}
+	before, err := json.Marshal(a.rawContextView())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte("SECRET-LISTING")) {
+		t.Fatalf("unsent history included in context view: %s", before)
+	}
+	sent, err := json.Marshal(map[string]any{
+		"instructions": "be brief",
+		"tools":        []map[string]any{{"name": "exec"}},
+		"input": []map[string]any{{
+			"type":    "function_call_output",
+			"call_id": "c1",
+			"output":  "exit_code=0\n[Filtered]\nshort",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.noteSentChat("", sent)
 	raw, err := json.Marshal(a.rawContextView())
 	if err != nil {
 		t.Fatal(err)
@@ -112,5 +133,59 @@ func TestRawContextOmitsStoredCommandOutput(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte("[Filtered]")) {
 		t.Fatalf("filtered output missing: %s", raw)
+	}
+}
+
+func contextPart(t *testing.T, a *Agent, name string) string {
+	t.Helper()
+	raw, err := json.Marshal(a.rawContextView())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view struct {
+		Parts []struct {
+			Name string `json:"name"`
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(raw, &view); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range view.Parts {
+		if p.Name == name {
+			return p.Text
+		}
+	}
+	t.Fatalf("context view missing %s", name)
+	return ""
+}
+
+func TestRawContextIsTheLastSentRequest(t *testing.T) {
+	a := &Agent{Cfg: Config{Web: false}, MCP: testMCPServer("mail", "Mail.", mcpToolsNamed("list"))}
+	before, err := json.Marshal(a.rawContextView())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte("mcp__mail__list")) {
+		t.Fatal("unsent MCP schema shown in the context view")
+	}
+	sent, err := json.Marshal(map[string]any{
+		"instructions": "Mail is connected.",
+		"tools":        []map[string]any{{"name": "mcp__mail__list", "description": "List mail"}},
+		"input":        []map[string]any{{"role": "user", "content": "any mail?"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.noteSentChat("", sent)
+	toolsText := contextPart(t, a, "tools")
+	if !strings.Contains(toolsText, "mcp__mail__list") {
+		t.Fatal("sent MCP tool missing from the context view")
+	}
+	if strings.Contains(toolsText, "list_credentials") {
+		t.Fatal("a tool that was not in the request was added")
+	}
+	if !strings.Contains(contextPart(t, a, "input 1"), "any mail?") {
+		t.Fatal("sent transcript missing")
 	}
 }

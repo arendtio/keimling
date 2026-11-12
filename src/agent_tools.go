@@ -37,6 +37,16 @@ func (a *Agent) listCredentialsTool(argsJSON string) string {
 	return string(b)
 }
 
+// chatExtraTools is the extra tool list on a chat request: loaded MCP tools,
+// the credential tool, and agent tools. The context view uses the same list.
+func (a *Agent) chatExtraTools() []map[string]any {
+	if a == nil {
+		return nil
+	}
+	extra := append(a.mcpToolDefs(), a.credentialToolDefs()...)
+	return append(extra, a.agentExtraTools()...)
+}
+
 func (a *Agent) agentExtraTools() []map[string]any {
 	if a == nil {
 		return nil

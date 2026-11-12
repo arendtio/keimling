@@ -218,9 +218,7 @@ func realtimeToolList(a *Agent) []map[string]any {
 	if a == nil {
 		return []map[string]any{}
 	}
-	extra := append(a.mcpToolDefs(), a.credentialToolDefs()...)
-	extra = append(extra, a.agentExtraTools()...)
-	tools := filterGrantedTools(definitions(a.Cfg.Web, extra), a.instanceToolGrant())
+	tools := filterGrantedTools(definitions(a.Cfg.Web, a.chatExtraTools()), a.instanceToolGrant())
 	out := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
 		copy := map[string]any{}

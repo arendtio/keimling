@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,16 +12,6 @@ const (
 	mcpLoadLimit    = 5
 	mcpNameHint     = 12
 )
-
-func mcpDefsDeferred(defBytes, contextLimit int) bool {
-	if defBytes <= 0 {
-		return false
-	}
-	if contextLimit < 1000 {
-		return defBytes > 24_000
-	}
-	return defBytes > contextLimit*4/10
-}
 
 func mcpClip(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
@@ -73,51 +62,18 @@ type mcpToolName struct {
 	name string
 }
 
-func (m *MCPManager) defBytes() int {
-	if m == nil {
-		return 0
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.defBytesLocked()
-}
-
-func (m *MCPManager) defBytesLocked() int {
-	n := 0
-	for _, d := range m.defs {
-		b, err := json.Marshal(d)
-		if err != nil {
-			continue
-		}
-		n += len(b)
-	}
-	return n
-}
-
-func (m *MCPManager) deferred(limit int) bool {
-	if m == nil {
-		return false
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return mcpDefsDeferred(m.defBytesLocked(), limit)
-}
-
-func (m *MCPManager) serverCatalog(limit int) string {
+func (m *MCPManager) serverCatalog() string {
 	if m == nil {
 		return ""
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if !mcpDefsDeferred(m.defBytesLocked(), limit) {
-		return ""
-	}
 	names := m.connectedNamesLocked()
 	if len(names) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("MCP servers are connected. Their tool definitions are not loaded. Call mcp_tools with the server name and a short query for the job. Then call a returned tool by its exact name. Loaded tools stay until the context is compacted.\n")
+	b.WriteString("Connected MCP servers. Tool definitions are not loaded. Call mcp_tools with the server name and a short query for the job, then call a returned tool by its exact name. Loaded tools stay until the context is compacted.\n")
 	for _, name := range names {
 		s := m.sessions[name]
 		tools := make([]mcpToolName, 0, len(s.tools))
@@ -140,14 +96,14 @@ func (m *MCPManager) connectedNamesLocked() []string {
 	return names
 }
 
-func (m *MCPManager) visibleDefs(limit int) []map[string]any {
+func (m *MCPManager) visibleDefs() []map[string]any {
 	if m == nil {
 		return nil
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if !mcpDefsDeferred(m.defBytesLocked(), limit) {
-		return copyDefs(m.defs)
+	if len(m.connectedNamesLocked()) == 0 {
+		return nil
 	}
 	out := []map[string]any{mcpToolsDef()}
 	if len(m.loaded) == 0 {
@@ -168,15 +124,6 @@ func (m *MCPManager) visibleDefs(limit int) []map[string]any {
 			out = append(out, d)
 		}
 	}
-	return out
-}
-
-func copyDefs(defs []map[string]any) []map[string]any {
-	if len(defs) == 0 {
-		return nil
-	}
-	out := make([]map[string]any, len(defs))
-	copy(out, defs)
 	return out
 }
 
@@ -346,7 +293,7 @@ func (a *Agent) withMCPCatalog(base string) string {
 	if a == nil || a.MCP == nil {
 		return base
 	}
-	cat := a.MCP.serverCatalog(a.activeChatContextLimit())
+	cat := a.MCP.serverCatalog()
 	if cat == "" {
 		return base
 	}
