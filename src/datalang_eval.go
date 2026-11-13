@@ -126,6 +126,10 @@ func evalDataLangHost(code string, vars map[string]any, timeout time.Duration, h
 			if err != nil {
 				return nil, err
 			}
+			v, err = realizeValue(v)
+			if err != nil {
+				return nil, err
+			}
 			result = v
 			returned = true
 		default:
@@ -478,9 +482,16 @@ func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, 
 		}
 		return env.host.call(tool, arg)
 	case "filter", "map", "sort", "group":
-		arr, pred, err := higherArgs(name, recv, hasRecv, args, env)
+		src, pred, err := higherArgs(name, recv, hasRecv, args, env)
 		if err != nil {
 			return nil, err
+		}
+		if s, ok := src.(*rowStream); ok {
+			return streamHigher(name, s, pred, env)
+		}
+		arr, ok := src.([]any)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", name+" expects an array")
 		}
 		switch name {
 		case "filter":
@@ -493,9 +504,16 @@ func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, 
 			return groupArr(arr, pred, env)
 		}
 	case "take", "count", "first", "unique":
-		arr, rest, err := collArgs(name, recv, hasRecv, args, env)
+		src, rest, err := collArgs(name, recv, hasRecv, args, env)
 		if err != nil {
 			return nil, err
+		}
+		if s, ok := src.(*rowStream); ok {
+			return streamColl(name, s, rest, env)
+		}
+		arr, ok := src.([]any)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", name+" expects an array")
 		}
 		switch name {
 		case "count":
@@ -543,7 +561,7 @@ func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, 
 	}
 }
 
-func higherArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) ([]any, *ex, error) {
+func higherArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, *ex, error) {
 	var src any
 	var pred *ex
 	if hasRecv {
@@ -563,14 +581,10 @@ func higherArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) ([]
 		src = v
 		pred = args[1]
 	}
-	arr, ok := src.([]any)
-	if !ok {
-		return nil, nil, dataErr("TYPE_ERROR", name+" expects an array")
-	}
-	return arr, pred, nil
+	return src, pred, nil
 }
 
-func collArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) ([]any, []any, error) {
+func collArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, []any, error) {
 	var src any
 	var rest []*ex
 	if hasRecv {
@@ -587,10 +601,6 @@ func collArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) ([]an
 		src = v
 		rest = args[1:]
 	}
-	arr, ok := src.([]any)
-	if !ok {
-		return nil, nil, dataErr("TYPE_ERROR", name+" expects an array")
-	}
 	out := []any{}
 	for _, a := range rest {
 		v, err := eval(a, env)
@@ -599,7 +609,7 @@ func collArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) ([]an
 		}
 		out = append(out, v)
 	}
-	return arr, out, nil
+	return src, out, nil
 }
 
 func withDot(env *dlEnv, item any, pred *ex) (any, error) {
@@ -718,7 +728,7 @@ func uniqueArr(arr []any) []any {
 
 func knownPure(name string) bool {
 	switch name {
-	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "parse", "extract", "lookup":
+	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "outline", "parse", "extract", "lookup":
 		return true
 	default:
 		return false
@@ -784,23 +794,40 @@ func callPure(name string, args []any, env *dlEnv) (any, error) {
 		}
 		return strings.ToUpper(s), nil
 	case "json":
+		if f, ok := fileArg(args); ok {
+			return openJSONStream(f, env)
+		}
 		s, err := oneString("json", args)
 		if err != nil {
 			return nil, err
 		}
 		return parseJSONText(s)
 	case "csv":
+		if f, ok := fileArg(args); ok {
+			return openCSVStream(f, env)
+		}
 		s, err := oneString("csv", args)
 		if err != nil {
 			return nil, err
 		}
 		return parseCSVText(s)
 	case "xml":
+		if f, ok := fileArg(args); ok {
+			return openXMLStream(f, env)
+		}
 		s, err := oneString("xml", args)
 		if err != nil {
 			return nil, err
 		}
 		return parseXMLText(s)
+	case "outline":
+		if len(args) != 1 {
+			return nil, dataErr("TYPE_ERROR", "outline expects one value")
+		}
+		if f, ok := args[0].(*dataFile); ok {
+			return outlineFile(f)
+		}
+		return outlineAny(args[0]), nil
 	case "parse":
 		if len(args) != 2 {
 			return nil, dataErr("TYPE_ERROR", "parse expects text and a rule")
@@ -822,9 +849,32 @@ func lookupRow(args []any) (any, error) {
 	if len(args) != 3 {
 		return nil, dataErr("TYPE_ERROR", "lookup expects rows, a field name, and a key")
 	}
-	rows, ok := args[0].([]any)
 	field, ok2 := args[1].(string)
-	if !ok || !ok2 {
+	if !ok2 {
+		return nil, dataErr("TYPE_ERROR", "lookup expects an array of objects and a field name")
+	}
+	if s, ok := args[0].(*rowStream); ok {
+		defer s.close()
+		for {
+			item, err := s.next()
+			if err == io.EOF {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			obj, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			v, exists := obj[field]
+			if exists && numOrDeepEqual(v, args[2]) {
+				return item, nil
+			}
+		}
+	}
+	rows, ok := args[0].([]any)
+	if !ok {
 		return nil, dataErr("TYPE_ERROR", "lookup expects an array of objects and a field name")
 	}
 	for _, item := range rows {

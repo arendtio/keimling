@@ -20,7 +20,7 @@ Failed tools are rendered as errors (red `✗`), never as a green checkmark.
 `read_file` reads a whole file (`start_line` and `end_line` both `0`) or an
 **inclusive** line range such as 50–75. A whole file of 4 KiB or less, and a
 named line range, returns a SHA-256 of the exact bytes. A larger whole file
-returns the path, the size, and a short preview. A line range is at most 64 KiB
+returns the path, the size, and a short preview. JSON, XML, and CSV return the shape instead of the first bytes: field names, list lengths, and one element's fields, without the values. A binary file returns the path, the size, and a short readable sample. A line range is at most 64 KiB
 and the file itself at most 8 MiB. UTF-8 only. The path can be passed to
 `data_processing`.
 

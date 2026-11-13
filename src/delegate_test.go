@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -203,7 +204,7 @@ func TestDelegateToolRequiresAnImageArgument(t *testing.T) {
 		for _, name := range required {
 			got[name] = true
 		}
-		if !got["image"] || !got["task"] {
+		if !got["image"] || !got["task"] || !got["source"] {
 			t.Fatalf("required %#v", required)
 		}
 		desc, _ := tool["description"].(string)
@@ -222,6 +223,140 @@ func TestDelegateToolRequiresAnImageArgument(t *testing.T) {
 type rewriteTransport struct {
 	endpoint string
 	base     http.RoundTripper
+}
+
+func TestDelegateSourceSendsTheFileOnlyOnTheCall(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("UNIQUE-FILE-SENTENCE in the note."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"the sentence is there"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+	a := &Agent{
+		Client: NewClient("settings-key"),
+		Cfg:    Config{DelegateFast: "text-model", ContextLimit: 8000},
+	}
+	a.Client.BaseURL = server.URL
+	answer, err := a.runDelegate(context.Background(), DelegateArgs{Task: "What sentence is in the file?", Profile: "fast", Source: path})
+	if err != nil || answer != "the sentence is there" {
+		t.Fatalf("answer %q err %v", answer, err)
+	}
+	if !strings.Contains(body, "UNIQUE-FILE-SENTENCE") || strings.Contains(body, `"source"`) {
+		t.Fatalf("body %s", body)
+	}
+	if _, err := a.runDelegate(context.Background(), DelegateArgs{Task: "both", Profile: "fast", Source: path, Image: path}); err == nil {
+		t.Fatal("picture and source accepted together")
+	}
+	label := delegateLabel(`{"task":"What sentence is in the file?","source":"` + path + `","image":"","context":"","profile":"fast"}`)
+	if !strings.Contains(label, "source="+path) {
+		t.Fatal(label)
+	}
+}
+
+func TestDelegateSourceSplitsALargeList(t *testing.T) {
+	dir := t.TempDir()
+	var records []string
+	for i, mark := range []string{"MARKER-A", "MARKER-B", "MARKER-C"} {
+		records = append(records, `{"n":`+string(rune('0'+i))+`,"body":"`+strings.Repeat("x", 2400)+mark+`"}`)
+	}
+	path := filepath.Join(dir, "rows.json")
+	if err := os.WriteFile(path, []byte("["+strings.Join(records, ",")+"]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		text := "part"
+		if strings.Contains(string(raw), "Combine these partial answers") {
+			text = "combined"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"` + text + `"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+	a := &Agent{
+		Client:  NewClient("settings-key"),
+		Cfg:     Config{DelegateFast: "text-model", ContextLimit: 1000},
+		runChat: &chatTarget{ContextLimit: 1000},
+	}
+	a.Client.BaseURL = server.URL
+	answer, err := a.runDelegate(context.Background(), DelegateArgs{Task: "Name the markers.", Profile: "fast", Source: path})
+	if err != nil || answer != "combined" {
+		t.Fatalf("answer %q err %v calls %d", answer, err, len(bodies))
+	}
+	if len(bodies) < 2 {
+		t.Fatalf("calls %d", len(bodies))
+	}
+	budget := delegateSourceBudget(1000)
+	seen := map[string]int{}
+	for _, body := range bodies {
+		if len(body) > budget+4000 {
+			t.Fatalf("body %d over budget %d", len(body), budget)
+		}
+		for _, mark := range []string{"MARKER-A", "MARKER-B", "MARKER-C"} {
+			if strings.Contains(body, mark) {
+				seen[mark]++
+			}
+		}
+	}
+	if seen["MARKER-A"] != 1 || seen["MARKER-B"] != 1 || seen["MARKER-C"] != 1 {
+		t.Fatalf("markers %#v calls %d", seen, len(bodies))
+	}
+}
+
+func TestDelegateSourceBudgetFollowsTheModelWindow(t *testing.T) {
+	if got, want := delegateSourceBudget(1_000_000), 1_000_000*4*8/10; got != want || got <= 400_000 {
+		t.Fatalf("million-token budget %d", got)
+	}
+	if got, want := delegateSourceBudget(128_000), 128_000*4*8/10; got != want {
+		t.Fatalf("smaller window %d", got)
+	}
+}
+
+func TestDelegateSourceUsesTheWholeModelWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wide.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(bytes.Repeat([]byte("x"), 8<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("TAIL-MARKER")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var hits int
+	var sawTail bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		hits++
+		sawTail = strings.Contains(string(raw), "TAIL-MARKER")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"read it"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+	a := &Agent{
+		Client:  NewClient("settings-key"),
+		Cfg:     Config{DelegateFast: "text-model", ContextLimit: 3_000_000},
+		runChat: &chatTarget{ContextLimit: 3_000_000},
+	}
+	a.Client.BaseURL = server.URL
+	answer, err := a.runDelegate(context.Background(), DelegateArgs{Task: "Is the tail there?", Profile: "fast", Source: path})
+	if err != nil || answer != "read it" || hits != 1 || !sawTail {
+		t.Fatalf("answer %q err %v hits %d tail %v", answer, err, hits, sawTail)
+	}
 }
 
 func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -368,6 +369,62 @@ func TestDataLangJoinsNamedInputs(t *testing.T) {
 	}
 }
 
+func TestDataLangScansAFilePastTheOldCap(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	f, err := os.Create("phone.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("name,phone\nAda,555-SECRET\n"); err != nil {
+		t.Fatal(err)
+	}
+	filler := "Other,FILLER-MARKER-" + strings.Repeat("x", 180) + "\n"
+	var written int
+	var rows int64 = 1
+	for written < 8<<20 {
+		if _, err := f.WriteString(filler); err != nil {
+			t.Fatal(err)
+		}
+		written += len(filler)
+		rows++
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat("phone.csv")
+	if err != nil || st.Size() <= 8<<20 {
+		t.Fatalf("fixture size %v %v", st, err)
+	}
+	a := &Agent{}
+	code := `return csv(input) | filter(.name == "Ada") | first()`
+	got := a.runDataTool(`{"input_ref":"phone.csv","inputs":[],"code":` + jsonString(code) + `,"timeout_ms":10000,"output_mode":"inline"}`)
+	if !strings.Contains(got, "Ada") || !strings.Contains(got, "555-SECRET") || strings.Contains(got, "FILLER-MARKER") || strings.Contains(got, "larger than 8 MiB") {
+		t.Fatalf("search: %s", got)
+	}
+	code = `return lookup(csv(input), "name", "Ada")`
+	got = a.runDataTool(`{"input_ref":"phone.csv","inputs":[],"code":` + jsonString(code) + `,"timeout_ms":10000,"output_mode":"inline"}`)
+	if !strings.Contains(got, "555-SECRET") || strings.Contains(got, "FILLER-MARKER") {
+		t.Fatalf("lookup: %s", got)
+	}
+	code = `return outline(input)`
+	got = a.runDataTool(`{"input_ref":"phone.csv","inputs":[],"code":` + jsonString(code) + `,"timeout_ms":10000,"output_mode":"inline"}`)
+	if !strings.Contains(got, "name") || !strings.Contains(got, "phone") || !strings.Contains(got, "n="+strconv.FormatInt(rows, 10)) || strings.Contains(got, "555-SECRET") || strings.Contains(got, "FILLER-MARKER") {
+		t.Fatalf("outline rows %d: %s", rows, got)
+	}
+	got = a.runDataTool(`{"input_ref":"phone.csv","inputs":[],"code":"return input","timeout_ms":1000,"output_mode":"inline"}`)
+	if !strings.Contains(got, "large") || strings.Contains(got, "FILLER-MARKER") {
+		t.Fatalf("whole file: %s", got)
+	}
+}
+
 func TestDataLangReadsAFileAndAHistorySection(t *testing.T) {
 	dir := t.TempDir()
 	cwd, err := os.Getwd()
@@ -511,5 +568,54 @@ func TestDataLangDocumentedFilterExample(t *testing.T) {
 	nums := value.([]any)
 	if len(nums) != 1 || nums[0] != int64(101) {
 		t.Fatalf("%#v", value)
+	}
+}
+
+func TestOutlineShowsShapeWithoutValues(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"items":[`)
+	for i := 0; i < 40; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"sku":"MARKER-SECRET","qty":1}`)
+	}
+	b.WriteString(`]}`)
+	value, err := runDataLang("return outline(input)", b.String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := value.(string)
+	for _, want := range []string{"items", "array", "sku", "qty"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %s in %s", want, got)
+		}
+	}
+	if strings.Contains(got, "MARKER-SECRET") || len(got) > dataModelLimit {
+		t.Fatalf("shape leaked or grew: %d %s", len(got), got)
+	}
+	piped, err := runDataLang("return input | outline()", b.String(), time.Second)
+	if err != nil || piped != value {
+		t.Fatalf("pipe %v %v", piped, err)
+	}
+
+	xml := `<stock><item id="a">MARKER-SECRET</item><item id="b">other</item></stock>`
+	value, err = runDataLang("return outline(input)", xml, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ = value.(string)
+	if !strings.Contains(got, "stock") || !strings.Contains(got, "item") || strings.Contains(got, "MARKER-SECRET") {
+		t.Fatal(got)
+	}
+
+	csvText := "sku,qty\nMARKER-SECRET,1\npen,2\n"
+	value, err = runDataLang("return outline(input)", csvText, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ = value.(string)
+	if !strings.Contains(got, "sku") || !strings.Contains(got, "qty") || !strings.Contains(got, "n=2") || strings.Contains(got, "MARKER-SECRET") {
+		t.Fatal(got)
 	}
 }

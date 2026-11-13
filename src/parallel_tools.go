@@ -401,6 +401,8 @@ func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message st
 			label := args.Profile
 			if strings.TrimSpace(args.Image) != "" {
 				label = "image"
+			} else if strings.TrimSpace(args.Source) != "" {
+				label = "source"
 			}
 			a.printf("\033[35m◇ Delegate\033[0m · %s · %s\n", label, truncate(args.Task, 160))
 			answer, e := a.runDelegate(ctx, args)

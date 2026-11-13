@@ -41,7 +41,9 @@ OPERATIONS
 filter(predicate), map(expression), sort(key), group(key),
 take(n), count(), first(), unique(), contains(value, item),
 lookup(rows, field, key), split(text, sep), join(array, sep),
-trim(text), json(text), csv(text), xml(text).
+trim(text), json(text), csv(text), xml(text), outline(value).
+outline returns the shape of JSON, XML, or CSV: names, types, and list lengths, within 4 KiB, without the values.
+A file of any size can be an input. A file too large to pass as text is scanned by csv(input), json(input), xml(input), and outline(input). json of such a file reads an array or one value per line. filter, first, take, count, and lookup can stop at the row they need. Return that row, not the file.
 lookup returns the first object whose field equals key, or null.
 
 EXAMPLE — FILTER AN MCP RESULT
@@ -419,7 +421,10 @@ func fileRefValue(path string) (any, error) {
 		return nil, dataErr("INVALID_REF", "path is a directory")
 	}
 	if st.Size() > 8<<20 {
-		return nil, dataErr("RESULT_TOO_LARGE", "file is larger than 8 MiB")
+		if !sampleUTF8(path) {
+			return nil, dataErr("UNSUPPORTED_INPUT", "not a UTF-8 text file")
+		}
+		return &dataFile{path: path, size: st.Size()}, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

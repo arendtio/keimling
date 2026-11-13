@@ -79,3 +79,23 @@
 - **Fit criterion:** A run whose input is a file path returns a value taken from that file, and the program text does not contain the file. A run whose input is a history section id from search returns a value taken from that section. A program that calls a file or journal operation fails and does not read either. A large result can come back as a reference.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-DL-9 A transform can show the shape of a value
+
+- **Bin:** explicit requirement
+- **Statement:** A transformation shall be able to show the shape of JSON, XML, or CSV: the outer node, the first layer of names, and where a list is, including how long it is and the shape of one element. The shape shall fit in the inline limit and shall not include the values.
+- **Origin:** User, 2026-11-13 (quote: "wenn ich als Mensch mir beispielsweise 'ne JSON-Datei angucke oder auch 'ne XML-Datei, dann versuche ich als Erstes ja erstmal die Anatomie der Datei zu verstehen. Also, was ist das äußerste Tag? Was sind die, was ist die erste Schicht an Kindern? Wo gibt es irgendwelche Listen?" and "ein Tool zur Verfügung stellen können, dass quasi die Anatomie einer Datei grundsätzlich zurückgibt in einer Maximalgröße von vier Kilobyte").
+- **Rationale:** A result that is too large to show leaves the model guessing at the shape, and each guess is another request.
+- **Fit criterion:** The shape of a JSON object names its fields and the length of a list, names the fields of one list element, fits in 4 KiB, and does not contain a value that appears only inside that list. The shape of an XML document names the outer tag and the first child tags. The shape of a CSV document names the header and the row count.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-DL-10 A file input has no size ceiling
+
+- **Bin:** explicit requirement
+- **Statement:** A DataLang run shall be able to read a file of any size as its input. The size of that file shall not by itself refuse the run. A search shall be able to return one small row from that file.
+- **Origin:** User, 2026-11-13 (quote: "DataLang ist ja extra dafür da, damit man beliebig große Dateien mit deterministischen Werkzeugen durchsuchen kann" and "man stelle sich vor, ich hab 'ne Telefonbuchdatenbank … als CSV-Datei … sobald ich einen Eintrag gefunden hab, gebe ich den vielleicht zurück. Und der ist dann vielleicht ganz klein" and "die Inputgröße der Datei sollte nicht beschränkt sein bei DataLang").
+- **Rationale:** The useful result of a large file is often one row. Refusing the file because it is large makes that search impossible.
+- **Fit criterion:** A CSV larger than 8 MiB, searched for one name, returns that row. The result does not contain the rest of the file and does not fail because of the file's size. The same file's shape names the header and the row count and does not contain a value from a row.
+- **Priority:** shall
+- **Status:** confirmed

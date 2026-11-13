@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -68,6 +69,46 @@ func TestReadFileLargeWholeFileIsAPreview(t *testing.T) {
 	got = executeTool(context.Background(), "read_file", `{"path":"small.txt","start_line":0,"end_line":0}`)
 	if !strings.Contains(got, "exact\n") || !strings.Contains(got, "hash:") {
 		t.Fatalf("small: %s", got)
+	}
+}
+
+func TestReadFileStructuredAndBinaryPreview(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	var b strings.Builder
+	b.WriteString(`{"items":[`)
+	for i := 0; i < 200; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"sku":"MARKER-SECRET","qty":1}`)
+	}
+	b.WriteString(`]}`)
+	if len(b.String()) <= 4<<10 {
+		t.Fatalf("fixture too small: %d", len(b.String()))
+	}
+	if err := os.WriteFile("stock.json", []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := executeTool(context.Background(), "read_file", `{"path":"stock.json","start_line":0,"end_line":0}`)
+	if !strings.Contains(got, "shape:") || !strings.Contains(got, "sku") || !strings.Contains(got, "n=200") || strings.Contains(got, "MARKER-SECRET") {
+		t.Fatalf("json: %s", got)
+	}
+	raw := bytes.Repeat([]byte{0xff, 0x00}, 3000)
+	raw = append(raw, []byte("HELLO")...)
+	if err := os.WriteFile("blob.bin", raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = executeTool(context.Background(), "read_file", `{"path":"blob.bin","start_line":0,"end_line":0}`)
+	if !strings.Contains(got, "kind: binary") || !strings.Contains(got, "bytes: 6005") || len(got) >= len(raw) {
+		t.Fatalf("binary: %s", got)
 	}
 }
 

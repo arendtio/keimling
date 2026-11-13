@@ -19,6 +19,7 @@ type DelegateArgs struct {
 	Context string `json:"context"`
 	Profile string `json:"profile"`
 	Image   string `json:"image"`
+	Source  string `json:"source"`
 }
 
 // delegateImage is the picture attached to one isolated call.
@@ -53,6 +54,12 @@ func readDelegateImage(path string) (delegateImage, error) {
 func (a *Agent) runDelegate(ctx context.Context, args DelegateArgs) (string, error) {
 	if a == nil || a.Client == nil {
 		return "", errors.New("no API client")
+	}
+	if strings.TrimSpace(args.Source) != "" {
+		if strings.TrimSpace(args.Image) != "" {
+			return "", errors.New("delegate takes a picture or a data source, not both")
+		}
+		return a.runDelegateSource(ctx, args)
 	}
 	if strings.TrimSpace(args.Image) == "" {
 		model, effort, err := delegateProfile(a.Cfg, args.Profile)
@@ -213,15 +220,17 @@ func delegateHasSecret(s string) bool {
 
 func delegateLabel(args string) string {
 	var in struct {
-		Task  string `json:"task"`
-		Image string `json:"image"`
+		Task   string `json:"task"`
+		Image  string `json:"image"`
+		Source string `json:"source"`
 	}
 	if json.Unmarshal([]byte(args), &in) != nil {
 		return ""
 	}
 	task := strings.TrimSpace(in.Task)
 	image := strings.TrimSpace(in.Image)
-	if task == "" && image == "" {
+	source := strings.TrimSpace(in.Source)
+	if task == "" && image == "" && source == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -229,6 +238,10 @@ func delegateLabel(args string) string {
 	if image != "" {
 		b.WriteString(" image=")
 		b.WriteString(image)
+	}
+	if source != "" {
+		b.WriteString(" source=")
+		b.WriteString(source)
 	}
 	if task != "" {
 		b.WriteByte('\n')
@@ -241,7 +254,7 @@ func (c *Client) Delegate(ctx context.Context, model, effort string, a DelegateA
 	if strings.TrimSpace(a.Task) == "" {
 		return "", errors.New("empty delegate task")
 	}
-	if len(a.Task) > 8000 || len(a.Context) > 120000 {
+	if len(a.Task) > 8000 {
 		return "", errors.New("delegate input exceeds limits")
 	}
 	if model == "" {

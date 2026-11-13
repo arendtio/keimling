@@ -77,7 +77,7 @@ func readFilePreview(path string, st os.FileInfo) string {
 			return err.Error()
 		}
 		if !utf8.Valid(buf[:n]) {
-			return "not a UTF-8 text file"
+			return binaryFileNote(path, st.Size(), buf[:n])
 		}
 		return fmt.Sprintf("path: %s\nbytes: %d\npreview:\n%s", path, st.Size(), buf[:n])
 	}
@@ -86,7 +86,10 @@ func readFilePreview(path string, st os.FileInfo) string {
 		return err.Error()
 	}
 	if !utf8.Valid(data) {
-		return "not a UTF-8 text file"
+		return binaryFileNote(path, st.Size(), data)
+	}
+	if shape, ok := structuredOutline(string(data)); ok {
+		return fmt.Sprintf("path: %s\nbytes: %d\nlines: %d\nshape:\n%s", path, len(data), len(fileLines(data)), shape)
 	}
 	prev := data
 	if len(prev) > preview {
@@ -96,6 +99,14 @@ func readFilePreview(path string, st os.FileInfo) string {
 		}
 	}
 	return fmt.Sprintf("path: %s\nbytes: %d\nlines: %d\npreview:\n%s", path, len(data), len(fileLines(data)), prev)
+}
+
+func binaryFileNote(path string, size int64, sample []byte) string {
+	text := printableRuns(sample, 240)
+	if text == "" {
+		text = "(no readable text)"
+	}
+	return fmt.Sprintf("path: %s\nbytes: %d\nkind: binary\nsample:\n%s", path, size, text)
 }
 
 func fileLines(b []byte) [][]byte {
