@@ -159,8 +159,17 @@ func TestRealtimeCallUsesEphemeralSecretAndStaysIdle(t *testing.T) {
 	sdpReq.Header.Set("Authorization", "Bearer tok")
 	sdpRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(sdpRec, sdpReq)
-	if sdpRec.Code != http.StatusOK || !strings.Contains(sdpRec.Body.String(), "answer") {
+	if sdpRec.Code != http.StatusOK {
 		t.Fatalf("sdp: %d %s", sdpRec.Code, sdpRec.Body.String())
+	}
+	var sdpResp struct {
+		SDP string `json:"sdp"`
+	}
+	if err := json.Unmarshal(sdpRec.Body.Bytes(), &sdpResp); err != nil {
+		t.Fatal(err)
+	}
+	if sdpResp.SDP != "v=0\r\nanswer\r\n" {
+		t.Fatalf("answer sdp: %q", sdpResp.SDP)
 	}
 	if !sawOperator || !sawOffer {
 		t.Fatalf("operator=%v offer=%v", sawOperator, sawOffer)

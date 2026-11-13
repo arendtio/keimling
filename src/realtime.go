@@ -456,8 +456,8 @@ func exchangeRealtimeSDP(ctx context.Context, c *Client, secret, offer string) (
 	if res.StatusCode >= 300 {
 		return "", realtimeHTTPError("realtime call", body)
 	}
-	answer := strings.TrimSpace(string(body))
-	if answer == "" {
+	answer := string(body)
+	if strings.TrimSpace(answer) == "" {
 		return "", fmt.Errorf("realtime call returned an empty answer")
 	}
 	return answer, nil
