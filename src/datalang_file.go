@@ -617,6 +617,7 @@ func outlineJSON(f *dataFile) (string, error) {
 			}
 		}
 		var first any
+		var acc shapeAcc
 		var n int64
 		for {
 			if kind == '[' && !dec.More() {
@@ -630,8 +631,12 @@ func outlineJSON(f *dataFile) (string, error) {
 			if err != nil {
 				return "", &dataError{Code: "PARSE_ERROR", Message: err.Error()}
 			}
+			folded := foldJSON(v)
 			if n == 0 {
-				first = foldJSON(v)
+				first = folded
+			}
+			if m, ok := folded.(map[string]any); ok {
+				acc.note(m)
 			}
 			n++
 		}
@@ -640,7 +645,11 @@ func outlineJSON(f *dataFile) (string, error) {
 		}
 		o := &outl{lim: dataModelLimit}
 		o.line(0, fmt.Sprintf("array n=%d of %s", n, typePhrase(first)))
-		writeInner(o, first, 1)
+		if acc.mixed() {
+			acc.write(o, 1)
+		} else {
+			writeInner(o, first, 1)
+		}
 		return strings.TrimRight(o.b.String(), "\n"), nil
 	}
 	return outlineJSONObject(dec)

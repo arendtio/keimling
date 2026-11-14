@@ -22,7 +22,7 @@
 
 **As** a user, **I want** the agent to see how a large file is built and to ask a question about it without keeping the file in the chat, **so that** the answer comes back without a series of guesses.
 
-**Acceptance:** traces REQ-DL-9, REQ-RF-2, REQ-DD-1, and REQ-DD-2. The shape of a large JSON file names a field and a list length and leaves out a value that lives only in the list. A delegate call names the file and returns an answer. The file text is on the delegate request and not in the tool arguments. A model window of 1,000,000 tokens can take a source larger than 400 KiB in one call.
+**Acceptance:** traces REQ-DL-9, REQ-RF-2, REQ-DD-1, REQ-DD-2, and REQ-DD-3. The shape of a large JSON file names a field and a list length and leaves out a value that lives only in the list. When list elements disagree on a field, the shape names each type. A lookup, a projection, or a short quote is a data program or a file read. A delegate call that does name a file returns an answer, and the file text is on the delegate request and not in the tool arguments. A result that comes back as a reference is complete. A model window of 1,000,000 tokens can take a source larger than 400 KiB in one call.
 
 ## US-67 — Search a file of any size
 

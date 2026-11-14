@@ -106,7 +106,8 @@ A program that only calls MCP tools may leave input_ref empty and inputs [].
 
 OUTPUT
 Small results are returned inline. Large results receive
-a new reference for subsequent data_processing calls.`
+a new reference. That reference is the full result. Do not split
+the program into smaller inline calls to copy every row into the reply.`
 
 const dataHelpParser = `DataLang grammar
 

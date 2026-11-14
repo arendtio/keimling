@@ -19,3 +19,13 @@
 - **Fit criterion:** With the current model configured for 1,000,000 tokens, one delegate call can carry a source larger than 400 KiB. With the current model configured for a smaller window, a source larger than that window is split, and each part stays within the window. Raising the configured window raises the bytes one call can carry, without a second constant cap.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-DD-3 A lookup or a projection is not a delegate task
+
+- **Bin:** explicit requirement
+- **Statement:** A named file or chat shall be opened directly. A lookup, a projection, or a short quote shall use a data program or a file read. A delegate shall be used for a judgment, a summary, or a second opinion. A data result that comes back as a reference shall be treated as complete.
+- **Origin:** User, 2026-11-14 (quote: "ok, mache die korrekturen"), accepting the reading of the scenario runs from that day: a named path was searched for first, a single cell and a short chat were sent to a delegate, and a finished projection was split into inline slices.
+- **Rationale:** Each of those steps is another model call. The data program already returns the cell, the quote, and the projection.
+- **Fit criterion:** The work instructions tell the model to open a path the user already named, to use a data program or a file read for a lookup, a projection, or a short quote, and to stop when a data result comes back as a reference. The delegate tool description reserves the delegate for a judgment, a summary, or a second opinion.
+- **Priority:** shall
+- **Status:** confirmed

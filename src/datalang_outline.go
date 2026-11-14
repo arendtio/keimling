@@ -161,6 +161,16 @@ func writeOutline(o *outl, v any, depth int) {
 			return
 		}
 		o.line(depth, fmt.Sprintf("array n=%d of %s", len(x), typePhrase(x[0])))
+		var acc shapeAcc
+		for _, el := range x {
+			if m, ok := el.(map[string]any); ok {
+				acc.note(m)
+			}
+		}
+		if acc.mixed() {
+			acc.write(o, depth+1)
+			return
+		}
 		if unfolds(x[0]) {
 			writeInner(o, x[0], depth+1)
 		}
@@ -295,6 +305,62 @@ func unfolds(v any) bool {
 	default:
 		return false
 	}
+}
+
+// shapeAcc records the type of each field across the objects of one list.
+type shapeAcc struct {
+	sets      map[string]map[string]struct{}
+	exemplars map[string]any
+}
+
+func (a *shapeAcc) note(m map[string]any) {
+	if a.sets == nil {
+		a.sets = map[string]map[string]struct{}{}
+		a.exemplars = map[string]any{}
+	}
+	for k, v := range m {
+		if a.sets[k] == nil {
+			a.sets[k] = map[string]struct{}{}
+		}
+		a.sets[k][typePhrase(v)] = struct{}{}
+		if _, ok := a.exemplars[k]; !ok && unfolds(v) {
+			a.exemplars[k] = v
+		}
+	}
+}
+
+func (a *shapeAcc) mixed() bool {
+	for _, set := range a.sets {
+		if len(set) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *shapeAcc) write(o *outl, depth int) {
+	keys := make([]string, 0, len(a.sets))
+	for k := range a.sets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		o.line(depth, k+": "+joinPhrases(a.sets[k]))
+		if len(a.sets[k]) == 1 {
+			if ex, ok := a.exemplars[k]; ok {
+				writeInner(o, ex, depth+1)
+			}
+		}
+	}
+}
+
+func joinPhrases(set map[string]struct{}) string {
+	parts := make([]string, 0, len(set))
+	for p := range set {
+		parts = append(parts, p)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, " | ")
 }
 
 func typePhrase(v any) string {

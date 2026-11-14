@@ -271,7 +271,7 @@ func TestDataLangInlineDoesNotTruncate(t *testing.T) {
 	}
 	ref := strings.TrimPrefix(text, "tiny\nref: ")
 	got := a.runDataTool(`{"input_ref":"` + ref + `","code":"return input","output_mode":"inline","timeout_ms":1000}`)
-	if !strings.Contains(got, "RESULT_TOO_LARGE") || strings.Contains(got, big[:100]) {
+	if !strings.Contains(got, "RESULT_TOO_LARGE") || !strings.Contains(got, "The ref holds the full result") || strings.Contains(got, "filter the result further") || strings.Contains(got, big[:100]) {
 		clip := got
 		if len(clip) > 200 {
 			clip = clip[:200]
@@ -594,8 +594,24 @@ func TestOutlineShowsShapeWithoutValues(t *testing.T) {
 	if strings.Contains(got, "MARKER-SECRET") || len(got) > dataModelLimit {
 		t.Fatalf("shape leaked or grew: %d %s", len(got), got)
 	}
+	shape := value
+	mixed := `[{"key":"KEY-001","depends":null},{"key":"KEY-002","depends":["KEY-001"]}]`
+	value, err = runDataLang("return outline(input)", mixed, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ = value.(string)
+	depends := ""
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "depends:") {
+			depends = line
+		}
+	}
+	if !strings.Contains(depends, "null") || !strings.Contains(depends, "array") || strings.Contains(got, "KEY-001") {
+		t.Fatalf("mixed field types: %s", got)
+	}
 	piped, err := runDataLang("return input | outline()", b.String(), time.Second)
-	if err != nil || piped != value {
+	if err != nil || piped != shape {
 		t.Fatalf("pipe %v %v", piped, err)
 	}
 

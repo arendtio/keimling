@@ -181,7 +181,7 @@ func (s *dataStore) present(value any, mode string) (string, error) {
 	}
 	inline := mode == "inline" || (mode == "auto" && it.bytes <= dataModelLimit)
 	if mode == "inline" && it.bytes > dataModelLimit {
-		return "", &dataError{Code: "RESULT_TOO_LARGE", Message: fmt.Sprintf("result is %d bytes and the inline limit is %d", it.bytes, dataModelLimit), Ref: it.id, Suggestion: "Use output_mode ref, or filter the result further."}
+		return "", &dataError{Code: "RESULT_TOO_LARGE", Message: fmt.Sprintf("result is %d bytes and the inline limit is %d", it.bytes, dataModelLimit), Ref: it.id, Suggestion: "The ref holds the full result. Answer from that ref. Do not split the result to copy every row into the reply."}
 	}
 	if mode == "ref" {
 		inline = false
