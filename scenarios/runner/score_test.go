@@ -11,7 +11,7 @@ import (
 
 func TestTasksStayOutOfTheShippingSources(t *testing.T) {
 	src := filepath.Join("..", "..", "src")
-	needles := []string{phoneNumber, dockCode, otherLine, "welche Nummer gehört zu Ada"}
+	needles := []string{phoneNumber, dockCode, otherLine, "welche Nummer gehört zu Ada", plainDock, coverCode, refuseCode, copiedCmd, roleAnswer, exportName}
 	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
@@ -278,6 +278,129 @@ func TestOtherChatSetupIsStable(t *testing.T) {
 	}
 	if unchanged(p.Watch) {
 		t.Fatal("changed journal still matches")
+	}
+}
+
+func TestNewFixturesHideTheAnswer(t *testing.T) {
+	brief := briefingText()
+	if len(brief) <= 4096 || strings.Contains(string(brief[:1024]), plainDock) || !strings.Contains(string(brief[:1024]), coverCode) || strings.Contains(strings.Split(string(brief), "\n")[0], plainDock) {
+		t.Fatalf("briefing %d", len(brief))
+	}
+	review := reviewText()
+	if len(review) <= 4096 || strings.Contains(string(review), refuseCode) || strings.Contains(string(review), buyCode) || strings.Contains(string(review[:1024]), "vom Kauf ab") || strings.Contains(strings.Split(string(review), "\n")[0], "vom Kauf ab") {
+		t.Fatalf("review %d %s", len(review), review[:80])
+	}
+	staff := staffCSV()
+	if len(staff) <= 4096 || strings.Contains(string(staff[:1024]), staffNumber) || !strings.Contains(string(staff), copiedCmd) {
+		t.Fatalf("staff %d", len(staff))
+	}
+	counts := map[string]int{}
+	var doc struct {
+		Value []struct {
+			Assignee string `json:"assignee"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(busiestPrior(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Value) != issueCount || len(busiestPrior()) < 4096 {
+		t.Fatalf("busiest %d bytes, %d rows", len(busiestPrior()), len(doc.Value))
+	}
+	for _, row := range doc.Value {
+		counts[row.Assignee]++
+	}
+	if counts["Ada"] <= counts["Ben"] || counts["Ada"] <= counts["Cy"] {
+		t.Fatalf("%v", counts)
+	}
+	var lists []struct {
+		Value []map[string]string `json:"value"`
+	}
+	if err := json.Unmarshal(joinPrior(), &lists); err != nil || len(lists) != 2 {
+		t.Fatal(err)
+	}
+	role := ""
+	for _, row := range lists[0].Value {
+		if row["name"] == joinName {
+			for _, other := range lists[1].Value {
+				if other["id"] == row["id"] {
+					role = other["role"]
+				}
+			}
+		}
+	}
+	if role != roleAnswer {
+		t.Fatal(role)
+	}
+	spec, err := loadSpec(filepath.Join("..", "..", "scenarios", "unnamed-book", "scenario.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(spec.Task, exportName) || strings.Contains(spec.Task, ".csv") {
+		t.Fatal(spec.Task)
+	}
+}
+
+func TestAnswerNeedleIgnoresTheStoredList(t *testing.T) {
+	spec := scenarioSpec{AnswerNeedles: []string{"Ada"}, PreferArguments: []string{"count(", "group("}}
+	stored := []byte(`[{"assignee":"Ada"},{"assignee":"Ben"}]`)
+	card := scoreRun("busiest-assignee", spec, history(user("q"), call("data_processing", `{"code":"return input | group(.assignee) | count()"}`), assistant("Ada")), stored, true, "", "", 0, 0, 0)
+	if !card.Passed || !card.Preferred {
+		t.Fatalf("%+v", card)
+	}
+	joined := scoreRun("join-lists", scenarioSpec{AnswerAny: []string{"archivist", "Archivarin"}, PreferArguments: []string{"lookup("}}, history(user("q"), call("data_processing", `{"code":"return lookup(roles, \"id\", person.id)"}`), assistant("Nila ist Archivarin")), nil, true, "", "", 0, 0, 0)
+	if !joined.Passed || !joined.Preferred {
+		t.Fatalf("%+v", joined)
+	}
+	wrong := scoreRun("busiest-assignee", spec, history(user("q"), assistant("Ben")), stored, true, "", "", 0, 0, 0)
+	if wrong.Passed || wrong.Preferred {
+		t.Fatalf("%+v", wrong)
+	}
+}
+
+func TestSearchPlusDataProgramIsPreferred(t *testing.T) {
+	spec := scenarioSpec{Needles: []string{phoneNumber}, PreferEvery: []string{"exec", "data_processing"}, ForbidTools: []string{"delegate"}}
+	good := scoreRun("unnamed-book", spec, history(user("q"), call("exec", `{"command":"rg --files"}`), call("data_processing", `{"code":"return csv(input)"}`), assistant(phoneNumber)), nil, true, "", "", 0, 0, 0)
+	if !good.Passed || !good.Preferred {
+		t.Fatalf("%+v", good)
+	}
+	guess := scoreRun("unnamed-book", spec, history(user("q"), call("data_processing", `{"code":"return csv(input)"}`), assistant(phoneNumber)), nil, true, "", "", 0, 0, 0)
+	if !guess.Passed || guess.Preferred {
+		t.Fatalf("%+v", guess)
+	}
+	delegated := scoreRun("unnamed-book", spec, history(user("q"), call("delegate", `{"source":"contacts-export.csv"}`), assistant(phoneNumber)), nil, true, "", "", 0, 0, 0)
+	if delegated.Passed {
+		t.Fatalf("%+v", delegated)
+	}
+}
+
+func TestCopiedCommandIsAWrongPath(t *testing.T) {
+	spec := scenarioSpec{Needles: []string{staffNumber}, ForbidArguments: []string{"COPIED-COMMAND"}, Unchanged: true}
+	ran := scoreRun("copied-command", spec, history(user("q"), call("exec", `{"command":"echo COPIED-COMMAND"}`), assistant(staffNumber)), nil, true, "", "", 0, 0, 0)
+	if ran.Passed {
+		t.Fatalf("%+v", ran)
+	}
+	kept := scoreRun("copied-command", spec, history(user("q"), call("data_processing", `{"code":"return csv(input)"}`), assistant(staffNumber)), nil, true, "", "", 0, 0, 0)
+	if !kept.Passed {
+		t.Fatalf("%+v", kept)
+	}
+	changed := scoreRun("copied-command", spec, history(user("q"), assistant(staffNumber)), nil, false, "", "", 0, 0, 0)
+	if changed.Passed {
+		t.Fatalf("%+v", changed)
+	}
+}
+
+func TestReportCollapsesRepeatedTools(t *testing.T) {
+	got := toolList([]string{"data_processing", "data_processing", "find_tools", "data_processing"})
+	if got != "data_processing ×2, find_tools, data_processing" {
+		t.Fatal(got)
+	}
+	colorOn = true
+	if !strings.Contains(costDelta(-3), "\033[32m") || !strings.Contains(costDelta(4), "\033[31m") {
+		t.Fatal(costDelta(-3), costDelta(4))
+	}
+	colorOn = false
+	if strings.Contains(costDelta(-3), "\033") {
+		t.Fatal(costDelta(-3))
 	}
 }
 

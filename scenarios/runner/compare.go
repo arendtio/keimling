@@ -186,12 +186,3 @@ func sumVerdict(words []string) string {
 		return "same"
 	}
 }
-
-func compareLine(id, baseCommit string, cur, base runStats) string {
-	return fmt.Sprintf("%s: %s against %s, steps %d (%+d), tokens %d (%+d), time %dms (%+dms), passed %d/%d (was %d/%d)",
-		id, judge(cur, base), baseCommit,
-		cur.Steps, cur.Steps-base.Steps,
-		cur.Tokens, cur.Tokens-base.Tokens,
-		cur.Duration, cur.Duration-base.Duration,
-		cur.Passed, cur.N, base.Passed, base.N)
-}

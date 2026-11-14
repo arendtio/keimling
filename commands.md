@@ -95,7 +95,7 @@ The image `CMD` is `--server --listen 0.0.0.0:7420`. State and CWD are `/data` (
 
 Scenario tasks and fixtures live under `scenarios/` and are not compiled into `./keimling`. `make scenario` builds the current source (`build-nogui`) and runs every scenario on that binary. A dirty tree is stamped `commit+YYYYMMDDTHHMMSS`. A clean tree is stamped with the commit only. The temporary workspace is removed. Cards append to `scenarios/cards/<id>.jsonl`. Each journal is kept at `scenarios/runs/<version>/<scenario>/<n>/`. This is outside `make test`.
 
-Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses the latest run of the same model whose stamp has no plus sign. A wrong outcome outweighs a shorter path. The last line is `better`, `worse`, `mixed`, or `same`. One missed repetition is printed and does not fail the command. The command exits with an error when that sum is `worse`, or when a scenario could not be run.
+Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses the latest run of the same model whose stamp has no plus sign. A wrong outcome outweighs a shorter path. The last line is `better`, `worse`, `mixed`, or `same`. One missed repetition is printed and does not fail the command. The command exits with an error when that sum is `worse`, or when a scenario could not be run. On a terminal the report uses color. `NO_COLOR` leaves it plain.
 
 | Command | Purpose |
 | --- | --- |
@@ -106,7 +106,7 @@ Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses th
 | `make scenario-checkpoint` | Freeze the latest run of each scenario as the comparison baseline |
 | `make scenario-check` | Score the runner without calling a model |
 
-`--oneshot` reads one stdin message and exits. `--prior-result FILE` stores one tool result before that message. Neither flag contains a scenario.
+`--oneshot` reads one stdin message and exits. `--prior-result FILE` stores one tool result, or a JSON array of them, before that message. Neither flag contains a scenario. The scenario ids are the directories under `scenarios/` that contain `scenario.json`.
 
 ## Lab
 

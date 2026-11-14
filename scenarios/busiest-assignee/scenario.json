@@ -1,0 +1,6 @@
+{
+  "task": "Wer ist für die meisten Einträge in der Issue-Liste oben zuständig? Nenne nur den Namen.",
+  "setup": "busiest-assignee",
+  "answer_needles": ["Ada"],
+  "prefer_arguments": ["count(", "group("]
+}

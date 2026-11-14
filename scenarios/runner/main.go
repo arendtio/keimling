@@ -65,7 +65,8 @@ func main() {
 		}
 	}
 	commit := binaryCommit(bin)
-	fmt.Println("version", commit)
+	colorOn = termColor()
+	printVersion(commit)
 	var words []string
 	for _, id := range ids {
 		word, err := runScenario(root, bin, id, commit, *runs)
@@ -81,7 +82,7 @@ func main() {
 		return
 	}
 	verdict := sumVerdict(words)
-	fmt.Println("sum:", verdict)
+	printSum(verdict)
 	if sumFails(verdict) {
 		os.Exit(1)
 	}
@@ -92,15 +93,13 @@ func runScenario(repo, bin, id, commit string, runs int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	printScenario(id)
 	for n := 1; n <= runs; n++ {
 		card, err := oneRun(repo, bin, id, spec, commit, n)
 		if err != nil {
 			return "", err
 		}
-		fmt.Printf("scenario %s run %d/%d passed=%v steps=%d tools=%s tokens=%d duration_ms=%d\n", id, n, runs, card.Passed, card.Steps, strings.Join(card.Tools, ","), card.InputTokens+card.OutputTokens, card.DurationMS)
-		if len(card.Failures) > 0 {
-			fmt.Println(strings.Join(card.Failures, "; "))
-		}
+		printRun(n, runs, card)
 	}
 	cards, err := loadCards(filepath.Join(repo, "scenarios", "cards"), id)
 	if err != nil {
@@ -126,10 +125,10 @@ func runScenario(repo, bin, id, commit string, runs int) (string, error) {
 		}
 	}
 	if base.N == 0 || baseName == "" {
-		fmt.Printf("%s: no earlier baseline\n", id)
+		printBaseline()
 		return "", nil
 	}
-	fmt.Println(compareLine(id, baseName, cur, base))
+	printCompare(baseName, cur, base)
 	return judge(cur, base), nil
 }
 

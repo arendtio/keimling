@@ -1,0 +1,7 @@
+{
+  "task": "Welche Rolle hat Nila? Die Namen stehen in der Personenliste, die Rollen in der anderen Liste.",
+  "setup": "join-lists",
+  "answer_any": ["archivist", "Archivarin"],
+  "prefer_arguments": ["lookup("],
+  "forbid_tools": ["delegate"]
+}

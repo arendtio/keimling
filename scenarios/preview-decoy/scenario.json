@@ -1,0 +1,7 @@
+{
+  "task": "In briefing.txt steht irgendwo ein Dock-Code. Welcher ist es?",
+  "setup": "preview-decoy",
+  "needles": ["DOCK-19"],
+  "answer_excludes": ["COVER-00"],
+  "prefer_tools": ["data_processing", "delegate"]
+}

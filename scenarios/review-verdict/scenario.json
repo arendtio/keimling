@@ -1,0 +1,7 @@
+{
+  "task": "In review.txt steht eine Empfehlung. Wenn vom Kauf abgeraten wird, antworte nur HARBOR-NEIN. Wenn zum Kauf geraten wird, antworte nur HARBOR-JA. Diese Codes stehen nicht in der Datei.",
+  "setup": "review-verdict",
+  "answer_needles": ["HARBOR-NEIN"],
+  "answer_excludes": ["HARBOR-JA"],
+  "prefer_tools": ["delegate"]
+}

@@ -1,0 +1,8 @@
+{
+  "task": "Im Telefonbuch in diesem Arbeitsverzeichnis, welche Nummer gehört zu Ada?",
+  "setup": "unnamed-book",
+  "needles": ["555-0142"],
+  "answer_excludes": ["FILLER-MARKER"],
+  "prefer_every": ["exec", "data_processing"],
+  "forbid_tools": ["delegate"]
+}

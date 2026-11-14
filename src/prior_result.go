@@ -30,10 +30,29 @@ func loadPriorResult(a *Agent, path string) error {
 	if err != nil {
 		return err
 	}
+	if len(bytes.TrimSpace(raw)) > 0 && bytes.TrimSpace(raw)[0] == '[' {
+		var docs []priorResultFile
+		if err := json.Unmarshal(raw, &docs); err != nil {
+			return err
+		}
+		if len(docs) == 0 {
+			return fmt.Errorf("prior result needs a tool name and a value")
+		}
+		for i, doc := range docs {
+			if err := addPriorResult(a, doc, fmt.Sprintf("prior-result-%d", i+1)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	var doc priorResultFile
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return err
 	}
+	return addPriorResult(a, doc, "prior-result")
+}
+
+func addPriorResult(a *Agent, doc priorResultFile, callID string) error {
 	if strings.TrimSpace(doc.Tool) == "" || len(doc.Value) == 0 {
 		return fmt.Errorf("prior result needs a tool name and a value")
 	}
@@ -56,10 +75,10 @@ func loadPriorResult(a *Agent, path string) error {
 	if err := a.add(map[string]any{"role": "user", "content": user}); err != nil {
 		return err
 	}
-	if err := a.add(map[string]any{"type": "function_call", "name": doc.Tool, "call_id": "prior-result", "arguments": args}); err != nil {
+	if err := a.add(map[string]any{"type": "function_call", "name": doc.Tool, "call_id": callID, "arguments": args}); err != nil {
 		return err
 	}
-	return a.add(map[string]any{"type": "function_call_output", "call_id": "prior-result", "output": shown, "ok": true})
+	return a.add(map[string]any{"type": "function_call_output", "call_id": callID, "output": shown, "ok": true})
 }
 
 func (s *dataStore) exportValues() []any {

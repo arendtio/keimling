@@ -51,3 +51,33 @@ func TestPriorResultKeepsTheBodyOutOfTheJournal(t *testing.T) {
 		t.Fatalf("%v %s", err, dumped)
 	}
 }
+
+func TestPriorResultStoresTwoLists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	j, err := OpenJournal(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{Journal: j, History: j.History, Cfg: Config{SessionPath: path}}
+	doc := `[{"user":"People.","tool":"mcp__people__list","arguments":{},"value":[{"name":"Nia"}]},{"user":"Roles.","tool":"mcp__roles__list","arguments":{},"value":[{"role":"keeper"}]}]`
+	file := filepath.Join(dir, "result.json")
+	if err := os.WriteFile(file, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadPriorResult(a, file); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "prior-result-1") || !strings.Contains(string(raw), "prior-result-2") || !strings.Contains(string(raw), "r1") || !strings.Contains(string(raw), "r2") {
+		t.Fatalf("journal %s", raw)
+	}
+	vals := a.toolResults().exportValues()
+	if len(vals) != 2 {
+		t.Fatalf("%d values", len(vals))
+	}
+}

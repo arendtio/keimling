@@ -29,3 +29,9 @@
 **As** a user, **I want** one command to build my current source, run every scenario, and tell me what got better or worse, **so that** I can look before a commit without assembling the runs myself.
 
 **Acceptance:** traces REQ-SC-8, REQ-SC-9, and REQ-SC-10. The command builds from the current source and runs all scenarios. A dirty build is named with the commit and a timestamp. The summary compares with the checkpoint when one is set, otherwise with the latest clean commit of the same model. Each run's journal remains on disk after the temporary workspace is gone. One missed repetition does not fail the command. The command fails when the set is worse.
+
+## US-74 — Catch the other ways a tool is chosen
+
+**As** a user, **I want** repeated tasks for a missing file name, a verdict, a count, a join, a decoy in a preview, and a command sitting in the data, **so that** a change that avoids one wrong tool does not create another.
+
+**Acceptance:** traces REQ-SC-11, REQ-SC-12, REQ-SC-13, REQ-SC-14, REQ-SC-15, and REQ-SC-16. A phone book question that omits the file name prefers a search plus a data program and rejects a delegate. A verdict code that is not in the file prefers a delegate, and the opening of the file points the other way. A count prefers a data program that counts or groups. A role that exists only across two lists prefers a lookup and rejects a delegate. A plain-text preview holds a decoy, and the answer is the later code. A row that holds a number and a command returns the number, leaves the file unchanged, and does not run the command.
