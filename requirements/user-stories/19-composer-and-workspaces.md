@@ -17,3 +17,9 @@
 **As** a user, **I want** the working state gone from above the conversation, **so that** the thread starts at the conversation and I read context in the side area.
 
 **Acceptance:** traces REQ-CW-4. No Working state disclosure sits above the thread. Context still opens in the side area.
+
+## US-57 — Read a chat from another workspace
+
+**As** a user, **I want** to name a chat in another workspace, **so that** this workspace can review that chat without copying it and without changing it.
+
+**Acceptance:** traces REQ-WS-4 and REQ-WS-5. A read of `chat:<workspace>/<thread>` returns text that exists only in that other journal. Editing that journal through the reference leaves the file unchanged. Now shows the open chat's workspace and thread at the bottom and copies `chat:` plus the two ids. An agent chat does not show that footer.

@@ -17,7 +17,7 @@ previous tool outputs. Use this instead of Python/shell
 for data processing.
 
 INPUT
-input_ref: a tool result ref, a file path, or a history section id from search_history (task-1 or episode-1). Empty string when every value is named in inputs.
+input_ref: a tool result ref, a file path, a history section id from search_history (task-1 or episode-1), or a chat in any workspace as chat:workspace/thread. Empty string when every value is named in inputs. A chat reference is read-only.
 The harness reads a path or a section before the program runs. The program cannot open a file or the journal.
 inputs: [{name, ref}, ...] further results. Each name becomes a variable. Use [] when only input_ref is needed.
 code: DataLang program
@@ -187,7 +187,7 @@ func dataLangTools() []map[string]any {
 	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 	return []map[string]any{
 		toolDef("data_processing", dataRunDescription, map[string]any{
-			"input_ref": str("A tool result ref, a file path, or a history section id from search_history. Empty string when every value is named in inputs."),
+			"input_ref": str("A tool result ref, a file path, a history section id from search_history, or chat:workspace/thread. Empty string when every value is named in inputs. A chat reference is read-only."),
 			"inputs": map[string]any{
 				"type":        "array",
 				"description": "Named extra references. Use an empty array when only input_ref is needed. Each name becomes a variable.",
@@ -195,7 +195,7 @@ func dataLangTools() []map[string]any {
 					"type": "object",
 					"properties": map[string]any{
 						"name": str("Variable name"),
-						"ref":  str("A tool result ref, a file path, or a history section id"),
+						"ref":  str("A tool result ref, a file path, a history section id, or chat:workspace/thread"),
 					},
 					"required":             []string{"name", "ref"},
 					"additionalProperties": false,
@@ -368,6 +368,13 @@ func (a *Agent) resolveDataAddress(ref string) (any, error) {
 	}
 	if historySectionRef(ref) {
 		return a.historySectionValue(ref)
+	}
+	if chatRef(ref) {
+		path, err := resolveChatJournal(ref)
+		if err != nil {
+			return nil, dataErr("INVALID_REF", err.Error())
+		}
+		return fileRefValue(path)
 	}
 	return fileRefValue(ref)
 }

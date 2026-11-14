@@ -859,6 +859,7 @@
           </div>
         </header>
         <div id="side-now" class="side-panel" data-side="now">
+          <div class="side-now-scroll">
           <section id="side-perf" class="side-block" aria-label="Performance">
             <h2>Performance <span id="side-perf-mark" class="side-perf-mark" aria-hidden="true">✓</span></h2>
             <div id="side-dash" class="side-dash" data-state="idle">
@@ -886,6 +887,11 @@
             <p id="side-plan-empty" class="hint">No plan for this run.</p>
             <ol id="side-plan" class="side-plan"></ol>
           </section>
+          </div>
+          <footer id="side-chat-ref" class="side-chat-ref" hidden>
+            <p id="side-chat-ref-label"></p>
+            <button type="button" id="side-chat-ref-copy" class="ghost">Copy</button>
+          </footer>
         </div>
         <div id="side-agents" class="side-panel" data-side="agents" hidden>
           <section class="side-block">

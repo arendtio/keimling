@@ -2507,6 +2507,32 @@ button.wide { width: 100%; max-width: 100%; }
   flex-direction: column;
 }
 .side-panel[hidden] { display: none !important; }
+#side-now { overflow: hidden; }
+.side-now-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.side-chat-ref {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.side-chat-ref[hidden] { display: none !important; }
+.side-chat-ref p {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .side-block { padding: 0.2rem 0.55rem 0.85rem; }
 .side-block h2 {
   margin: 0.7rem 0 0.4rem;

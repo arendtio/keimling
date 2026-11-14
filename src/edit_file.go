@@ -12,6 +12,9 @@ func editFile(path, oldString, newString string, replaceAll bool) (string, error
 	if privatePath(path) {
 		return "", fmt.Errorf("access denied: protected path")
 	}
+	if chatRef(path) || chatRecordPath(path) {
+		return "", fmt.Errorf("a chat journal is read-only")
+	}
 	if !insideWorkingDir(path) {
 		return "", fmt.Errorf("write outside working directory")
 	}
@@ -60,6 +63,9 @@ func editFile(path, oldString, newString string, replaceAll bool) (string, error
 func writeFile(path, content string) (string, error) {
 	if privatePath(path) {
 		return "", fmt.Errorf("access denied: protected path")
+	}
+	if chatRef(path) || chatRecordPath(path) {
+		return "", fmt.Errorf("a chat journal is read-only")
 	}
 	if !insideWorkingDir(path) {
 		return "", fmt.Errorf("write outside working directory")

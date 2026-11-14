@@ -234,12 +234,21 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if privatePath(x.Path) {
 			return "access denied: protected path"
 		}
+		label := x.Path
+		if chatRef(x.Path) {
+			resolved, err := resolveChatJournal(x.Path)
+			if err != nil {
+				return err.Error()
+			}
+			label = strings.TrimSpace(x.Path)
+			x.Path = resolved
+		}
 		st, err := os.Stat(x.Path)
 		if err != nil {
 			return err.Error()
 		}
 		if x.StartLine == 0 && x.EndLine == 0 && st.Size() > int64(dataModelLimit) {
-			return readFilePreview(x.Path, st)
+			return showChatPath(readFilePreview(x.Path, st), x.Path, label)
 		}
 		if st.Size() > 8<<20 {
 			return "file too large (>8 MiB); use a line range"
@@ -263,7 +272,7 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if len(raw) > 64<<10 {
 			return "selected range exceeds 64 KiB; select fewer lines"
 		}
-		return fmt.Sprintf("%s:%d-%d\nhash: %s\n%s", x.Path, x.StartLine, x.EndLine, hashBytes(raw), string(raw))
+		return fmt.Sprintf("%s:%d-%d\nhash: %s\n%s", label, x.StartLine, x.EndLine, hashBytes(raw), string(raw))
 	case "edit_file":
 		var x struct {
 			Path       string `json:"path"`

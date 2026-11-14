@@ -2887,6 +2887,7 @@
             }
           }
           if (workspaceLabel) workspaceLabel.textContent = (cur && cur.name) || currentWorkspaceID || "Workspace";
+          renderSideChatRef();
           if (workspaceToggle) workspaceToggle.title = (cur && cur.name) || "";
           renderWorkspaceList(workspaceSearch && workspaceSearch.value);
           if (workspaceDialog && workspaceDialog.open) renderWorkspaceManage();
@@ -3059,7 +3060,65 @@
     return out;
   }
 
+  function chatRefAddress() {
+    if (currentAgentInstanceID || !currentWorkspaceID || !currentThreadID || currentThreadID === "main") return "";
+    return "chat:" + currentWorkspaceID + "/" + currentThreadID;
+  }
+
+  function renderSideChatRef() {
+    var foot = document.getElementById("side-chat-ref");
+    var label = document.getElementById("side-chat-ref-label");
+    if (!foot || !label) return;
+    var addr = chatRefAddress();
+    foot.hidden = !addr;
+    if (!addr) return;
+    var wsName = currentWorkspaceID;
+    for (var i = 0; i < workspacesCache.length; i++) {
+      if (workspacesCache[i].id === currentWorkspaceID) {
+        wsName = workspacesCache[i].name || wsName;
+        break;
+      }
+    }
+    var threadName = "This chat";
+    for (var t = 0; t < threadsCache.length; t++) {
+      if (threadsCache[t].id === currentThreadID) {
+        threadName = threadsCache[t].title || threadsCache[t].name || threadName;
+        break;
+      }
+    }
+    label.textContent = wsName + " / " + threadName;
+    label.title = addr;
+  }
+
+  function copyChatRef() {
+    var addr = chatRefAddress();
+    var btn = document.getElementById("side-chat-ref-copy");
+    if (!addr || !btn) return;
+    var mark = function () {
+      btn.textContent = "Copied";
+      window.setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+    };
+    var fallback = function () {
+      var ta = document.createElement("textarea");
+      ta.value = addr;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(addr).then(mark).catch(function () { fallback(); mark(); });
+      return;
+    }
+    fallback();
+    mark();
+  }
+
   function renderThreadListFromCache() {
+    renderSideChatRef();
     if (!threadListEl) return;
     var query = threadSearchEl ? String(threadSearchEl.value || "").trim() : "";
     var threads = visibleThreads(threadsCache, currentThreadID);
@@ -5414,6 +5473,7 @@
     // Prefer host attach state; session still reveals agent worker identity.
     if (j.agent_instance_id) currentAgentInstanceID = j.agent_instance_id;
     else if (!j.agent_instance_id) currentAgentInstanceID = "";
+    renderSideChatRef();
     if (workspaceLabel && j.workspace_id) {
       // refined when loadWorkspaces returns
       if (!workspaceLabel.textContent || workspaceLabel.textContent === "Workspace") {
@@ -6972,6 +7032,8 @@
   }
   var sideMcpManage = document.getElementById("side-mcp-manage");
   if (sideMcpManage) sideMcpManage.addEventListener("click", openMcpSettings);
+  var sideChatRefCopy = document.getElementById("side-chat-ref-copy");
+  if (sideChatRefCopy) sideChatRefCopy.addEventListener("click", copyChatRef);
 
   function artifactSrc(art) {
     if (!art) return "";

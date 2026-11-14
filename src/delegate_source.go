@@ -104,6 +104,13 @@ func (a *Agent) runDelegateSource(ctx context.Context, args DelegateArgs) (strin
 
 func (a *Agent) delegateMaterial(source string) (string, int64, error) {
 	ref := strings.TrimSpace(source)
+	if chatRef(ref) {
+		path, err := resolveChatJournal(ref)
+		if err != nil {
+			return "", 0, err
+		}
+		return a.delegateFile(path)
+	}
 	if ref != "" && !resultRef(ref) && !historySectionRef(ref) {
 		return a.delegateFile(ref)
 	}

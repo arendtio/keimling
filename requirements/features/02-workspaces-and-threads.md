@@ -105,3 +105,19 @@ Starting a thread in the open workspace does not ask for confirmation. The previ
 Origin: user, 2026-11-07. "können wir diese confirmation wenn man einen neuen thread öffnet auch ausbauen? Ich meine der schrit ist ja einfach rückgängig zu machen, da brauch man kein confirm."
 
 Fit: the New control creates the thread immediately. The thread that was open is still in the list and can be opened again.
+
+### REQ-WS-4 Name a chat in another workspace
+
+A chat in this workspace can name a chat in any workspace and read that chat's journal. The name is the workspace and the thread. The named journal stays read-only. The files of that workspace are not part of the reference.
+
+Origin: user, 2026-11-14. "dann hätte ich gern eine Möglichkeit, um Chats über Workspaces hinweg zu referenzieren." The same conversation settled that the analysis happens in one workspace and the other chat is named, not copied into the message.
+
+Fit: from one workspace, a read of `chat:<workspace>/<thread>` returns text that is only in the other chat's journal. An edit or overwrite of that journal does not change it. An unknown or ambiguous name says which workspaces or threads match.
+
+### REQ-WS-5 Copy the open chat's address
+
+The Now tab shows the open chat's workspace and thread in a footer that stays at the bottom of that tab. Copy places `chat:` plus the workspace id and the thread id on the clipboard. The ids stay valid after a rename. The footer does not show an agent chat, which has no workspace thread address.
+
+Origin: user, 2026-11-14. "ob es irgendwie 'ne Möglichkeit gibt, wie ich die ID eines Chats kopieren kann" and, agreeing to the footer, "ok, bitte bauen."
+
+Fit: with a workspace thread open, Now shows that workspace's name and that thread's title at the bottom of the tab, and it stays there while the plan is long enough to scroll. Copy puts `chat:<workspace id>/<thread id>` on the clipboard and the button says Copied. An agent chat does not show the footer.

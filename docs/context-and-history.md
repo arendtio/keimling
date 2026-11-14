@@ -10,6 +10,11 @@
   reconstructible sidecar files.
 - Historical content stays reachable through `search_history` (section names,
   titles, summaries) and `read_history` (targeted retrieval of original events).
+- Another workspace's chat is named `chat:<workspace>/<thread>`, by the
+  workspace name or id and the thread title or id. `read_file`,
+  `data_processing`, and `delegate` read that journal. They do not write it.
+  The Now tab shows the open chat's workspace and thread and copies that
+  address with the two ids.
 
 ## Switching models and providers
 
