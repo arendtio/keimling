@@ -221,10 +221,19 @@ func main() {
 	connectURL := flag.String("connect", "", "Connect to remote Keimling (URL, or name/id from connections.json)")
 	accessSecret := flag.String("access-secret", "", "Shared secret for agent HTTP API/UI")
 	publicURL := flag.String("public-url", "", "Public base URL for share_file links (e.g. https://keimling.example.com)")
+	oneshot := flag.Bool("oneshot", false, "Read one message from stdin, run it, and exit")
+	priorResult := flag.String("prior-result", "", "JSON file of one tool result to store before --oneshot")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(versionLine())
 		return
+	}
+	if *oneshot {
+		if *uiMode || *serverMode {
+			fmt.Fprintln(os.Stderr, "--oneshot runs in the terminal")
+			os.Exit(2)
+		}
+		*cliMode = true
 	}
 	if *apiMode != "responses" {
 		fmt.Fprintln(os.Stderr, "only --api-mode responses is supported")
@@ -243,7 +252,7 @@ func main() {
 	if !changed["listen"] && fc.Listen != "" {
 		*listenAddr = fc.Listen
 	}
-	if !changed["connect"] && fc.Connect != "" {
+	if !*oneshot && !changed["connect"] && fc.Connect != "" {
 		*connectURL = fc.Connect
 	}
 	if !changed["access-secret"] && fc.AccessSecret != "" {
@@ -265,7 +274,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, perr)
 		os.Exit(2)
 	}
-	if presentation != presentationServer {
+	if !*oneshot && presentation != presentationServer {
 		if u, sec, ok := resolveConnectReference(*configPath, *connectURL); ok {
 			*connectURL = u
 			if strings.TrimSpace(*accessSecret) == "" && sec != "" {
@@ -287,7 +296,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if strings.TrimSpace(*connectURL) != "" {
+	if !*oneshot && strings.TrimSpace(*connectURL) != "" {
 		if presentation == presentationServer {
 			fmt.Fprintln(os.Stderr, "--connect cannot be combined with --server")
 			os.Exit(2)
@@ -429,10 +438,12 @@ func main() {
 		*web = false
 	}
 	wsIDPref := strings.TrimSpace(*workspaceFlag)
-	if wsIDPref == "" {
+	if *oneshot {
+		wsIDPref = ""
+	} else if wsIDPref == "" {
 		wsIDPref = strings.TrimSpace(os.Getenv("KEIMLING_WORKSPACE"))
 	}
-	if wsIDPref == "" {
+	if !*oneshot && wsIDPref == "" {
 		if gp, e := readGuiPrefs(*configPath); e == nil {
 			wsIDPref = strings.TrimSpace(gp.WorkspaceID)
 		}
@@ -543,7 +554,7 @@ func main() {
 		}
 		ws, threadID, sessPath = m, tid, sp
 	}
-	if agentInstanceID == "" {
+	if agentInstanceID == "" && !*oneshot {
 		_ = mergeGuiPrefsWorkspace(*configPath, ws.ID)
 	}
 	if *session == "" {
@@ -576,7 +587,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "credential vault:", err)
 		os.Exit(1)
 	}
-	if a.Credentials.Exists() && !a.Credentials.Unlocked() {
+	if !*oneshot && a.Credentials.Exists() && !a.Credentials.Unlocked() {
 		if err := promptUnlockCredentials(a.Credentials); err != nil {
 			fmt.Fprintln(os.Stderr, "credential vault:", err)
 			// Non-fatal for headless without password: tools needing secrets will fail until unlock via API.
@@ -610,6 +621,14 @@ func main() {
 	}
 	if presentation == presentationServer {
 		if err := runAppServer(*listenAddr, *accessSecret, a); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *oneshot {
+		fmt.Printf("keimling | %s | mode=%s | web=%v\nWorkspace: %s (%s)\nThread: %s\nSession: %s\n", c.Model, c.Mode, c.Web, c.WorkspaceID, c.WorkspaceRoot, c.ThreadID, c.SessionPath)
+		if err := runOneshot(a, *priorResult); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

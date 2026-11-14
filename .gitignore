@@ -1,3 +1,6 @@
 /keimling
 dist/
 __pycache__/
+scenarios/cards/
+scenarios/runs/
+scenarios/checkpoint.json

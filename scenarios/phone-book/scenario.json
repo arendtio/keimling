@@ -1,0 +1,7 @@
+{
+  "task": "In phonebook.csv, welche Nummer gehört zu Ada?",
+  "setup": "phone-book",
+  "needles": ["555-0142"],
+  "answer_excludes": ["FILLER-MARKER"],
+  "prefer_tools": ["data_processing", "delegate"]
+}

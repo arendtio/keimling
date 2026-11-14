@@ -1,0 +1,13 @@
+{
+  "task": "Aus der Issue-Liste oben brauche ich zu jedem Eintrag den Key, den Titel, die zuständige Person und die Keys, von denen der Eintrag abhängt.",
+  "setup": "transform-list",
+  "prefer_tools": ["data_processing"],
+  "forbid_tools": ["delegate"],
+  "projection": {
+    "count": 100,
+    "prefix": "KEY-",
+    "width": 3,
+    "exclude": "BODY-SECRET",
+    "needles": ["T-001", "T-050", "T-100", "ada", "ben", "cy", "KEY-049"]
+  }
+}

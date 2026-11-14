@@ -1,0 +1,7 @@
+{
+  "task": "In notes.dat steht irgendwo ein Dock-Code. Welcher ist es?",
+  "setup": "unknown-shape",
+  "needles": ["HARBOR-19"],
+  "answer_excludes": ["HARBOR-00"],
+  "prefer_tools": ["data_processing", "delegate"]
+}

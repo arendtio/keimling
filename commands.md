@@ -91,6 +91,23 @@ cd src && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
 
 The image `CMD` is `--server --listen 0.0.0.0:7420`. State and CWD are `/data` (`HOME` + `WORKDIR`, uid `65532`). Mount the volume on `/data`. Secrets: `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`, `KEIMLING_SECRET` / `KEIMLING_SECRET_FILE` (Compose secrets). Runtime toolchain for `exec`: bash, curl, git, openssh-client, build-essential (make/gcc), Go (`golang-go`), Node (`nodejs`/`npm`), Python 3 + pip/venv, wget/jq/unzip — all from Debian apt except the Keimling binary. Go/npm/pip caches use `/tmp` (not persisted on the data volume). No WebKit/GUI.
 
+## Scenarios
+
+Scenario tasks and fixtures live under `scenarios/` and are not compiled into `./keimling`. `make scenario` builds the current source (`build-nogui`) and runs every scenario on that binary. A dirty tree is stamped `commit+YYYYMMDDTHHMMSS`. A clean tree is stamped with the commit only. The temporary workspace is removed. Cards append to `scenarios/cards/<id>.jsonl`. Each journal is kept at `scenarios/runs/<version>/<scenario>/<n>/`. This is outside `make test`.
+
+Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses the latest run of the same model whose stamp has no plus sign. A wrong outcome outweighs a shorter path. The last line is `better`, `worse`, `mixed`, or `same`. One missed repetition is printed and does not fail the command. The command exits with an error when that sum is `worse`, or when a scenario could not be run.
+
+| Command | Purpose |
+| --- | --- |
+| `make scenario` | Build, run all scenarios (3 times each), print the comparison |
+| `make scenario SCENARIO=phone-book` | The same for one scenario |
+| `make scenario RUNS=1` | One run of each scenario |
+| `make scenario-list` | Print the scenario ids |
+| `make scenario-checkpoint` | Freeze the latest run of each scenario as the comparison baseline |
+| `make scenario-check` | Score the runner without calling a model |
+
+`--oneshot` reads one stdin message and exits. `--prior-result FILE` stores one tool result before that message. Neither flag contains a scenario.
+
 ## Lab
 
 | Command | Purpose |

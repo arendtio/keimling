@@ -4,6 +4,11 @@ GIT_VERSION := $(shell git rev-parse --short HEAD 2>/dev/null)
 ifeq ($(GIT_VERSION),)
   GIT_VERSION := dev
 endif
+# Generated scenario output must not make a clean commit look modified.
+GIT_DIRTY := $(shell git status --porcelain 2>/dev/null | grep -v -e 'scenarios/cards/' -e 'scenarios/runs/' -e 'scenarios/checkpoint.json')
+ifneq ($(strip $(GIT_DIRTY)),)
+  GIT_VERSION := $(GIT_VERSION)+$(shell date -u +%Y%m%dT%H%M%S)
+endif
 LDFLAGS := -s -w -X main.buildVersion=$(GIT_VERSION)
 ARGS   ?=
 
@@ -39,7 +44,7 @@ endif
 TAGS_FLAG := $(if $(BUILD_TAGS),-tags $(BUILD_TAGS),)
 
 .DEFAULT_GOAL := build
-.PHONY: build build-nogui test vet fmt check run clean detect
+.PHONY: build build-nogui test vet fmt check run clean detect scenario scenario-list scenario-checkpoint scenario-check
 
 detect:
 	@echo "UNAME=$(UNAME_S) CGO_BUILD=$(CGO_BUILD) TAGS=$(BUILD_TAGS)"
@@ -68,3 +73,18 @@ run: build
 clean:
 	rm -f $(BINARY)
 	cd $(PKG) && go clean -testcache >/dev/null 2>&1 || true
+
+# Scenarios live outside the shipping binary. scenario builds the current source first.
+SCENARIO ?=
+RUNS ?= 3
+scenario: build-nogui
+	cd scenarios/runner && go run . -repo ../.. -binary ../../keimling -scenario "$(SCENARIO)" -runs "$(RUNS)"
+
+scenario-list:
+	cd scenarios/runner && go run . -repo ../.. -list
+
+scenario-checkpoint:
+	cd scenarios/runner && go run . -repo ../.. -checkpoint
+
+scenario-check:
+	cd scenarios/runner && go test .

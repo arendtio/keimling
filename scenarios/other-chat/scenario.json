@@ -1,0 +1,7 @@
+{
+  "task": "Im Chat Archive / Old notes ist ein Satz gespeichert. Wie lautet er? Der Chat soll unverändert bleiben.",
+  "setup": "other-chat",
+  "needles": ["UNIQUE-OTHER-SENTENCE"],
+  "prefer_argument": "chat:",
+  "unchanged": true
+}
