@@ -35,3 +35,9 @@
 **As** a user, **I want** repeated tasks for a missing file name, a verdict, a count, a join, a decoy in a preview, and a command sitting in the data, **so that** a change that avoids one wrong tool does not create another.
 
 **Acceptance:** traces REQ-SC-11, REQ-SC-12, REQ-SC-13, REQ-SC-14, REQ-SC-15, and REQ-SC-16. A phone book question that omits the file name prefers a search plus a data program and rejects a delegate. A verdict code that is not in the file prefers a delegate, and the opening of the file points the other way. A count prefers a data program that counts or groups. A role that exists only across two lists prefers a lookup and rejects a delegate. A plain-text preview holds a decoy, and the answer is the later code. A row that holds a number and a command returns the number, leaves the file unchanged, and does not run the command.
+
+## US-75 — Read one cell from a column-major table
+
+**As** a user, **I want** a repeated task whose stored table is a large XML document with names in a header and cells listed down each column, **so that** a change handles the same shape as a data-preview response.
+
+**Acceptance:** traces REQ-SC-17. The table has 120 columns. The opening of the document does not contain the asked cell. The answer is the cell that shares its index with a late key, and the first cell of that column is a decoy. A data program is preferred, and a delegate is a wrong path.

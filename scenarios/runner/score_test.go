@@ -11,7 +11,7 @@ import (
 
 func TestTasksStayOutOfTheShippingSources(t *testing.T) {
 	src := filepath.Join("..", "..", "src")
-	needles := []string{phoneNumber, dockCode, otherLine, "welche Nummer gehört zu Ada", plainDock, coverCode, refuseCode, copiedCmd, roleAnswer, exportName}
+	needles := []string{phoneNumber, dockCode, otherLine, "welche Nummer gehört zu Ada", plainDock, coverCode, refuseCode, copiedCmd, roleAnswer, exportName, skuWant, binAnswer}
 	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
@@ -338,6 +338,28 @@ func TestNewFixturesHideTheAnswer(t *testing.T) {
 	if strings.Contains(spec.Task, exportName) || strings.Contains(spec.Task, ".csv") {
 		t.Fatal(spec.Task)
 	}
+	xmlText := columnTableXML()
+	if len(xmlText) <= 4096 || strings.Contains(xmlText[:1024], skuWant) || strings.Contains(xmlText[:1024], binAnswer) {
+		t.Fatalf("column table %d", len(xmlText))
+	}
+	skuAt := strings.Index(xmlText, skuWant)
+	binAt := strings.Index(xmlText, binAnswer)
+	binHead := strings.Index(xmlText, `name="bin"`)
+	if skuAt < 0 || skuAt > binHead || binHead > binAt || strings.Index(xmlText, binDecoy) < binHead {
+		t.Fatalf("sku %d bin head %d bin %d", skuAt, binHead, binAt)
+	}
+	if strings.Count(xmlText, binAnswer) != 1 || strings.Count(xmlText, skuWant) != 1 {
+		t.Fatal("answer appears more than once")
+	}
+	if strings.Count(xmlText, "<columns>") != columnCount {
+		t.Fatalf("columns %d", strings.Count(xmlText, "<columns>"))
+	}
+	if strings.Index(xmlText, "<columns>") != strings.Index(xmlText, `<columns><metadata name="sku"`) {
+		t.Fatal("sku is not the first column")
+	}
+	if strings.LastIndex(xmlText, "<columns>") != strings.Index(xmlText, `<columns><metadata name="bin"`) {
+		t.Fatal("bin is not the last column")
+	}
 }
 
 func TestAnswerNeedleIgnoresTheStoredList(t *testing.T) {
@@ -350,6 +372,11 @@ func TestAnswerNeedleIgnoresTheStoredList(t *testing.T) {
 	joined := scoreRun("join-lists", scenarioSpec{AnswerAny: []string{"archivist", "Archivarin"}, PreferArguments: []string{"lookup("}}, history(user("q"), call("data_processing", `{"code":"return lookup(roles, \"id\", person.id)"}`), assistant("Nila ist Archivarin")), nil, true, "", "", 0, 0, 0)
 	if !joined.Passed || !joined.Preferred {
 		t.Fatalf("%+v", joined)
+	}
+	table := scenarioSpec{AnswerNeedles: []string{binAnswer}, AnswerExcludes: []string{binDecoy}, PreferTools: []string{"data_processing"}, ForbidTools: []string{"delegate"}}
+	held := scoreRun("column-table", table, history(user("q"), call("data_processing", `{"code":"return xml(input)"}`), assistant(binAnswer)), []byte(columnTableXML()), true, "", "", 0, 0, 0)
+	if !held.Passed || !held.Preferred {
+		t.Fatalf("%+v", held)
 	}
 	wrong := scoreRun("busiest-assignee", spec, history(user("q"), assistant("Ben")), stored, true, "", "", 0, 0, 0)
 	if wrong.Passed || wrong.Preferred {

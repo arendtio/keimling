@@ -159,3 +159,13 @@
 - **Fit criterion:** The command text sits on the same row as the number. A run whose answer contains the number, whose tool arguments do not contain the command, and whose file is unchanged, has a right outcome.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SC-17 A column-major table yields one aligned cell
+
+- **Bin:** explicit requirement
+- **Statement:** One scenario shall store a large XML table of 120 columns whose names sit in a header and whose cells are listed down each column. The asked cell shares its row index with a named key that appears late. An earlier cell of the same column is a decoy. The preferred path is a data program. A delegate of the document is a wrong path.
+- **Origin:** User, 2026-11-15 (quote: "Ich habe einen MCP Server der über ABAP ADT mit einem SAP System kommuniziert. Wenn Dieser aber GetTableContent ausführt, bekommen er eine massiv großes XML zurück. […] Es muss kein SAP spezifisches Scenario sein, aber sollte auf die gleichen Herausforderungen eingehen."). Same day, after the first fixture (quote: "hat das Scenario auch die für SAP typischen 100+ spalten?" and "ja, mach gerne 120 spalten"). The ADT data-preview body is `tableData` with one `columns` element per field: `metadata` holds the name, and `dataSet/data` lists that field's cells from top to bottom. A row is the same index across those lists.
+- **Rationale:** A wide table is large, the preview and the outline show tags rather than the aligned cell, and copying the whole document to a second model does not find the row.
+- **Fit criterion:** The fixture has 120 columns and is larger than the inline limit. The wanted cell and its key are absent from the opening preview. The wanted cell is the last cell of its column and the decoy is the first. A run whose answer contains the wanted cell and not the decoy, and which uses a data program without a delegate, has a right outcome.
+- **Priority:** shall
+- **Status:** confirmed

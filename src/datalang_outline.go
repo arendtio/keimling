@@ -209,9 +209,12 @@ func writeObjectFields(o *outl, m map[string]any, depth int) {
 }
 
 func writeXML(o *outl, m map[string]any, depth int) {
+	if depth == 0 {
+		o.line(0, "xml node is {tag, attrs, children}; text node is {text}")
+	}
 	tag, _ := m["tag"].(string)
 	attrs := attrNames(m["attrs"])
-	line := tag
+	line := "tag=" + tag
 	if attrs != "" {
 		line += " attrs=" + attrs
 	}
@@ -260,7 +263,7 @@ func writeXMLChildren(o *outl, m map[string]any, depth int) {
 			}
 			continue
 		}
-		line := g.tag
+		line := "tag=" + g.tag
 		if g.n > 1 {
 			line += fmt.Sprintf(" n=%d", g.n)
 		}

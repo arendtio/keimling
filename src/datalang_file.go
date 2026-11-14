@@ -867,9 +867,10 @@ func outlineXML(f *dataFile) (string, error) {
 	if root == "" {
 		root = "xml"
 	}
-	o.line(0, root)
+	o.line(0, "xml node is {tag, attrs, children}; text node is {text}")
+	o.line(0, "tag="+root)
 	for _, name := range order {
-		line := name
+		line := "tag=" + name
 		if count[name] > 1 {
 			line += fmt.Sprintf(" n=%d", count[name])
 		}

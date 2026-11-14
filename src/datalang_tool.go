@@ -41,8 +41,10 @@ OPERATIONS
 filter(predicate), map(expression), sort(key), group(key),
 take(n), count(), first(), unique(), contains(value, item),
 lookup(rows, field, key), split(text, sep), join(array, sep),
-trim(text), json(text), csv(text), xml(text), outline(value).
-outline returns the shape of JSON, XML, or CSV: names, types, and list lengths, within 4 KiB, without the values.
+trim(text), json(text), csv(text), xml(text), outline(value), indexOf(array, value).
+xml(text) returns {tag, attrs, children}. A text node is {text}. A child is children | filter(.tag == "name"). An attribute is attrs.name.
+indexOf returns the first matching index, or null. Use that index on another array.
+outline returns the shape of JSON, XML, or CSV: names, types, and list lengths, within 4 KiB, without the values. An XML shape names tag, attrs, and children.
 A file of any size can be an input. A file too large to pass as text is scanned by csv(input), json(input), xml(input), and outline(input). json of such a file reads an array or one value per line. filter, first, take, count, and lookup can stop at the row they need. Return that row, not the file.
 lookup returns the first object whose field equals key, or null.
 

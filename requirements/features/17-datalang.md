@@ -86,7 +86,7 @@
 - **Statement:** A transformation shall be able to show the shape of JSON, XML, or CSV: the outer node, the first layer of names, and where a list is, including how long it is and the shape of one element. The shape shall fit in the inline limit and shall not include the values.
 - **Origin:** User, 2026-11-13 (quote: "wenn ich als Mensch mir beispielsweise 'ne JSON-Datei angucke oder auch 'ne XML-Datei, dann versuche ich als Erstes ja erstmal die Anatomie der Datei zu verstehen. Also, was ist das äußerste Tag? Was sind die, was ist die erste Schicht an Kindern? Wo gibt es irgendwelche Listen?" and "ein Tool zur Verfügung stellen können, dass quasi die Anatomie einer Datei grundsätzlich zurückgibt in einer Maximalgröße von vier Kilobyte").
 - **Rationale:** A result that is too large to show leaves the model guessing at the shape, and each guess is another request.
-- **Fit criterion:** The shape of a JSON object names its fields and the length of a list, names the fields of one list element, fits in 4 KiB, and does not contain a value that appears only inside that list. When elements of that list disagree on a field, the shape names each of those types. The shape of an XML document names the outer tag and the first child tags. The shape of a CSV document names the header and the row count.
+- **Fit criterion:** The shape of a JSON object names its fields and the length of a list, names the fields of one list element, fits in 4 KiB, and does not contain a value that appears only inside that list. When elements of that list disagree on a field, the shape names each of those types. The shape of an XML document names the outer tag and the first child tags as tag, attrs, and children, so a child tag is not shown as a field of its parent. The shape of a CSV document names the header and the row count.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -97,5 +97,15 @@
 - **Origin:** User, 2026-11-13 (quote: "DataLang ist ja extra dafür da, damit man beliebig große Dateien mit deterministischen Werkzeugen durchsuchen kann" and "man stelle sich vor, ich hab 'ne Telefonbuchdatenbank … als CSV-Datei … sobald ich einen Eintrag gefunden hab, gebe ich den vielleicht zurück. Und der ist dann vielleicht ganz klein" and "die Inputgröße der Datei sollte nicht beschränkt sein bei DataLang").
 - **Rationale:** The useful result of a large file is often one row. Refusing the file because it is large makes that search impossible.
 - **Fit criterion:** A CSV larger than 8 MiB, searched for one name, returns that row. The result does not contain the rest of the file and does not fail because of the file's size. The same file's shape names the header and the row count and does not contain a value from a row.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-DL-11 A transform can find the index of a value
+
+- **Bin:** explicit requirement
+- **Statement:** A transformation shall be able to return the first index of a value in an array, or an empty result when the value is absent, and that index shall address the same position in another array.
+- **Origin:** User, 2026-11-15, after a wide column-major table took eleven data programs (quote: "Das klingt nicht besonders effizient" and "Okay, und wie fixen wir das?"). The runs called `indexOf` and the language reported an unknown function.
+- **Rationale:** Two columns that share a row only by position cannot be aligned by a field lookup. Each failed guess is another model request.
+- **Fit criterion:** `indexOf` on an array returns the first index. A missing value returns an empty result. That index reads the same position from a second array. A pipeline form accepts the array on the left.
 - **Priority:** shall
 - **Status:** confirmed

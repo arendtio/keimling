@@ -33,6 +33,11 @@ const (
 	roleAnswer   = "archivist"
 	roleFiller   = "clerk"
 	joinName     = "Nila"
+	skuWant      = "ADA-SKU"
+	binAnswer    = "BIN-4419"
+	binDecoy     = "BIN-0001"
+	columnRows   = 200
+	columnCount  = 120
 )
 
 // prepared is the workspace a scenario run starts in.
@@ -82,6 +87,9 @@ func prepare(id, specSetup string) (*prepared, error) {
 	case "join-lists":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, joinPrior(), 0o600)
+	case "column-table":
+		p.PriorResult = filepath.Join(data, "prior.json")
+		err = os.WriteFile(p.PriorResult, columnTablePrior(), 0o600)
 	default:
 		err = fmt.Errorf("scenario %s has unknown setup %q", id, specSetup)
 	}
@@ -184,6 +192,58 @@ func joinPrior() []byte {
 		{"user": "Roles.", "tool": "mcp__roles__list", "arguments": map[string]string{}, "value": roles},
 	}
 	b, _ := json.Marshal(docs)
+	return b
+}
+
+// columnTableXML is column-major: each columns element holds one name and then
+// that field's cells from the first row to the last. A row is a shared index.
+func columnTableXML() string {
+	var b strings.Builder
+	b.WriteString(`<tableData><totalRows>200</totalRows><queryExecutionTime>18</queryExecutionTime>`)
+	for n := 1; n <= columnCount; n++ {
+		switch n {
+		case 1:
+			writeColumn(&b, "sku", "Material", func(i int) string {
+				if i == columnRows {
+					return skuWant
+				}
+				return fmt.Sprintf("ROW-%03d", i)
+			})
+		case columnCount:
+			writeColumn(&b, "bin", "Storage bin", func(i int) string {
+				if i == 1 {
+					return binDecoy
+				}
+				if i == columnRows {
+					return binAnswer
+				}
+				return fmt.Sprintf("BIN-%04d", 1000+i)
+			})
+		default:
+			name := fmt.Sprintf("c%03d", n)
+			writeColumn(&b, name, "Field", func(i int) string {
+				return fmt.Sprintf("F-%03d-%03d", n, i)
+			})
+		}
+	}
+	b.WriteString(`</tableData>`)
+	return b.String()
+}
+
+func writeColumn(b *strings.Builder, name, description string, cell func(int) string) {
+	fmt.Fprintf(b, `<columns><metadata name=%q type="C" description=%q/><dataSet>`, name, description)
+	for i := 1; i <= columnRows; i++ {
+		fmt.Fprintf(b, "<data>%s</data>", cell(i))
+	}
+	b.WriteString(`</dataSet></columns>`)
+}
+
+func columnTablePrior() []byte {
+	doc := map[string]any{
+		"user": "Read the stock table.", "tool": "mcp__store__table_content",
+		"arguments": map[string]string{"entity": "stock"}, "value": columnTableXML(),
+	}
+	b, _ := json.Marshal(doc)
 	return b
 }
 

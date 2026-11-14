@@ -728,7 +728,7 @@ func uniqueArr(arr []any) []any {
 
 func knownPure(name string) bool {
 	switch name {
-	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "outline", "parse", "extract", "lookup":
+	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "outline", "parse", "extract", "lookup", "indexOf":
 		return true
 	default:
 		return false
@@ -840,9 +840,44 @@ func callPure(name string, args []any, env *dlEnv) (any, error) {
 		return gExtract(args[0], args[1], env)
 	case "lookup":
 		return lookupRow(args)
+	case "indexOf":
+		return indexOfValue(args)
 	default:
 		return nil, &dataError{Code: "UNKNOWN_FUNCTION", Message: "Unknown function: " + name, Suggestion: "Use filter(predicate)", Example: `return input | filter(.status == "ok")`}
 	}
+}
+
+func indexOfValue(args []any) (any, error) {
+	if len(args) != 2 {
+		return nil, dataErr("TYPE_ERROR", "indexOf expects an array and a value")
+	}
+	if s, ok := args[0].(*rowStream); ok {
+		defer s.close()
+		var i int64
+		for {
+			item, err := s.next()
+			if err == io.EOF {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			if numOrDeepEqual(item, args[1]) {
+				return i, nil
+			}
+			i++
+		}
+	}
+	arr, ok := args[0].([]any)
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", "indexOf expects an array and a value")
+	}
+	for i, item := range arr {
+		if numOrDeepEqual(item, args[1]) {
+			return int64(i), nil
+		}
+	}
+	return nil, nil
 }
 
 func lookupRow(args []any) (any, error) {

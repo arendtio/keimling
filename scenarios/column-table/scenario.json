@@ -1,0 +1,8 @@
+{
+  "task": "In der Tabellenausgabe oben, welcher Wert steht in der Spalte bin in derselben Zeile wie sku ADA-SKU? Nenne nur den Wert.",
+  "setup": "column-table",
+  "answer_needles": ["BIN-4419"],
+  "answer_excludes": ["BIN-0001"],
+  "prefer_tools": ["data_processing"],
+  "forbid_tools": ["delegate"]
+}

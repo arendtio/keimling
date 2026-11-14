@@ -160,6 +160,39 @@ func TestDataLangCSVAndXML(t *testing.T) {
 	}
 }
 
+func TestDataLangReadsColumnMajorCell(t *testing.T) {
+	doc := `<tableData><columns><metadata name="sku"/><dataSet><data>KEY-A</data><data>KEY-B</data></dataSet></columns><columns><metadata name="bin"/><dataSet><data>CELL-1</data><data>CELL-2</data></dataSet></columns></tableData>`
+	aligned := "let cols = xml(input).children | filter(.tag == \"columns\")\nlet bin = cols | filter(.children[0].attrs.name == \"bin\") | first()\nreturn bin.children[1].children[1].children[0].text"
+	value, err := runDataLang(aligned, doc, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "CELL-2" {
+		t.Fatalf("%#v", value)
+	}
+	aligned = `let cols = xml(input).children | filter(.tag == "columns")
+let sku = cols | filter(.children[0].attrs.name == "sku") | first()
+let bin = cols | filter(.children[0].attrs.name == "bin") | first()
+let cells = sku.children[1].children | map(.children[0].text)
+let idx = indexOf(cells, "KEY-B")
+return bin.children[1].children[idx].children[0].text`
+	value, err = runDataLang(aligned, doc, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "CELL-2" {
+		t.Fatalf("%#v", value)
+	}
+	missing, err := runDataLang(`return indexOf(input, "nope")`, []any{"a", "b"}, time.Second)
+	if err != nil || missing != nil {
+		t.Fatalf("%#v %v", missing, err)
+	}
+	piped, err := runDataLang(`return input | indexOf("b")`, []any{"a", "b"}, time.Second)
+	if err != nil || piped != int64(1) {
+		t.Fatalf("%#v %v", piped, err)
+	}
+}
+
 func TestDataLangMultilineTemplate(t *testing.T) {
 	code := "grammar {\nrecord = pattern\"\"\"\nName: {name:until(\"\\n\")}\nStatus: {status:word}\nCount: {count:int}\n\"\"\"\n}\nreturn parse(input, record)"
 	value, err := runDataLang(code, "Name: Ada\nStatus: open\nCount: 3", time.Second)
@@ -621,7 +654,7 @@ func TestOutlineShowsShapeWithoutValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ = value.(string)
-	if !strings.Contains(got, "stock") || !strings.Contains(got, "item") || strings.Contains(got, "MARKER-SECRET") {
+	if !strings.Contains(got, "tag=stock") || !strings.Contains(got, "tag=item") || !strings.Contains(got, "{tag, attrs, children}") || strings.Contains(got, "MARKER-SECRET") {
 		t.Fatal(got)
 	}
 
