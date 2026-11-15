@@ -286,18 +286,12 @@ func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) e
 	if err != nil {
 		return err
 	}
+	branch, err := pluginGitDefaultBranch(ctx, remote, rec.Location, sshCommand, broker)
+	if err != nil {
+		return err
+	}
 	if dirExists(filepath.Join(dest, ".git")) {
-		cmd := exec.CommandContext(ctx, "git", "-C", dest, "pull", "--ff-only")
-		cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location, sshCommand)
-		if err != nil {
-			return err
-		}
-		defer cleanup()
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return errors.New(pluginGitFailure(string(out), err))
-		}
-		return nil
+		return fetchPluginGitBranch(ctx, dest, branch, rec.Location, sshCommand, broker)
 	}
 	if err := os.RemoveAll(dest); err != nil {
 		return err
@@ -305,7 +299,7 @@ func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) e
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--", remote, dest)
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, "--", remote, dest)
 	cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location, sshCommand)
 	if err != nil {
 		return err
@@ -314,6 +308,93 @@ func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) e
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = os.RemoveAll(dest)
+		return errors.New(pluginGitFailure(string(out), err))
+	}
+	return nil
+}
+
+// pluginGitDefaultBranch is the branch a clone should check out. A server
+// whose HEAD still names a deleted branch (often master after a rename to
+// main) advertises no usable HEAD; the single remaining branch is used.
+func pluginGitDefaultBranch(ctx context.Context, remote, location, sshCommand string, broker *CredentialBroker) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", remote, "HEAD", "refs/heads/*")
+	cleanup, err := applyPluginGitAuth(cmd, broker, location, sshCommand)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", errors.New(pluginGitFailure(string(out), err))
+	}
+	return pickPluginGitBranch(string(out))
+}
+
+func pickPluginGitBranch(out string) (string, error) {
+	var sym string
+	var branches []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ref:") {
+			ref, _, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(line, "ref:")), "\t")
+			name, ok := strings.CutPrefix(strings.TrimSpace(ref), "refs/heads/")
+			if ok && validGitBranch(name) {
+				sym = name
+			}
+			continue
+		}
+		_, ref, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		name, ok := strings.CutPrefix(strings.TrimSpace(ref), "refs/heads/")
+		if !ok || !validGitBranch(name) || seen[name] {
+			continue
+		}
+		seen[name] = true
+		branches = append(branches, name)
+	}
+	has := func(name string) bool { return seen[name] }
+	if sym != "" && has(sym) {
+		return sym, nil
+	}
+	if len(branches) == 1 {
+		return branches[0], nil
+	}
+	if has("main") {
+		return "main", nil
+	}
+	if has("master") {
+		return "master", nil
+	}
+	if len(branches) == 0 {
+		return "", fmt.Errorf("the Git server has no branch")
+	}
+	return "", fmt.Errorf("the Git server does not name a default branch (%s)", strings.Join(branches, ", "))
+}
+
+func validGitBranch(name string) bool {
+	if name == "" || name == "HEAD" || strings.HasPrefix(name, "-") || strings.Contains(name, "..") {
+		return false
+	}
+	return !strings.ContainsAny(name, " \t\r\n~^:?*[\\")
+}
+
+func fetchPluginGitBranch(ctx context.Context, dest, branch, location, sshCommand string, broker *CredentialBroker) error {
+	fetch := exec.CommandContext(ctx, "git", "-C", dest, "fetch", "--depth", "1", "origin", branch)
+	cleanup, err := applyPluginGitAuth(fetch, broker, location, sshCommand)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	out, err := fetch.CombinedOutput()
+	if err != nil {
+		return errors.New(pluginGitFailure(string(out), err))
+	}
+	co := exec.CommandContext(ctx, "git", "-C", dest, "checkout", "-f", "-B", branch, "FETCH_HEAD")
+	out, err = co.CombinedOutput()
+	if err != nil {
 		return errors.New(pluginGitFailure(string(out), err))
 	}
 	return nil

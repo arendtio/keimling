@@ -163,6 +163,101 @@ func TestPluginGitURLChecksOut(t *testing.T) {
 	}
 }
 
+func TestPluginGitFollowsTheBranchThatExists(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git")
+	}
+	withTempAgentHomes(t)
+	src := t.TempDir()
+	writePluginFixture(t, src)
+	gitIn(t, src, "init", "-b", "main")
+	gitIn(t, src, "add", "plugin.json", "mcp.json", "skills")
+	gitIn(t, src, "commit", "-m", "plugin")
+	bare := t.TempDir()
+	gitIn(t, src, "clone", "--bare", src, bare)
+	gitIn(t, bare, "symbolic-ref", "HEAD", "refs/heads/master")
+
+	rec := pluginRecord{ID: "plugin-main", Kind: "git", Location: bare, Enabled: true}
+	if err := syncPluginGit(rec, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(pluginCheckoutDir(rec.ID), "plugin.json"))
+	if err != nil || !strings.Contains(string(got), "review-kit") {
+		t.Fatalf("checkout: %s %v", got, err)
+	}
+
+	broken := pluginRecord{ID: "plugin-broken", Kind: "git", Location: bare, Enabled: true}
+	dest := pluginCheckoutDir(broken.ID)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, src, "clone", "--depth", "1", bare, dest)
+	if _, err := os.Stat(filepath.Join(dest, "plugin.json")); !os.IsNotExist(err) {
+		t.Fatal("setup expected an empty checkout")
+	}
+	if err := syncPluginGit(broken, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "plugin.json")); err != nil {
+		t.Fatalf("refresh left the empty checkout: %v", err)
+	}
+
+	updated := strings.ReplaceAll(string(got), "review-kit", "review-kit-v2")
+	if err := os.WriteFile(filepath.Join(src, "plugin.json"), []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, src, "add", "plugin.json")
+	gitIn(t, src, "commit", "-m", "update")
+	gitIn(t, src, "push", bare, "main")
+	if err := syncPluginGit(rec, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(filepath.Join(pluginCheckoutDir(rec.ID), "plugin.json"))
+	if err != nil || !strings.Contains(string(got), "review-kit-v2") {
+		t.Fatalf("refresh: %s %v", got, err)
+	}
+}
+
+func TestPickPluginGitBranch(t *testing.T) {
+	cases := []struct {
+		out  string
+		want string
+		fail bool
+	}{
+		{out: "abc\trefs/heads/main\n", want: "main"},
+		{out: "ref: refs/heads/main\tHEAD\nabc\tHEAD\nabc\trefs/heads/main\n", want: "main"},
+		{out: "ref: refs/heads/master\tHEAD\nabc\trefs/heads/master\nabc\trefs/heads/main\n", want: "master"},
+		{out: "ref: refs/heads/master\tHEAD\nabc\trefs/heads/main\n", want: "main"},
+		{out: "** WARNING: connection is not using a post-quantum key exchange algorithm.\nabc\trefs/heads/main\n", want: "main"},
+		{out: "abc\trefs/heads/develop\ndef\trefs/heads/topic\n", fail: true},
+		{out: "", fail: true},
+	}
+	for _, tc := range cases {
+		got, err := pickPluginGitBranch(tc.out)
+		if tc.fail {
+			if err == nil {
+				t.Fatalf("%q resolved to %s", tc.out, got)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Fatalf("%q: got %s %v", tc.out, got, err)
+		}
+	}
+}
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Keimling", "GIT_AUTHOR_EMAIL=keimling@example.com",
+		"GIT_COMMITTER_NAME=Keimling", "GIT_COMMITTER_EMAIL=keimling@example.com")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %s", strings.Join(args, " "), out)
+	}
+}
+
 func TestPluginGitFailureKeepsTheWholeOutput(t *testing.T) {
 	out := "Cloning into '/data/plugins/checkouts/plugin-1'...\ngit@git.arendt.dev: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"
 	got := pluginGitFailure(out, nil)

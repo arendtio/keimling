@@ -29,3 +29,9 @@
 **As** a user, **I want** to type the SSH port next to the Git address and read Git's full output when the clone fails, **so that** a server on another port is reachable and the failure tells me why.
 
 **Acceptance:** traces REQ-PL-8. Port 22223 on `git@host:path` is used for the clone and a later refresh, and the path stays `path`. An empty port leaves the address alone. The failure shows Git's lines, and the address and port remain so they can be edited.
+
+## US-83 — Get the plugin files when the server still names master
+
+**As** a user, **I want** a plugin repository whose only branch is `main` to show its files, **so that** a server that still names `master` does not leave me an empty checkout.
+
+**Acceptance:** traces REQ-PL-9. Adding that repository stores the files from `main`. Refresh of an empty checkout that still tracks `master` stores those files too, and a later commit arrives on the next refresh.

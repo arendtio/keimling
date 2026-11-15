@@ -80,11 +80,25 @@
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-PL-9 A Git plugin checks out a branch the server has
+
+- **Bin:** explicit requirement
+- **Statement:** Adding or refreshing a plugin from Git shall check out a branch that exists on the server, including when the server still names a default branch that was removed. A later refresh shall update that checkout.
+- **Origin:** User, 2026-11-15. The running build, updated the same day, showed `plugin.json not found` for `git@git.arendt.dev:skills.git`. Refresh then showed: "Your configuration specifies to merge with the ref 'refs/heads/master' from the remote, but no such ref was fetched." The repository's only branch is `main`.
+- **Rationale:** A server created with `master` and later pushed as `main` still answers a plain clone with an empty checkout. The empty checkout has no plugin manifest, and refresh keeps asking for `master`.
+- **Fit criterion:** A repository whose only branch is `main`, while its default name is still `master`, is stored with the files from `main`. Refresh of an empty checkout that tracks `master` replaces it with those files. A later commit on `main` is present after refresh. A repository that advertises `main` is still checked out as `main`. A repository that advertises `master` and has that branch is checked out as `master`.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 REQ-PL-1 and REQ-PL-2 describe a single Agent Plugin. For that layout, one source is the directory that contains `plugin.json`. The manifest `$schema` must be `https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`. Skills are the immediate children of `skills/`. MCP servers come only from `mcp.json` with the matching MCP schema. `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` expand in stdio `args`, `env`, and `cwd`. `./` commands are resolved inside the plugin root. The subprocess working directory is the plugin root when `cwd` is omitted. Unknown servers are skipped and reported on the source. A skill or server name the user already has stays the user's; the plugin fills in names that are not already configured. The user types the URL or path and presses Add; that is the confirmation. The row's checkbox and Remove are the take-back. The MCP list does not remove a server that exists only because the plugin is on.
 
 REQ-PL-3 supersedes the earlier note that a marketplace catalog is not read. The catalog files are `.cursor-plugin/marketplace.json` and `.claude-plugin/marketplace.json`. When both a catalog and a plugin manifest exist, the catalog is the source. Language-server integration, color themes, and editor-tab hooks have no place in this product; the user accepted that boundary on 2026-11-07. Slash-command files are prompts. The one-time grant in REQ-PL-6 covers entries that run: hooks, exec, and a command that executes.
+
+REQ-PL-9 asks `ls-remote` which branch to use. A HEAD that names a branch present on the server wins. Otherwise the only branch wins, then `main`, then `master`. Clone uses that branch. Refresh fetches it and checks it out, so an empty checkout left from the old clone is filled in. The plugin checkout is a cache of the server; refresh replaces it with that branch.
+
+The source switch in the plugin list is the same row as Refresh and Remove. Its label uses the existing check style so the box and the word sit on one line.
 
 REQ-PL-8 is a port field on the add form, empty meaning port 22. A `git@host:path` address is passed to Git unchanged and the port is `ssh -p`. An `ssh://` address takes the port in the URL. The full Git output is shown in a dialog over the form. The address and the port stay in the form so they can be corrected. The dialog is the presentation; the requirement is that the port is separate and the whole Git output is visible.
 

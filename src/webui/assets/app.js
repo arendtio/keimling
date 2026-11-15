@@ -1179,6 +1179,7 @@
       var actions = document.createElement("div");
       actions.className = "profile-row-actions";
       var on = document.createElement("label");
+      on.className = "check";
       var box = document.createElement("input");
       box.type = "checkbox";
       box.checked = !!p.enabled;
@@ -1189,7 +1190,7 @@
           .catch(function (err) { showPluginErr(String(err.message || err)); });
       });
       on.appendChild(box);
-      on.appendChild(document.createTextNode(p.layout === "marketplace" ? " Marketplace on" : " On"));
+      on.appendChild(document.createTextNode(p.layout === "marketplace" ? "Marketplace on" : "On"));
       actions.appendChild(on);
       if (p.kind === "git") {
         var refresh = document.createElement("button");
