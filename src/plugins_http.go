@@ -36,6 +36,7 @@ func (s *appServer) handlePluginAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Location string `json:"location"`
+		Port     string `json:"port"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.Location) == "" {
 		http.Error(w, "location required", http.StatusBadRequest)
@@ -45,7 +46,7 @@ func (s *appServer) handlePluginAdd(w http.ResponseWriter, r *http.Request) {
 	if s != nil && s.agent != nil {
 		broker = s.agent.Credentials
 	}
-	st, err := addPluginSourceWith(body.Location, broker)
+	st, err := addPluginSourceWith(body.Location, body.Port, broker)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

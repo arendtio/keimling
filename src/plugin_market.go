@@ -57,7 +57,7 @@ type marketplaceEntry struct {
 }
 
 func describePlugin(rec pluginRecord, fetch bool) pluginStatus {
-	st := pluginStatus{ID: rec.ID, Kind: rec.Kind, Location: rec.Location, Enabled: rec.Enabled, Layout: "plugin"}
+	st := pluginStatus{ID: rec.ID, Kind: rec.Kind, Location: rec.Location, SSHPort: rec.SSHPort, Enabled: rec.Enabled, Layout: "plugin"}
 	root, err := pluginRoot(rec, fetch)
 	if err != nil {
 		st.Error = err.Error()

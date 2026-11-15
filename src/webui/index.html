@@ -428,6 +428,10 @@
         <label>Git URL or directory
           <input id="plugin-location" type="text" autocomplete="off" placeholder="https://github.com/org/plugins or /path/to/checkout">
         </label>
+        <label>SSH port
+          <input id="plugin-port" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="22" aria-describedby="plugin-port-hint">
+        </label>
+        <p id="plugin-port-hint" class="hint">Leave empty for port 22. The address stays as you typed it, for example git@git.example:skills.git.</p>
         <button type="button" id="plugin-add" class="ghost wide">Add</button>
         <p id="plugin-err" class="gate-err" hidden></p>
       </div>
@@ -969,6 +973,16 @@
       </aside>
     </div>
   </div>
+
+  <dialog id="plugin-git-dialog" class="context-dialog plugin-git-dialog" aria-labelledby="plugin-git-title">
+    <form method="dialog" class="context-panel">
+      <h2 id="plugin-git-title">Git could not reach the repository</h2>
+      <pre id="plugin-git-out" class="plugin-git-out"></pre>
+      <div class="skills-row confirm-actions">
+        <button type="submit">Close</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/assets/ansi.js"></script>
   <script src="/assets/marked.min.js"></script>

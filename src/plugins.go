@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,6 +27,7 @@ type pluginRecord struct {
 	ID        string   `json:"id"`
 	Kind      string   `json:"kind"` // git | dir
 	Location  string   `json:"location"`
+	SSHPort   string   `json:"ssh_port,omitempty"`
 	Enabled   bool     `json:"enabled"`
 	Grants    []string `json:"grants,omitempty"`
 	PluginSet bool     `json:"plugin_set,omitempty"` // marketplace choices have been stored
@@ -40,6 +43,7 @@ type pluginStatus struct {
 	Kind        string             `json:"kind"`
 	Layout      string             `json:"layout,omitempty"` // plugin | marketplace
 	Location    string             `json:"location"`
+	SSHPort     string             `json:"ssh_port,omitempty"`
 	Enabled     bool               `json:"enabled"`
 	Name        string             `json:"name,omitempty"`
 	Description string             `json:"description,omitempty"`
@@ -136,10 +140,19 @@ func classifyPluginLocation(raw string) (kind, location string, err error) {
 	return "dir", filepath.Clean(path), nil
 }
 
-func addPluginSourceWith(location string, broker *CredentialBroker) (pluginStatus, error) {
+func addPluginSourceWith(location, port string, broker *CredentialBroker) (pluginStatus, error) {
 	kind, loc, err := classifyPluginLocation(location)
 	if err != nil {
 		return pluginStatus{}, err
+	}
+	sshPort := ""
+	if kind == "git" {
+		if _, _, err := gitRemoteForClone(loc, port); err != nil {
+			return pluginStatus{}, err
+		}
+		sshPort = normalizePluginSSHPort(port)
+	} else if strings.TrimSpace(port) != "" {
+		return pluginStatus{}, fmt.Errorf("SSH port applies to a Git address over SSH")
 	}
 	f, err := readPluginFile()
 	if err != nil {
@@ -150,7 +163,7 @@ func addPluginSourceWith(location string, broker *CredentialBroker) (pluginStatu
 			return inspectPlugin(src, false)
 		}
 	}
-	rec := pluginRecord{ID: newStampedID("plugin"), Kind: kind, Location: loc, Enabled: true, PluginSet: true}
+	rec := pluginRecord{ID: newStampedID("plugin"), Kind: kind, Location: loc, SSHPort: sshPort, Enabled: true, PluginSet: true}
 	if kind == "git" {
 		if err := syncPluginGitWith(rec, true, broker); err != nil {
 			return pluginStatus{}, err
@@ -164,7 +177,7 @@ func addPluginSourceWith(location string, broker *CredentialBroker) (pluginStatu
 }
 
 func addPluginSource(location string) (pluginStatus, error) {
-	return addPluginSourceWith(location, nil)
+	return addPluginSourceWith(location, "", nil)
 }
 
 func setPluginEnabled(id string, enabled bool) (pluginStatus, error) {
@@ -269,16 +282,20 @@ func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) e
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	remote, sshCommand, err := gitRemoteForClone(rec.Location, rec.SSHPort)
+	if err != nil {
+		return err
+	}
 	if dirExists(filepath.Join(dest, ".git")) {
 		cmd := exec.CommandContext(ctx, "git", "-C", dest, "pull", "--ff-only")
-		cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location)
+		cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location, sshCommand)
 		if err != nil {
 			return err
 		}
 		defer cleanup()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("git pull: %s", pluginGitFailure(string(out), err))
+			return errors.New(pluginGitFailure(string(out), err))
 		}
 		return nil
 	}
@@ -288,8 +305,8 @@ func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) e
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--", rec.Location, dest)
-	cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location)
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--", remote, dest)
+	cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location, sshCommand)
 	if err != nil {
 		return err
 	}
@@ -297,27 +314,76 @@ func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) e
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = os.RemoveAll(dest)
-		return fmt.Errorf("git clone: %s", pluginGitFailure(string(out), err))
+		return errors.New(pluginGitFailure(string(out), err))
 	}
 	return nil
 }
 
+// gitRemoteForClone keeps a git@host:path address unchanged and carries the
+// port as an ssh -p option, so the path stays the one Git already understands.
+// An ssh:// address takes the port in the URL. An empty port changes nothing.
+func gitRemoteForClone(location, port string) (remote, sshCommand string, err error) {
+	remote = strings.TrimSpace(location)
+	port = normalizePluginSSHPort(port)
+	if port == "" {
+		return remote, "", nil
+	}
+	n, nerr := strconv.Atoi(port)
+	if nerr != nil || n < 1 || n > 65535 {
+		return "", "", fmt.Errorf("SSH port must be a number from 1 to 65535")
+	}
+	port = strconv.Itoa(n)
+	if strings.HasPrefix(remote, "git@") {
+		if _, ok := gitSSHHost(remote); !ok {
+			return "", "", fmt.Errorf("SSH port applies to a Git address over SSH")
+		}
+		return remote, "ssh -p " + port, nil
+	}
+	u, perr := url.Parse(remote)
+	if perr != nil || !strings.EqualFold(u.Scheme, "ssh") || u.Hostname() == "" {
+		return "", "", fmt.Errorf("SSH port applies to a Git address over SSH")
+	}
+	u.Host = net.JoinHostPort(u.Hostname(), port)
+	return u.String(), "", nil
+}
+
+func normalizePluginSSHPort(port string) string {
+	port = strings.TrimSpace(port)
+	if port == "" {
+		return ""
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return port
+	}
+	return strconv.Itoa(n)
+}
+
 // applyPluginGitAuth gives an SSH remote the vault key for that host.
 // A missing vault, a locked vault, or no key for the host leaves the process SSH setup in place.
-func applyPluginGitAuth(cmd *exec.Cmd, broker *CredentialBroker, location string) (func(), error) {
+// sshCommand, when set, is GIT_SSH_COMMAND for this one git process.
+func applyPluginGitAuth(cmd *exec.Cmd, broker *CredentialBroker, location, sshCommand string) (func(), error) {
 	host, ok := gitSSHHost(location)
-	if !ok {
+	var keys []Credential
+	if ok {
+		keys = broker.sshKeysForHost(host)
+	}
+	if len(keys) == 0 && sshCommand == "" {
 		return func() {}, nil
 	}
-	keys := broker.sshKeysForHost(host)
+	env := append([]string{}, os.Environ()...)
+	if sshCommand != "" {
+		env = append(env, "GIT_SSH_COMMAND="+sshCommand)
+	}
 	if len(keys) == 0 {
+		cmd.Env = env
 		return func() {}, nil
 	}
 	sess, err := startSSHAgentWithKeys(keys)
 	if err != nil {
 		return func() {}, err
 	}
-	cmd.Env = append(os.Environ(), sess.Environ()...)
+	cmd.Env = append(env, sess.Environ()...)
 	return sess.Close, nil
 }
 
@@ -340,35 +406,15 @@ func gitSSHHost(location string) (string, bool) {
 }
 
 func pluginGitFailure(out string, err error) string {
-	var last, fatalLine, specific string
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "Cloning into ") {
-			continue
-		}
-		last = line
-		low := strings.ToLower(line)
-		if strings.HasPrefix(low, "fatal:") {
-			fatalLine = line
-		}
-		if strings.Contains(low, "permission denied") || strings.Contains(low, "host key verification") || strings.Contains(low, "could not resolve") {
-			specific = line
-		}
+	out = strings.TrimRight(out, "\n")
+	if strings.TrimSpace(out) == "" && err != nil {
+		return err.Error()
 	}
-	picked := specific
-	if picked == "" {
-		picked = fatalLine
+	const max = 64 << 10
+	if len(out) > max {
+		return out[:max] + "\n… output truncated"
 	}
-	if picked == "" {
-		picked = last
-	}
-	if picked == "" && err != nil {
-		picked = err.Error()
-	}
-	if len(picked) > 300 {
-		picked = picked[:300]
-	}
-	return picked
+	return out
 }
 
 func pluginRoot(rec pluginRecord, fetch bool) (string, error) {

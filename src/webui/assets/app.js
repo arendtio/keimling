@@ -995,6 +995,24 @@
     el.textContent = text || "";
   }
 
+  function showPluginGitDialog(text) {
+    var dlg = document.getElementById("plugin-git-dialog");
+    var out = document.getElementById("plugin-git-out");
+    if (!dlg || !out) {
+      showPluginErr(text);
+      return;
+    }
+    showPluginErr("");
+    out.textContent = text || "";
+    if (!dlg.open) dlg.showModal();
+  }
+
+  function showPluginFailure(err) {
+    var text = String((err && err.message) || err || "");
+    if (text.indexOf("\n") >= 0) showPluginGitDialog(text);
+    else showPluginErr(text);
+  }
+
   function loadPlugins() {
     fetch(apiURL("/api/plugins"), { headers: headers() })
       .then(readAPIResult)
@@ -1020,6 +1038,7 @@
       var meta = document.createElement("p");
       meta.className = "profile-meta";
       var bits = [p.layout === "marketplace" ? "Marketplace" : "Plugin", p.kind === "git" ? "Git" : "Directory", p.location];
+      if (p.ssh_port) bits.push("SSH port " + p.ssh_port);
       if (p.plugins && p.plugins.length) bits.push("Plugins: " + p.plugins.join(", "));
       if (p.skills && p.skills.length) bits.push("Skills: " + p.skills.join(", "));
       if (p.rules && p.rules.length) bits.push("Rules: " + p.rules.join(", "));
@@ -1180,8 +1199,11 @@
         refresh.addEventListener("click", function () {
           fetch(apiURL("/api/plugins/refresh"), { method: "POST", headers: headers(), body: JSON.stringify({ id: p.id }) })
             .then(readAPIResult)
-            .then(loadPlugins)
-            .catch(function (err) { showPluginErr(String(err.message || err)); });
+            .then(function (j) {
+              if (j && j.error) showPluginFailure({ message: j.error });
+              return loadPlugins();
+            })
+            .catch(function (err) { showPluginFailure(err); });
         });
         actions.appendChild(refresh);
       }
@@ -8044,19 +8066,29 @@
   if (pluginAdd) {
     pluginAdd.addEventListener("click", function () {
       var input = document.getElementById("plugin-location");
+      var portInput = document.getElementById("plugin-port");
       var location = input ? String(input.value || "").trim() : "";
+      var port = portInput ? String(portInput.value || "").trim() : "";
       if (!location) {
         showPluginErr("Git URL or directory required");
         return;
       }
       showPluginErr("");
-      fetch(apiURL("/api/plugins/add"), { method: "POST", headers: headers(), body: JSON.stringify({ location: location }) })
+      pluginAdd.disabled = true;
+      var addLabel = pluginAdd.textContent;
+      pluginAdd.textContent = "Adding…";
+      fetch(apiURL("/api/plugins/add"), { method: "POST", headers: headers(), body: JSON.stringify({ location: location, port: port }) })
         .then(readAPIResult)
         .then(function () {
           if (input) input.value = "";
+          if (portInput) portInput.value = "";
           loadPlugins();
         })
-        .catch(function (err) { showPluginErr(String(err.message || err)); });
+        .catch(function (err) { showPluginFailure(err); })
+        .finally(function () {
+          pluginAdd.disabled = false;
+          pluginAdd.textContent = addLabel;
+        });
     });
   }
 

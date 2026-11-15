@@ -163,12 +163,53 @@ func TestPluginGitURLChecksOut(t *testing.T) {
 	}
 }
 
-func TestPluginGitFailureSkipsTheCloneBanner(t *testing.T) {
-	out := "Cloning into '/data/plugins/checkouts/plugin-1'...\ngit@git.arendt.dev: Permission denied (publickey).\nfatal: Could not read from remote repository.\n"
+func TestPluginGitFailureKeepsTheWholeOutput(t *testing.T) {
+	out := "Cloning into '/data/plugins/checkouts/plugin-1'...\ngit@git.arendt.dev: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"
 	got := pluginGitFailure(out, nil)
-	if strings.Contains(got, "Cloning into") || !strings.Contains(got, "Permission denied") {
-		t.Fatal(got)
+	for _, want := range []string{"Cloning into", "Permission denied", "fatal: Could not read", "Please make sure", "and the repository exists."} {
+		if !strings.Contains(got, want) {
+			t.Fatal(got)
+		}
 	}
+}
+
+func TestPluginGitPortStaysOnTheScpAddress(t *testing.T) {
+	remote, sshCommand, err := gitRemoteForClone("git@git.arendt.dev:skills.git", "22223")
+	if err != nil || remote != "git@git.arendt.dev:skills.git" || sshCommand != "ssh -p 22223" {
+		t.Fatalf("%q %q %v", remote, sshCommand, err)
+	}
+	remote, sshCommand, err = gitRemoteForClone("ssh://git@git.arendt.dev/skills.git", "22223")
+	if err != nil || remote != "ssh://git@git.arendt.dev:22223/skills.git" || sshCommand != "" {
+		t.Fatalf("%q %q %v", remote, sshCommand, err)
+	}
+	remote, sshCommand, err = gitRemoteForClone("git@git.arendt.dev:skills.git", "")
+	if err != nil || remote != "git@git.arendt.dev:skills.git" || sshCommand != "" {
+		t.Fatalf("%q %q %v", remote, sshCommand, err)
+	}
+	if _, _, err := gitRemoteForClone("https://git.arendt.dev/skills.git", "22223"); err == nil {
+		t.Fatal("https accepted an SSH port")
+	}
+	if _, _, err := gitRemoteForClone("git@git.arendt.dev:skills.git", "0"); err == nil {
+		t.Fatal("port 0 accepted")
+	}
+	cmd := exec.Command("git", "clone")
+	cleanup, err := applyPluginGitAuth(cmd, nil, "git@git.arendt.dev:skills.git", "ssh -p 22223")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if !containsEnv(cmd.Env, "GIT_SSH_COMMAND=ssh -p 22223") {
+		t.Fatal(cmd.Env)
+	}
+}
+
+func containsEnv(env []string, want string) bool {
+	for _, e := range env {
+		if e == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPluginGitUsesTheVaultKeyForThatHost(t *testing.T) {
@@ -199,13 +240,13 @@ func TestPluginGitUsesTheVaultKeyForThatHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("git", "clone")
-	cleanup, err := applyPluginGitAuth(cmd, b, "git@git.arendt.dev:skills.git")
+	cleanup, err := applyPluginGitAuth(cmd, b, "git@git.arendt.dev:skills.git", "ssh -p 22223")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	if cmd.Env == nil {
-		t.Fatal("vault key was not offered")
+	if cmd.Env == nil || !containsEnv(cmd.Env, "GIT_SSH_COMMAND=ssh -p 22223") {
+		t.Fatal("vault key was not offered with the SSH port")
 	}
 	list := exec.Command("ssh-add", "-l")
 	list.Env = cmd.Env
@@ -214,7 +255,7 @@ func TestPluginGitUsesTheVaultKeyForThatHost(t *testing.T) {
 		t.Fatalf("%v %s", err, listed)
 	}
 	other := exec.Command("git", "clone")
-	cleanupOther, err := applyPluginGitAuth(other, b, "git@example.test:repo.git")
+	cleanupOther, err := applyPluginGitAuth(other, b, "git@example.test:repo.git", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +264,7 @@ func TestPluginGitUsesTheVaultKeyForThatHost(t *testing.T) {
 		t.Fatal("a key for another host was offered")
 	}
 	web := exec.Command("git", "clone")
-	cleanupWeb, err := applyPluginGitAuth(web, b, "https://git.arendt.dev/skills.git")
+	cleanupWeb, err := applyPluginGitAuth(web, b, "https://git.arendt.dev/skills.git", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +274,7 @@ func TestPluginGitUsesTheVaultKeyForThatHost(t *testing.T) {
 	}
 	locked := NewCredentialBroker(cfg)
 	plain := exec.Command("git", "clone")
-	cleanupPlain, err := applyPluginGitAuth(plain, locked, "git@git.arendt.dev:skills.git")
+	cleanupPlain, err := applyPluginGitAuth(plain, locked, "git@git.arendt.dev:skills.git", "")
 	if err != nil {
 		t.Fatal(err)
 	}

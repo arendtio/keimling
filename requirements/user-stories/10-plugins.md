@@ -22,4 +22,10 @@
 
 **As** a user, **I want** a plugin Git URL to use the vault SSH key for that host when the vault is open, **so that** a private repository works in a container and a machine that already has a key still works without a vault.
 
-**Acceptance:** traces REQ-PL-7. An unlocked key whose service names the host is used for that SSH clone and for a refresh. A locked vault, another host, and an HTTPS URL do not receive it. A refused clone shows Git's failure line.
+**Acceptance:** traces REQ-PL-7. An unlocked key whose service names the host is used for that SSH clone and for a refresh. A locked vault, another host, and an HTTPS URL do not receive it. A refused clone shows Git's output.
+
+## US-82 — Give a plugin Git server its SSH port
+
+**As** a user, **I want** to type the SSH port next to the Git address and read Git's full output when the clone fails, **so that** a server on another port is reachable and the failure tells me why.
+
+**Acceptance:** traces REQ-PL-8. Port 22223 on `git@host:path` is used for the clone and a later refresh, and the path stays `path`. An empty port leaves the address alone. The failure shows Git's lines, and the address and port remain so they can be edited.

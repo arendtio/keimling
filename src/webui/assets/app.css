@@ -2113,6 +2113,19 @@ button.wide { width: 100%; max-width: 100%; }
 .confirm-dialog {
   max-width: min(28rem, 94vw);
 }
+.plugin-git-dialog {
+  max-width: min(40rem, 94vw);
+}
+.plugin-git-out {
+  margin: 0;
+  max-height: min(50vh, 24rem);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
 .confirm-text {
   margin: 0;
   white-space: pre-wrap;

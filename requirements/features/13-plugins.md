@@ -70,10 +70,22 @@
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-PL-8 An SSH port stands beside the Git address
+
+- **Bin:** explicit requirement
+- **Statement:** When adding a plugin from Git over SSH, the user shall be able to give the SSH port separately from the address. An empty port shall leave the address unchanged, including an address that already works on port 22. A refused clone or refresh shall show every line Git printed.
+- **Origin:** User, 2026-11-15 (quote: "ok, können wir dann vielleicht den port noch als extra formularfeld mit einfügen und den output vom git clone komplett anzeigen wenn es fehlschlägt, damit wir eine ausführliche Fehlermeldung sehen? Von mir aus auch in einem Dialog der sich drüber legt").
+- **Rationale:** A Git server on another port is the usual case for this user, and the short failure line hid the reason the clone stopped.
+- **Fit criterion:** The address `git@host:path` with port 22223 is cloned with that port and the path is still `path`. The same address with an empty port is cloned without a port option. An HTTPS address with a port is refused. The failure text includes the lines Git printed before `fatal:`, including the checkout line and the access-rights line.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 REQ-PL-1 and REQ-PL-2 describe a single Agent Plugin. For that layout, one source is the directory that contains `plugin.json`. The manifest `$schema` must be `https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`. Skills are the immediate children of `skills/`. MCP servers come only from `mcp.json` with the matching MCP schema. `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` expand in stdio `args`, `env`, and `cwd`. `./` commands are resolved inside the plugin root. The subprocess working directory is the plugin root when `cwd` is omitted. Unknown servers are skipped and reported on the source. A skill or server name the user already has stays the user's; the plugin fills in names that are not already configured. The user types the URL or path and presses Add; that is the confirmation. The row's checkbox and Remove are the take-back. The MCP list does not remove a server that exists only because the plugin is on.
 
 REQ-PL-3 supersedes the earlier note that a marketplace catalog is not read. The catalog files are `.cursor-plugin/marketplace.json` and `.claude-plugin/marketplace.json`. When both a catalog and a plugin manifest exist, the catalog is the source. Language-server integration, color themes, and editor-tab hooks have no place in this product; the user accepted that boundary on 2026-11-07. Slash-command files are prompts. The one-time grant in REQ-PL-6 covers entries that run: hooks, exec, and a command that executes.
+
+REQ-PL-8 is a port field on the add form, empty meaning port 22. A `git@host:path` address is passed to Git unchanged and the port is `ssh -p`. An `ssh://` address takes the port in the URL. The full Git output is shown in a dialog over the form. The address and the port stay in the form so they can be corrected. The dialog is the presentation; the requirement is that the port is separate and the whole Git output is visible.
 
 REQ-PL-4 keeps the marketplace checkbox as the source switch. Each listed plugin has its own checkbox. A marketplace that was already on before this rule, with no per-plugin choice stored, keeps the plugins it had, so an existing setup does not go dark. A marketplace added after this rule starts with every plugin off. The choice is stored with the source, not in the marketplace checkout.
