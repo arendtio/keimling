@@ -4583,10 +4583,24 @@
             FORBID_ATTR: ["style"],
           });
         }
-        return highlightFences(html);
+        return wrapChatTables(highlightFences(html));
       }
     } catch (e) {}
     return window.ansiToHtml(raw);
+  }
+
+  function wrapChatTables(html) {
+    if (!html || html.indexOf("<table") < 0) return html;
+    var wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    wrap.querySelectorAll("table").forEach(function (table) {
+      if (table.parentElement && table.parentElement.classList.contains("md-table")) return;
+      var scroller = document.createElement("div");
+      scroller.className = "md-table";
+      table.parentNode.insertBefore(scroller, table);
+      scroller.appendChild(table);
+    });
+    return wrap.innerHTML;
   }
 
   function ensureDomKey(m) {

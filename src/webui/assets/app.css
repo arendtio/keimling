@@ -1101,6 +1101,8 @@ button.wide { width: 100%; max-width: 100%; }
 .main {
   --paper-edge: color-mix(in srgb, var(--line) 70%, var(--chrome));
   --paper-top: 3.25rem; /* chrome gap above the paper sheet */
+  container-type: inline-size;
+  container-name: paper;
   min-width: 0;
   margin: var(--paper-top) 0.65rem 0 0;
   padding: 0 0 2rem;
@@ -1119,7 +1121,7 @@ button.wide { width: 100%; max-width: 100%; }
   padding-top: 0.85rem;
   display: grid;
   gap: 0.85rem;
-  overflow-x: clip;
+  overflow-x: visible;
 }
 
 .block {
@@ -1495,12 +1497,9 @@ button.wide { width: 100%; max-width: 100%; }
   padding: 0.1em 0.35em;
   border-radius: 0.25rem;
 }
-.msg.assistant .body pre,
-.msg.assistant .body table {
+.msg.assistant .body pre {
   max-width: 100%;
   min-width: 0;
-}
-.msg.assistant .body pre {
   margin: 0;
   padding: 0.65rem 0.75rem;
   overflow-x: auto;
@@ -1508,9 +1507,30 @@ button.wide { width: 100%; max-width: 100%; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
-.msg.assistant .body table {
-  display: block;
+.msg.assistant .body .md-table {
+  box-sizing: border-box;
+  width: calc(100cqw - 2rem);
+  max-width: calc(100cqw - 2rem);
+  min-width: 0;
+  margin-left: calc(50% - 50cqw + 1rem);
   overflow-x: auto;
+}
+.msg.assistant .body .md-table table {
+  width: max-content;
+  max-width: none;
+  margin-inline: auto;
+  border-collapse: collapse;
+}
+.msg.assistant .body .md-table th,
+.msg.assistant .body .md-table td {
+  white-space: nowrap;
+  padding: 0.28rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.msg.assistant .body .md-table th {
+  font-weight: 600;
+  color: var(--muted);
 }
 .msg .body img,
 .msg.assistant .body img {

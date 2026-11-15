@@ -82,6 +82,16 @@ The side area is the place for what the user looks at beside the chat. Artifacts
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-SB-10 A chat table may use the paper
+
+- **Bin:** explicit requirement
+- **Statement:** A table in a chat message shall use as much width as it needs, up to the width available in the chat paper, and shall be centered there. It shall not stay in the narrower text measure. When the table is wider than the paper, it shall scroll sideways inside itself. The text around it shall stay in the text measure, and the chat column shall not grow.
+- **Origin:** User, 2026-11-15 (quote: "Wenn im Chat eine Tabelle dargestellt wird, dann ist diese auch in der Breite beschränkt genauso wie der Text. […] Bei Tabellen ist es anders. Dort sollte man der Tabelle so viel Platz geben wie sie braucht, auch wenn es deutlich breiter ist als der Text, bis hin zu maximal verfügbaren Breite und dann ist ein inline scrolling ggf. sinnvoll. Tabellen sollten dementsprechend aber immer zentriert sein und nicht linksbündig wie der Text.").
+- **Rationale:** The text measure keeps lines readable. A table is read across columns, so squeezing it into that measure hides the columns.
+- **Fit criterion:** A short paragraph stays within the text measure. A table narrower than the paper is centered on the paper and wider than that measure when its columns need the room. A table wider than the paper scrolls sideways inside the table and leaves the chat column the same width.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## REQ-SB-9 The context view is the last chat request
 
 - **Bin:** explicit requirement

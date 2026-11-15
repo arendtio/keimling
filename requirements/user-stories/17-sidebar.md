@@ -34,7 +34,7 @@
 
 **As** a user, **I want** the chat to stay a steady width, **so that** a long message or a wide sidebar does not stretch or squeeze the conversation.
 
-**Acceptance:** traces REQ-SB-8. A very long line stays inside the chat column. The side area beside the chat stops widening while the chat is still about 600 pixels wide.
+**Acceptance:** traces REQ-SB-8 and REQ-SB-10. A very long line stays inside the chat column. A table in the chat is centered on the paper, uses the width its columns need up to that paper, and scrolls inside itself when it is wider. The side area beside the chat stops widening while the chat is still about 600 pixels wide.
 
 ## US-52 — See the last request the model received
 
