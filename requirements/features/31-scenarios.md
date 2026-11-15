@@ -169,3 +169,33 @@
 - **Fit criterion:** The fixture has 120 columns and is larger than the inline limit. The wanted cell and its key are absent from the opening preview. The wanted cell is the last cell of its column and the decoy is the first. A run whose answer contains the wanted cell and not the decoy, and which uses a data program without a delegate, has a right outcome.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SC-18 A small move is the same result
+
+- **Bin:** explicit requirement
+- **Statement:** When the passes and the steps are unchanged, a token or time difference that stays within 5% of the baseline, or within the spread of the repeated runs, shall be the same result. The amounts shall still be printed. A change in passes or in steps shall still be better, worse, or mixed.
+- **Origin:** User, 2026-11-15 (quote: "Reporting der Abweichungen häufig nicht significant. Also sowas sollte aus meiner Sicht nicht als better oder worse reported werden" and "Gerade auch wenn die drei Versuche sehr schwanken"). The examples were a token move of 21, 173, 248, and 307 with the same steps and the same passes, and a time move smaller than the gap between the three runs.
+- **Rationale:** Three runs of one commit already move by hundreds of tokens and several seconds. Calling that movement a regression hides a real change in steps or passes.
+- **Fit criterion:** A token difference of 5% or less of the baseline, with the same passes and the same steps, is the same result. A token difference that does not exceed the gap between the highest and lowest run on either side is the same result. One fewer step is still better when the token move is inside that bar. A token difference larger than both bars is still worse. The printed amounts stay on the line, and a move inside the bar is not colored as a gain or a loss.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-SC-19 A scenario run uses a copy of the configuration
+
+- **Bin:** explicit requirement
+- **Statement:** Each scenario run shall read and write a copy of the user's Keimling configuration. The user's own files shall stay unchanged. The copy shall not include the credential vault.
+- **Origin:** User, 2026-11-15 (quote: "arbeiten die keimlinge da mit kopien? Ich mein wenn wir beispielsweise eine scenario zum autopilot machen wollten, wäre es ja auch sinnvoll das nicht mit der haupt config zu tun oder?" and "ok, bitte config als kopie nutzen").
+- **Rationale:** A run that saves autopilot instructions, skills, or servers would otherwise change the configuration the user is working with. Parallel runs would also write the same file.
+- **Fit criterion:** A run is started with its configuration path inside the temporary directory. Writing that copy leaves the user's configuration byte-for-byte unchanged. The credential vault is absent from the copy. The copied settings file is present.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-SC-20 Scenario runs may proceed together
+
+- **Bin:** explicit requirement
+- **Statement:** Scenario runs shall be able to execute at the same time. The command shall accept a maximum number of runs at once. When that number is omitted, every run may proceed together. The report shall stay grouped by scenario.
+- **Origin:** User, 2026-11-15 (quote: "dann die parallele Ausführung einbauen, gerne auch mit eine option für anzahl der maximal parallel ausgeführten scenarien. Per default darf er es aber maximal parallelisieren.").
+- **Rationale:** Each run already has its own workspace, and the model call is the long part. Waiting for one run before starting the next spends that time in sequence.
+- **Fit criterion:** A maximum of 2 keeps a third run waiting. The default maximum is the number of runs, so they may all proceed together. The printed report still lists each scenario's repetitions together, in scenario order.
+- **Priority:** shall
+- **Status:** confirmed

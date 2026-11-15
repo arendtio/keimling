@@ -4,7 +4,7 @@
 
 **As** a user, **I want** a small set of tasks I can run again after a change to instructions or tools, **so that** I can see whether the outcome still holds and whether the model took more steps, tokens, or time.
 
-**Acceptance:** traces REQ-SC-1 and REQ-SC-2. A finished scenario writes a card with the model, the commit, the outcome, the steps, the tools, the tokens, and the duration. Three runs report the middle step count and the middle token count. An earlier card for the same model stays readable beside the new one. A right outcome with a longer path is kept.
+**Acceptance:** traces REQ-SC-1, REQ-SC-2, and REQ-SC-18. A finished scenario writes a card with the model, the commit, the outcome, the steps, the tools, the tokens, and the duration. Three runs report the middle step count and the middle token count. An earlier card for the same model stays readable beside the new one. A right outcome with a longer path is kept. A token or time move inside 5% of the baseline, or inside the spread of the runs, is the same result when passes and steps are unchanged.
 
 ## US-69 — Find one entry, one hidden value, and one sentence in another chat
 
@@ -28,7 +28,7 @@
 
 **As** a user, **I want** one command to build my current source, run every scenario, and tell me what got better or worse, **so that** I can look before a commit without assembling the runs myself.
 
-**Acceptance:** traces REQ-SC-8, REQ-SC-9, and REQ-SC-10. The command builds from the current source and runs all scenarios. A dirty build is named with the commit and a timestamp. The summary compares with the checkpoint when one is set, otherwise with the latest clean commit of the same model. Each run's journal remains on disk after the temporary workspace is gone. One missed repetition does not fail the command. The command fails when the set is worse.
+**Acceptance:** traces REQ-SC-8, REQ-SC-9, REQ-SC-10, REQ-SC-19, and REQ-SC-20. The command builds from the current source and runs all scenarios. A dirty build is named with the commit and a timestamp. The summary compares with the checkpoint when one is set, otherwise with the latest clean commit of the same model. Each run's journal remains on disk after the temporary workspace is gone. Each run reads a copy of the configuration in that directory, and the user's configuration stays unchanged. The runs proceed together unless a maximum is set. The report stays grouped by scenario. One missed repetition does not fail the command. The command fails when the set is worse.
 
 ## US-74 — Catch the other ways a tool is chosen
 

@@ -201,6 +201,24 @@ func TestJudgeALostPassOutweighsAShorterPath(t *testing.T) {
 	if sumFails("worse") != true || sumFails("better") || sumFails("mixed") || sumFails("same") {
 		t.Fatal("sum exit")
 	}
+	if judge(runStats{Steps: 3, Tokens: 25974, Passed: 3, N: 3}, runStats{Steps: 3, Tokens: 25995, Passed: 3, N: 3}) != "same" {
+		t.Fatal("twenty tokens")
+	}
+	if judge(runStats{Steps: 1, Tokens: 12744, Passed: 3, N: 3}, runStats{Steps: 1, Tokens: 12571, Passed: 3, N: 3}) != "same" {
+		t.Fatal("small token rise")
+	}
+	if judge(runStats{Steps: 3, Tokens: 25608, TokenSpan: 184, Passed: 3, N: 3}, runStats{Steps: 3, Tokens: 25301, Passed: 3, N: 3}) != "same" {
+		t.Fatal("inside five percent")
+	}
+	if judge(runStats{Steps: 3, Tokens: 24000, TokenSpan: 5000, Passed: 3, N: 3}, runStats{Steps: 3, Tokens: 20000, Passed: 3, N: 3}) != "same" {
+		t.Fatal("inside the spread")
+	}
+	if judge(runStats{Steps: 2, Tokens: 19000, Passed: 3, N: 3}, runStats{Steps: 3, Tokens: 19600, Passed: 3, N: 3}) != "better" {
+		t.Fatal("one fewer step")
+	}
+	if judge(runStats{Steps: 3, Tokens: 28000, TokenSpan: 5000, Passed: 3, N: 3}, runStats{Steps: 3, Tokens: 20000, Passed: 3, N: 3}) != "worse" {
+		t.Fatal("beyond the spread")
+	}
 }
 
 func TestBaselineIsTheLatestCleanCommit(t *testing.T) {

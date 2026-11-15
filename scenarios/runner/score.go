@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
+
+var cardWrite sync.Mutex
 
 type scenarioSpec struct {
 	Task            string      `json:"task"`
@@ -329,6 +332,8 @@ func argumentText(items []scenarioItem) string {
 }
 
 func appendCard(dir, id string, card scenarioCard) error {
+	cardWrite.Lock()
+	defer cardWrite.Unlock()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

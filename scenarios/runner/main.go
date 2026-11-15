@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 func main() {
@@ -17,6 +18,7 @@ func main() {
 	binary := flag.String("binary", "./keimling", "keimling binary to run")
 	scenario := flag.String("scenario", "", "scenario id (empty runs every scenario)")
 	runs := flag.Int("runs", 3, "how many times to run each scenario")
+	parallel := flag.Int("parallel", 0, "max scenario runs at once (0 means all of them)")
 	list := flag.Bool("list", false, "print scenario ids and exit")
 	checkpoint := flag.Bool("checkpoint", false, "freeze the latest run of each scenario as the baseline")
 	flag.Parse()
@@ -67,16 +69,51 @@ func main() {
 	commit := binaryCommit(bin)
 	colorOn = termColor()
 	printVersion(commit)
-	var words []string
+	type runJob struct {
+		id   string
+		spec scenarioSpec
+		n    int
+	}
+	var jobs []runJob
 	for _, id := range ids {
-		word, err := runScenario(root, bin, id, commit, *runs)
+		spec, err := loadSpec(filepath.Join(root, "scenarios", id, "scenario.json"))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if word != "" {
-			words = append(words, word)
+		for n := 1; n <= *runs; n++ {
+			jobs = append(jobs, runJob{id: id, spec: spec, n: n})
 		}
+	}
+	held := map[string][]scenarioCard{}
+	for _, id := range ids {
+		held[id] = make([]scenarioCard, *runs)
+	}
+	var printMu sync.Mutex
+	var words []string
+	printed := 0
+	doneN := map[string]int{}
+	if err := runLimited(len(jobs), *parallel, func(i int) error {
+		job := jobs[i]
+		card, runErr := oneRun(root, bin, job.id, job.spec, commit, job.n)
+		printMu.Lock()
+		defer printMu.Unlock()
+		held[job.id][job.n-1] = card
+		doneN[job.id]++
+		for printed < len(ids) && doneN[ids[printed]] == *runs {
+			word, pubErr := publishScenario(root, ids[printed], commit, held[ids[printed]])
+			if pubErr != nil && runErr == nil {
+				runErr = pubErr
+			}
+			if word != "" {
+				words = append(words, word)
+			}
+			printed++
+		}
+		return runErr
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	if len(words) == 0 {
 		return
@@ -88,18 +125,11 @@ func main() {
 	}
 }
 
-func runScenario(repo, bin, id, commit string, runs int) (string, error) {
-	spec, err := loadSpec(filepath.Join(repo, "scenarios", id, "scenario.json"))
-	if err != nil {
-		return "", err
-	}
+func publishScenario(repo, id, commit string, ran []scenarioCard) (string, error) {
 	printScenario(id)
-	for n := 1; n <= runs; n++ {
-		card, err := oneRun(repo, bin, id, spec, commit, n)
-		if err != nil {
-			return "", err
-		}
-		printRun(n, runs, card)
+	runs := len(ran)
+	for n, card := range ran {
+		printRun(n+1, runs, card)
 	}
 	cards, err := loadCards(filepath.Join(repo, "scenarios", "cards"), id)
 	if err != nil {
@@ -180,13 +210,17 @@ func oneRun(repo, bin, id string, spec scenarioSpec, commit string, n int) (scen
 		return scenarioCard{}, err
 	}
 	defer os.RemoveAll(prep.DataHome)
-	args := []string{"--cli", "--oneshot", "--mode", "yolo", "--web=false", "--autopilot=false", "--resume=false", "--check-model=false"}
+	cfg, configHome, err := copyUserConfig(prep.DataHome)
+	if err != nil {
+		return scenarioCard{}, err
+	}
+	args := []string{"--cli", "--oneshot", "--mode", "yolo", "--web=false", "--autopilot=false", "--resume=false", "--check-model=false", "--config", cfg}
 	if prep.PriorResult != "" {
 		args = append(args, "--prior-result", prep.PriorResult)
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = prep.Root
-	cmd.Env = append(os.Environ(), "XDG_DATA_HOME="+prep.DataHome)
+	cmd.Env = childEnv(prep.DataHome, configHome)
 	cmd.Stdin = strings.NewReader(spec.Task + "\n")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

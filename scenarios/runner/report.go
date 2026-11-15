@@ -127,9 +127,29 @@ func printCompare(baseCommit string, cur, base runStats) {
 	fmt.Printf("  %s  %s\n", paint("1;"+verdictColor(word), word), paint("2", "against "+baseCommit))
 	fmt.Printf("  steps %d (%s)  tokens %d (%s)  time %s (%s)  passed %d/%d (was %d/%d)\n",
 		cur.Steps, costDelta(int64(cur.Steps-base.Steps)),
-		cur.Tokens, costDelta(cur.Tokens-base.Tokens),
-		fmtDur(cur.Duration), signedDur(cur.Duration-base.Duration),
+		cur.Tokens, shownDelta(cur.Tokens-base.Tokens, withinNoise(cur.Tokens-base.Tokens, base.Tokens, cur.TokenSpan, base.TokenSpan)),
+		fmtDur(cur.Duration), shownDur(cur.Duration-base.Duration, withinNoise(cur.Duration-base.Duration, base.Duration, cur.DurSpan, base.DurSpan)),
 		cur.Passed, cur.N, base.Passed, base.N)
+}
+
+func shownDelta(n int64, quiet bool) string {
+	s := fmt.Sprintf("%+d", n)
+	if quiet {
+		return paint("2", s)
+	}
+	return costDelta(n)
+}
+
+func shownDur(ms int64, quiet bool) string {
+	sign := "+"
+	if ms < 0 {
+		sign = "-"
+	}
+	body := sign + fmtDur(ms)
+	if quiet {
+		return paint("2", body)
+	}
+	return costDeltaText(ms, body)
 }
 
 func printSum(verdict string) {

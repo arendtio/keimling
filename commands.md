@@ -93,15 +93,16 @@ The image `CMD` is `--server --listen 0.0.0.0:7420`. State and CWD are `/data` (
 
 ## Scenarios
 
-Scenario tasks and fixtures live under `scenarios/` and are not compiled into `./keimling`. `make scenario` builds the current source (`build-nogui`) and runs every scenario on that binary. A dirty tree is stamped `commit+YYYYMMDDTHHMMSS`. A clean tree is stamped with the commit only. The temporary workspace is removed. Cards append to `scenarios/cards/<id>.jsonl`. Each journal is kept at `scenarios/runs/<version>/<scenario>/<n>/`. This is outside `make test`.
+Scenario tasks and fixtures live under `scenarios/` and are not compiled into `./keimling`. `make scenario` builds the current source (`build-nogui`) and runs every scenario on that binary. Repetitions run at the same time. `PARALLEL` is the maximum number at once; `0` means all of them. Each run receives a copy of `~/.config/keimling` under its temporary directory and does not write the user's files. The credential vault is not part of the copy. A dirty tree is stamped `commit+YYYYMMDDTHHMMSS`. A clean tree is stamped with the commit only. The temporary workspace is removed. Cards append to `scenarios/cards/<id>.jsonl`. Each journal is kept at `scenarios/runs/<version>/<scenario>/<n>/`. This is outside `make test`.
 
-Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses the latest run of the same model whose stamp has no plus sign. A wrong outcome outweighs a shorter path. The last line is `better`, `worse`, `mixed`, or `same`. One missed repetition is printed and does not fail the command. The command exits with an error when that sum is `worse`, or when a scenario could not be run. On a terminal the report uses color. `NO_COLOR` leaves it plain.
+Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses the latest run of the same model whose stamp has no plus sign. A wrong outcome outweighs a shorter path. A token or time move within 5% of the baseline, or within the spread of the repeated runs, is `same` when the passes and the steps are unchanged. The last line is `better`, `worse`, `mixed`, or `same`. One missed repetition is printed and does not fail the command. The command exits with an error when that sum is `worse`, or when a scenario could not be run. On a terminal the report uses color. `NO_COLOR` leaves it plain.
 
 | Command | Purpose |
 | --- | --- |
 | `make scenario` | Build, run all scenarios (3 times each), print the comparison |
 | `make scenario SCENARIO=phone-book` | The same for one scenario |
 | `make scenario RUNS=1` | One run of each scenario |
+| `make scenario PARALLEL=4` | At most four runs at once |
 | `make scenario-list` | Print the scenario ids |
 | `make scenario-checkpoint` | Freeze the latest run of each scenario as the comparison baseline |
 | `make scenario-check` | Score the runner without calling a model |

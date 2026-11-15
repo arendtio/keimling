@@ -27,11 +27,13 @@ func (m checkpointMark) stats() runStats {
 }
 
 type runStats struct {
-	Steps    int
-	Tokens   int64
-	Duration int64
-	Passed   int
-	N        int
+	Steps     int
+	Tokens    int64
+	Duration  int64
+	TokenSpan int64
+	DurSpan   int64
+	Passed    int
+	N         int
 }
 
 func checkpointPath(repo string) string {
@@ -131,11 +133,53 @@ func statsOf(cards []scenarioCard) runStats {
 	st.Steps = medianInt(steps)
 	st.Tokens = medianInt64(tokens)
 	st.Duration = medianInt64(durs)
+	st.TokenSpan = spanInt64(tokens)
+	st.DurSpan = spanInt64(durs)
 	return st
 }
 
+func spanInt64(values []int64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	lo, hi := values[0], values[0]
+	for _, n := range values[1:] {
+		if n < lo {
+			lo = n
+		}
+		if n > hi {
+			hi = n
+		}
+	}
+	return hi - lo
+}
+
+// noiseBar is the larger of 5% of the baseline and the spread of either side.
+// A move inside that bar is ordinary run-to-run movement.
+func noiseBar(base, spanCur, spanBase int64) int64 {
+	bar := base / 20
+	if bar < 0 {
+		bar = -bar
+	}
+	if spanCur > bar {
+		bar = spanCur
+	}
+	if spanBase > bar {
+		bar = spanBase
+	}
+	return bar
+}
+
+func withinNoise(delta, base, spanCur, spanBase int64) bool {
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= noiseBar(base, spanCur, spanBase)
+}
+
 // judge names the change from base to cur. A lost pass outweighs a shorter path.
-// Time is reported by the caller and does not flip this word on its own.
+// A token move inside the noise bar does not count. Time is reported by the
+// caller and does not flip this word on its own.
 func judge(cur, base runStats) string {
 	if cur.Passed < base.Passed {
 		return "worse"
@@ -145,8 +189,11 @@ func judge(cur, base runStats) string {
 	}
 	stepUp := cur.Steps > base.Steps
 	stepDown := cur.Steps < base.Steps
-	tokUp := cur.Tokens > base.Tokens
-	tokDown := cur.Tokens < base.Tokens
+	tokUp, tokDown := false, false
+	if !withinNoise(cur.Tokens-base.Tokens, base.Tokens, cur.TokenSpan, base.TokenSpan) {
+		tokUp = cur.Tokens > base.Tokens
+		tokDown = cur.Tokens < base.Tokens
+	}
 	if (stepUp || tokUp) && (stepDown || tokDown) {
 		return "mixed"
 	}

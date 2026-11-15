@@ -77,8 +77,9 @@ clean:
 # Scenarios live outside the shipping binary. scenario builds the current source first.
 SCENARIO ?=
 RUNS ?= 3
+PARALLEL ?= 0
 scenario: build-nogui
-	cd scenarios/runner && go run . -repo ../.. -binary ../../keimling -scenario "$(SCENARIO)" -runs "$(RUNS)"
+	cd scenarios/runner && go run . -repo ../.. -binary ../../keimling -scenario "$(SCENARIO)" -runs "$(RUNS)" -parallel "$(PARALLEL)"
 
 scenario-list:
 	cd scenarios/runner && go run . -repo ../.. -list
