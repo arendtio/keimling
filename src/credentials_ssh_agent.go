@@ -96,8 +96,64 @@ func killSSHAgent(pid string) error {
 
 func normalizeSSHKey(secret string) string {
 	s := strings.ReplaceAll(secret, "\r\n", "\n")
-	s = strings.TrimSpace(s) + "\n"
-	return s
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.TrimSpace(s)
+	if fixed, ok := reflowPEM(s); ok {
+		s = fixed
+	}
+	if s == "" {
+		return "\n"
+	}
+	return s + "\n"
+}
+
+// reflowPEM puts a private key back into PEM lines. A one-line paste drops
+// the breaks an HTML text field removes, and ssh-add then fails in libcrypto.
+func reflowPEM(s string) (string, bool) {
+	begin := strings.Index(s, "-----BEGIN ")
+	if begin < 0 {
+		return "", false
+	}
+	headerClose := strings.Index(s[begin+5:], "-----")
+	if headerClose < 0 {
+		return "", false
+	}
+	headerEnd := begin + 5 + headerClose + 5
+	header := s[begin:headerEnd]
+	end := strings.Index(s[headerEnd:], "-----END ")
+	if end < 0 {
+		return "", false
+	}
+	end += headerEnd
+	footerClose := strings.Index(s[end+5:], "-----")
+	if footerClose < 0 {
+		return "", false
+	}
+	footerEnd := end + 5 + footerClose + 5
+	footer := s[end:footerEnd]
+	body := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\n', '\t', '\r':
+			return -1
+		default:
+			return r
+		}
+	}, s[headerEnd:end])
+	if body == "" {
+		return "", false
+	}
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteByte('\n')
+	for len(body) > 70 {
+		b.WriteString(body[:70])
+		b.WriteByte('\n')
+		body = body[70:]
+	}
+	b.WriteString(body)
+	b.WriteByte('\n')
+	b.WriteString(footer)
+	return b.String(), true
 }
 
 // ensureSSHAgentAvailable is used by tests to skip when ssh-agent missing.

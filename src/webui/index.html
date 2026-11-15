@@ -309,7 +309,7 @@
       </div>
 
       <div id="pane-secrets" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">Encrypted credential vault for MCP tools. The model never sees secret values. Unlock lasts until this Keimling process exits.</p>
+        <p class="settings-lead">Secrets stay here. The model can ask to use one and never sees the value. Unlock lasts until this Keimling process exits.</p>
         <p id="vault-status" class="hint">Vault status…</p>
         <div id="vault-unlock" class="profile-editor" hidden>
           <label>Master password
@@ -327,34 +327,42 @@
           <div id="credential-editor" class="profile-editor" hidden>
             <label>Name
               <input id="cred-edit-name" type="text" autocomplete="off">
+              <span class="hint">Shown in the list.</span>
             </label>
             <label>Description
               <input id="cred-edit-description" type="text" autocomplete="off">
+              <span class="hint">Optional. You and the agent read this when choosing a credential.</span>
             </label>
             <label>Type
               <select id="cred-edit-type">
-                <option value="password">password</option>
-                <option value="api_key">api_key</option>
-                <option value="token">token</option>
-                <option value="ssh_key">ssh_key</option>
+                <option value="password">Password</option>
+                <option value="api_key">API key</option>
+                <option value="token">Token</option>
+                <option value="ssh_key">SSH key</option>
               </select>
             </label>
-            <label>Service / domain
-              <input id="cred-edit-service" type="text" autocomplete="off" placeholder="chat.example.org">
+            <p id="cred-edit-use" class="hint"></p>
+            <label>Service or hosts
+              <input id="cred-edit-service" type="text" autocomplete="off" placeholder="git.example.org, github.com">
+              <span id="cred-edit-service-hint" class="hint"></span>
             </label>
-            <label>Allowed tools (comma-separated)
-              <input id="cred-edit-tools" type="text" autocomplete="off" placeholder="exec, mcp__xmpp__send_message">
+            <label>Tools that may use this
+              <input id="cred-edit-tools" type="text" autocomplete="off" placeholder="exec">
+              <span id="cred-edit-tools-hint" class="hint"></span>
             </label>
-            <label>Inject as MCP argument
+            <label id="cred-edit-inject-label">Argument on an MCP tool
               <input id="cred-edit-inject" type="text" autocomplete="off" placeholder="password">
+              <span class="hint">The argument that receives the value, such as password. Leave this blank and Keimling picks a default for the type. Change it when the tool calls the argument something else.</span>
             </label>
-            <label>Inject as exec env name
+            <label id="cred-edit-inject-env-label">Environment variable for a shell command
               <input id="cred-edit-inject-env" type="text" autocomplete="off" placeholder="GITHUB_TOKEN">
+              <span class="hint">The variable the command receives, such as GITHUB_TOKEN. The secret is not written into the command. Leave this empty when only an MCP tool uses the value.</span>
             </label>
-            <label>Secret
+            <label><span id="cred-edit-secret-title">Secret</span>
               <input id="cred-edit-secret" type="password" autocomplete="off" placeholder="">
+              <textarea id="cred-edit-secret-key" class="cred-secret-key" hidden autocomplete="off" spellcheck="false" rows="8"></textarea>
+              <span id="cred-edit-secret-hint" class="hint"></span>
             </label>
-            <p id="cred-edit-hint" class="hint"></p>
             <div class="skills-row">
               <button type="button" id="cred-edit-cancel" class="ghost">Cancel</button>
               <button type="button" id="cred-edit-save">Save</button>

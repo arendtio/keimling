@@ -131,7 +131,14 @@
   var credEditInject = document.getElementById("cred-edit-inject");
   var credEditInjectEnv = document.getElementById("cred-edit-inject-env");
   var credEditSecret = document.getElementById("cred-edit-secret");
-  var credEditHint = document.getElementById("cred-edit-hint");
+  var credEditSecretKey = document.getElementById("cred-edit-secret-key");
+  var credEditInjectLabel = document.getElementById("cred-edit-inject-label");
+  var credEditInjectEnvLabel = document.getElementById("cred-edit-inject-env-label");
+  var credEditUse = document.getElementById("cred-edit-use");
+  var credEditServiceHint = document.getElementById("cred-edit-service-hint");
+  var credEditToolsHint = document.getElementById("cred-edit-tools-hint");
+  var credEditSecretTitle = document.getElementById("cred-edit-secret-title");
+  var credEditSecretHint = document.getElementById("cred-edit-secret-hint");
   var credEditCancel = document.getElementById("cred-edit-cancel");
   var credEditSave = document.getElementById("cred-edit-save");
   var credEditDelete = document.getElementById("cred-edit-delete");
@@ -1323,11 +1330,42 @@
     if (credEditInjectEnv) credEditInjectEnv.value = c ? (c.inject_env || "") : "";
     if (credEditSecret) {
       credEditSecret.value = "";
-      credEditSecret.placeholder = c && c.secret_set ? "Set — leave blank to keep" : "Secret value (or PEM for ssh_key)";
+      credEditSecret.placeholder = c && c.secret_set ? "Set — leave blank to keep" : "Secret value";
+    }
+    if (credEditSecretKey) {
+      credEditSecretKey.value = "";
+      credEditSecretKey.placeholder = c && c.secret_set ? "Set — leave blank to keep" : "Paste the private key file, from BEGIN through END";
     }
     if (credEditDelete) credEditDelete.hidden = !c;
-    if (credEditHint) {
-      credEditHint.textContent = "For exec use {{keimling:<id>}} in commands; inject_env is the vault-defined env name. ssh_key uses an ephemeral ssh-agent. MCP uses inject arg.";
+    syncCredentialForm();
+  }
+
+  function syncCredentialForm() {
+    var ssh = credEditType && credEditType.value === "ssh_key";
+    if (credEditSecret) credEditSecret.hidden = !!ssh;
+    if (credEditSecretKey) credEditSecretKey.hidden = !ssh;
+    if (credEditInjectLabel) credEditInjectLabel.hidden = !!ssh;
+    if (credEditInjectEnvLabel) credEditInjectEnvLabel.hidden = !!ssh;
+    if (credEditUse) {
+      credEditUse.textContent = ssh
+        ? "A private key for Git or SSH. Paste the key file below. For one shell command, Keimling loads the key into its own ssh-agent and then drops it. The model never reads the key."
+        : "A value the model never reads. A shell command can receive it as an environment variable. An MCP tool can receive it as one argument.";
+    }
+    if (credEditServiceHint) {
+      credEditServiceHint.textContent = ssh
+        ? "The hosts this key is for, separated by commas, such as git.example.org, github.com. The agent uses this to choose the key. The key is not limited to those hosts."
+        : "Which service this belongs to. Several hosts can be written here, separated by commas. The agent uses this to choose. It does not limit where the value is sent.";
+    }
+    if (credEditToolsHint) {
+      credEditToolsHint.textContent = ssh
+        ? "Write exec. Git and ssh run as a shell command."
+        : "Write exec for a shell command, or an MCP tool name such as mcp__server__tool. Separate several names with commas.";
+    }
+    if (credEditSecretTitle) credEditSecretTitle.textContent = ssh ? "Private key" : "Secret";
+    if (credEditSecretHint) {
+      credEditSecretHint.textContent = ssh
+        ? "The key file, from BEGIN through END, each line on its own line. A key that asks for its own passphrase cannot be loaded. The vault password protects it. When you edit, leave this blank to keep the saved key."
+        : "The value itself. It is stored encrypted and is not shown again. When you edit, leave this blank to keep the saved value.";
     }
   }
 
@@ -1347,7 +1385,8 @@
       inject_arg: credEditInject ? credEditInject.value.trim() : "",
       inject_env: credEditInjectEnv ? credEditInjectEnv.value.trim() : "",
     };
-    var secret = credEditSecret ? credEditSecret.value : "";
+    var ssh = credEditType && credEditType.value === "ssh_key";
+    var secret = ssh ? (credEditSecretKey ? credEditSecretKey.value : "") : (credEditSecret ? credEditSecret.value : "");
     var isNew = !editingCredentialID;
     if (isNew || secret) body.secret = secret;
     var url = apiURL(isNew ? "/api/credentials" : "/api/credentials/" + encodeURIComponent(editingCredentialID));
@@ -5896,6 +5935,7 @@
   if (credEditCancel) credEditCancel.addEventListener("click", closeCredentialEditor);
   if (credEditSave) credEditSave.addEventListener("click", saveCredentialEditor);
   if (credEditDelete) credEditDelete.addEventListener("click", deleteCredentialEditor);
+  if (credEditType) credEditType.addEventListener("change", syncCredentialForm);
   if (providerNewBtn) providerNewBtn.addEventListener("click", function () {
     openProviderEditor(null);
   });

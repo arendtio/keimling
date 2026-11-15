@@ -58,6 +58,16 @@ Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandant
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-CB-7 The credential form explains the case
+
+- **Bin:** explicit requirement
+- **Statement:** The credential form shall explain, in the words of the job, what the chosen type is for and when each field is filled. A service may name several hosts in that one field. An SSH key shall explain the private-key file, the shell command, and the hosts. A password, API key, or token shall explain the environment variable for a shell command and the argument for an MCP tool.
+- **Origin:** User, 2026-11-15 (quote: "wenn ich den Typ auswähle. Dann, ja, ich weiß nicht, danach habe ich das Gefühl. Ähm, ich brauche eigentlich erstmal 'ne Erklärung, was alles möglich ist. Also dass man bei der Domain mehrere, äh, Felder angeben kann. Ähm, dass, was ist jetzt ein Inject-as-SEP-Argument, Inject-as-Exec-EnfName, was ist. Secret oder. Also das, das verstehe ich alles nicht so richtig, wie ich das zu bedienen habe als Enduser.").
+- **Rationale:** The field names name the mechanism. A person filling the form needs the case: which hosts, which command, which tool argument, and what to paste.
+- **Fit criterion:** Choosing SSH key shows that the value is a private key file loaded for one shell command, that several hosts go in the one service field, and that the MCP argument and the environment variable are not part of that case. Choosing Password, API key, or Token shows that a shell command receives an environment variable and an MCP tool receives one argument. Each of those fields has that sentence next to it.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
 - External vaults for MCP connection tokens. Those tokens stay in `mcp.json` (REQ-CB-4, REQ-CB-5).
@@ -90,7 +100,7 @@ Mehrere Credentials für denselben Service sind erlaubt.
 - **Env-Injection:** Vault-Feld `inject_env` setzt den Env-Namen. Placeholder wird durch `$<inject_env>` ersetzt; Secret nur in `cmd.Env`.
 - Mehrere Credentials in einem Befehl: mehrere Placeholder mit unterschiedlichen IDs.
 - **Exfiltration-Check:** Bevor Env-Secrets gesetzt werden, prüft ein zusätzlicher Model-Call den Befehl (ohne Secret-Werte, nur Env-Namen + Command) auf Secret-Exfiltration. Ablehnung → kein Inject, Befehl wird nicht mit Secrets ausgeführt. Fail-closed bei Review-Fehler.
-- **SSH-Agent (`type: ssh_key`):** Private Key kommt in einen ephemeren `ssh-agent` für diesen Lauf (`SSH_AUTH_SOCK`); Placeholder wird entfernt. Kein Key im Modellkontext.
+- **SSH-Agent (`type: ssh_key`):** Private Key kommt in einen ephemeren `ssh-agent` für diesen Lauf (`SSH_AUTH_SOCK`); Placeholder wird entfernt. Kein Key im Modellkontext. Das Secret ist die private Schlüsseldatei, Zeilenumbrüche eingeschlossen. Ein Schlüssel, der ohne Zeilenumbrüche gespeichert wurde, wird vor `ssh-add` wieder in PEM-Zeilen gelegt.
 
 ## Speicherung (KeePass-artig)
 

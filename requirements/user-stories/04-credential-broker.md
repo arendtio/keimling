@@ -45,3 +45,9 @@
 - Env-Name kommt aus dem Vault; Placeholder enthält die Credential-ID.
 - Vor Env-Inject: Exfiltration-Review (Model-Call); fail-closed.
 - `ssh_key`: Agent-Bridge, kein Key im Prompt; Output redacted.
+
+## US-79 — See what a credential field is for
+
+**As** a user, **I want** the credential form to explain the chosen case and each field, **so that** I can fill a password, a token, or an SSH key without knowing the mechanism names.
+
+**Acceptance:** traces REQ-CB-7. SSH key explains the private-key file, the one shell command, and several hosts in the service field, and hides the MCP argument and the environment variable. Password, API key, and Token explain the environment variable and the MCP argument beside those fields.
