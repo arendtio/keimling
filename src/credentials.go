@@ -152,6 +152,50 @@ func (b *CredentialBroker) persistLocked() error {
 	return writeVaultEnvelope(b.path, env)
 }
 
+// sshKeysForHost returns unlocked ssh_key credentials whose service names host.
+// A locked vault returns nothing so the caller keeps its own SSH setup.
+func (b *CredentialBroker) sshKeysForHost(host string) []Credential {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if b == nil || host == "" || !b.Unlocked() {
+		return nil
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []Credential
+	for _, c := range b.creds {
+		if c.Type != "ssh_key" || strings.TrimSpace(c.Secret) == "" {
+			continue
+		}
+		if serviceNamesHost(c.Service, host) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func serviceNamesHost(service, host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	for _, field := range strings.FieldsFunc(service, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
+	}) {
+		field = strings.ToLower(strings.TrimSpace(field))
+		field = strings.TrimPrefix(field, "ssh://")
+		field = strings.TrimPrefix(field, "https://")
+		field = strings.TrimPrefix(field, "http://")
+		field = strings.TrimPrefix(field, "git@")
+		if i := strings.IndexAny(field, ":/"); i >= 0 {
+			field = field[:i]
+		}
+		if field == host {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *CredentialBroker) ListPublic() []map[string]any {
 	if b == nil {
 		return nil

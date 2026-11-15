@@ -136,7 +136,7 @@ func classifyPluginLocation(raw string) (kind, location string, err error) {
 	return "dir", filepath.Clean(path), nil
 }
 
-func addPluginSource(location string) (pluginStatus, error) {
+func addPluginSourceWith(location string, broker *CredentialBroker) (pluginStatus, error) {
 	kind, loc, err := classifyPluginLocation(location)
 	if err != nil {
 		return pluginStatus{}, err
@@ -152,7 +152,7 @@ func addPluginSource(location string) (pluginStatus, error) {
 	}
 	rec := pluginRecord{ID: newStampedID("plugin"), Kind: kind, Location: loc, Enabled: true, PluginSet: true}
 	if kind == "git" {
-		if err := syncPluginGit(rec, true); err != nil {
+		if err := syncPluginGitWith(rec, true, broker); err != nil {
 			return pluginStatus{}, err
 		}
 	}
@@ -161,6 +161,10 @@ func addPluginSource(location string) (pluginStatus, error) {
 		return pluginStatus{}, err
 	}
 	return inspectPlugin(rec, false)
+}
+
+func addPluginSource(location string) (pluginStatus, error) {
+	return addPluginSourceWith(location, nil)
 }
 
 func setPluginEnabled(id string, enabled bool) (pluginStatus, error) {
@@ -182,6 +186,10 @@ func setPluginEnabled(id string, enabled bool) (pluginStatus, error) {
 }
 
 func refreshPlugin(id string) (pluginStatus, error) {
+	return refreshPluginWith(id, nil)
+}
+
+func refreshPluginWith(id string, broker *CredentialBroker) (pluginStatus, error) {
 	f, err := readPluginFile()
 	if err != nil {
 		return pluginStatus{}, err
@@ -191,7 +199,7 @@ func refreshPlugin(id string) (pluginStatus, error) {
 			continue
 		}
 		if src.Kind == "git" {
-			if err := syncPluginGit(src, true); err != nil {
+			if err := syncPluginGitWith(src, true, broker); err != nil {
 				st, _ := inspectPlugin(src, false)
 				st.Error = err.Error()
 				return st, nil
@@ -251,6 +259,10 @@ func listPluginStatus() ([]pluginStatus, error) {
 }
 
 func syncPluginGit(rec pluginRecord, fetch bool) error {
+	return syncPluginGitWith(rec, fetch, nil)
+}
+
+func syncPluginGitWith(rec pluginRecord, fetch bool, broker *CredentialBroker) error {
 	dest := pluginCheckoutDir(rec.ID)
 	if !fetch && dirExists(dest) {
 		return nil
@@ -259,9 +271,14 @@ func syncPluginGit(rec pluginRecord, fetch bool) error {
 	defer cancel()
 	if dirExists(filepath.Join(dest, ".git")) {
 		cmd := exec.CommandContext(ctx, "git", "-C", dest, "pull", "--ff-only")
+		cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("git pull: %s", pluginOneLine(string(out)))
+			return fmt.Errorf("git pull: %s", pluginGitFailure(string(out), err))
 		}
 		return nil
 	}
@@ -272,16 +289,86 @@ func syncPluginGit(rec pluginRecord, fetch bool) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--", rec.Location, dest)
+	cleanup, err := applyPluginGitAuth(cmd, broker, rec.Location)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = os.RemoveAll(dest)
-		msg := pluginOneLine(string(out))
-		if msg == "" {
-			msg = err.Error()
-		}
-		return fmt.Errorf("git clone: %s", msg)
+		return fmt.Errorf("git clone: %s", pluginGitFailure(string(out), err))
 	}
 	return nil
+}
+
+// applyPluginGitAuth gives an SSH remote the vault key for that host.
+// A missing vault, a locked vault, or no key for the host leaves the process SSH setup in place.
+func applyPluginGitAuth(cmd *exec.Cmd, broker *CredentialBroker, location string) (func(), error) {
+	host, ok := gitSSHHost(location)
+	if !ok {
+		return func() {}, nil
+	}
+	keys := broker.sshKeysForHost(host)
+	if len(keys) == 0 {
+		return func() {}, nil
+	}
+	sess, err := startSSHAgentWithKeys(keys)
+	if err != nil {
+		return func() {}, err
+	}
+	cmd.Env = append(os.Environ(), sess.Environ()...)
+	return sess.Close, nil
+}
+
+func gitSSHHost(location string) (string, bool) {
+	location = strings.TrimSpace(location)
+	if strings.HasPrefix(location, "git@") {
+		rest := strings.TrimPrefix(location, "git@")
+		host, _, found := strings.Cut(rest, ":")
+		host = strings.TrimSpace(host)
+		return host, found && host != ""
+	}
+	u, err := url.Parse(location)
+	if err != nil || u.Hostname() == "" {
+		return "", false
+	}
+	if strings.EqualFold(u.Scheme, "ssh") {
+		return u.Hostname(), true
+	}
+	return "", false
+}
+
+func pluginGitFailure(out string, err error) string {
+	var last, fatalLine, specific string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Cloning into ") {
+			continue
+		}
+		last = line
+		low := strings.ToLower(line)
+		if strings.HasPrefix(low, "fatal:") {
+			fatalLine = line
+		}
+		if strings.Contains(low, "permission denied") || strings.Contains(low, "host key verification") || strings.Contains(low, "could not resolve") {
+			specific = line
+		}
+	}
+	picked := specific
+	if picked == "" {
+		picked = fatalLine
+	}
+	if picked == "" {
+		picked = last
+	}
+	if picked == "" && err != nil {
+		picked = err.Error()
+	}
+	if len(picked) > 300 {
+		picked = picked[:300]
+	}
+	return picked
 }
 
 func pluginRoot(rec pluginRecord, fetch bool) (string, error) {

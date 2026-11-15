@@ -41,7 +41,11 @@ func (s *appServer) handlePluginAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "location required", http.StatusBadRequest)
 		return
 	}
-	st, err := addPluginSource(body.Location)
+	var broker *CredentialBroker
+	if s != nil && s.agent != nil {
+		broker = s.agent.Credentials
+	}
+	st, err := addPluginSourceWith(body.Location, broker)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -110,7 +114,11 @@ func (s *appServer) handlePluginRefresh(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
-	st, err := refreshPlugin(body.ID)
+	var broker *CredentialBroker
+	if s != nil && s.agent != nil {
+		broker = s.agent.Credentials
+	}
+	st, err := refreshPluginWith(body.ID, broker)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

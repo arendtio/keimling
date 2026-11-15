@@ -163,6 +163,86 @@ func TestPluginGitURLChecksOut(t *testing.T) {
 	}
 }
 
+func TestPluginGitFailureSkipsTheCloneBanner(t *testing.T) {
+	out := "Cloning into '/data/plugins/checkouts/plugin-1'...\ngit@git.arendt.dev: Permission denied (publickey).\nfatal: Could not read from remote repository.\n"
+	got := pluginGitFailure(out, nil)
+	if strings.Contains(got, "Cloning into") || !strings.Contains(got, "Permission denied") {
+		t.Fatal(got)
+	}
+}
+
+func TestPluginGitUsesTheVaultKeyForThatHost(t *testing.T) {
+	if err := ensureSSHAgentAvailable(); err != nil {
+		t.Skip(err)
+	}
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id")
+	out, err := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-f", keyPath, "-q").CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	raw, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.json")
+	b := NewCredentialBroker(cfg)
+	if err := b.Create("pw"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Upsert(Credential{
+		Name: "Git", Type: "ssh_key", Service: "git.arendt.dev, github.com", AllowedTools: []string{"exec"},
+	}, string(raw), true); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "clone")
+	cleanup, err := applyPluginGitAuth(cmd, b, "git@git.arendt.dev:skills.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if cmd.Env == nil {
+		t.Fatal("vault key was not offered")
+	}
+	list := exec.Command("ssh-add", "-l")
+	list.Env = cmd.Env
+	listed, err := list.CombinedOutput()
+	if err != nil || !strings.Contains(string(listed), "ED25519") {
+		t.Fatalf("%v %s", err, listed)
+	}
+	other := exec.Command("git", "clone")
+	cleanupOther, err := applyPluginGitAuth(other, b, "git@example.test:repo.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanupOther()
+	if other.Env != nil {
+		t.Fatal("a key for another host was offered")
+	}
+	web := exec.Command("git", "clone")
+	cleanupWeb, err := applyPluginGitAuth(web, b, "https://git.arendt.dev/skills.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanupWeb()
+	if web.Env != nil {
+		t.Fatal("an ssh key was offered for https")
+	}
+	locked := NewCredentialBroker(cfg)
+	plain := exec.Command("git", "clone")
+	cleanupPlain, err := applyPluginGitAuth(plain, locked, "git@git.arendt.dev:skills.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanupPlain()
+	if plain.Env != nil {
+		t.Fatal("a locked vault changed the clone")
+	}
+}
+
 func TestPluginSkipsAServerOutsideTheRoot(t *testing.T) {
 	withTempAgentHomes(t)
 	root := t.TempDir()

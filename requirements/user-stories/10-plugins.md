@@ -17,3 +17,9 @@
 **As** a user, **I want** to initialize a marketplace plugin that runs a command, an exec, or a hook, **so that** I have seen what runs and it stays active under that name.
 
 **Acceptance:** traces REQ-PL-6. Until initialization, that code does not run. After activation, the same name keeps running, including when a later update changes the script body. A different name stays inactive.
+
+## US-81 — Clone a private plugin with the vault key
+
+**As** a user, **I want** a plugin Git URL to use the vault SSH key for that host when the vault is open, **so that** a private repository works in a container and a machine that already has a key still works without a vault.
+
+**Acceptance:** traces REQ-PL-7. An unlocked key whose service names the host is used for that SSH clone and for a refresh. A locked vault, another host, and an HTTPS URL do not receive it. A refused clone shows Git's failure line.

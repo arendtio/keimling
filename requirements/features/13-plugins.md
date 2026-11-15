@@ -60,6 +60,16 @@
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-PL-7 A git clone uses a vault key for that host
+
+- **Bin:** explicit requirement
+- **Statement:** Adding or refreshing a plugin from Git shall succeed without a vault. When the vault is unlocked and holds an SSH key whose service names the host of an SSH URL, that clone and a later refresh shall use that key. A locked vault, a key for another host, and an HTTPS URL shall leave the process's own SSH setup in place. A failed clone shall report Git's failure, not only the line that names the checkout directory.
+- **Origin:** User, 2026-11-15 (quote: "ich hatte mal im container einen SSH key hinterlegt mit berechtigungen und manchmal nutzen Personen keimling ja auch ohne container, dann ist das schon okay, aber wenn im vault zugangsdaten für die domain liegen, sollen die auch genutzt werden"). Same day, after a private clone showed only the checkout line (quote: "Allerdings erschien nur in rot: git clone: Cloning into '…'. Danach keine Fehlermeldung").
+- **Rationale:** A public repository and a machine that already has a key must keep working. A private host whose key is in the vault should not depend on a key file inside the container. The first line Git prints is the directory, so it hides the reason the clone stopped.
+- **Fit criterion:** A Git URL whose host is named on an unlocked SSH key is cloned with that key in an ssh-agent for that command. The same URL with the vault locked, or with a key whose service names a different host, is cloned without that agent. An HTTPS URL does not receive the SSH key. The error for a refused clone contains the permission or host-key line and does not stop at "Cloning into".
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 REQ-PL-1 and REQ-PL-2 describe a single Agent Plugin. For that layout, one source is the directory that contains `plugin.json`. The manifest `$schema` must be `https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`. Skills are the immediate children of `skills/`. MCP servers come only from `mcp.json` with the matching MCP schema. `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` expand in stdio `args`, `env`, and `cwd`. `./` commands are resolved inside the plugin root. The subprocess working directory is the plugin root when `cwd` is omitted. Unknown servers are skipped and reported on the source. A skill or server name the user already has stays the user's; the plugin fills in names that are not already configured. The user types the URL or path and presses Add; that is the confirmation. The row's checkbox and Remove are the take-back. The MCP list does not remove a server that exists only because the plugin is on.
