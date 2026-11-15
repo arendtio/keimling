@@ -18,7 +18,7 @@
 # Unix toolchain (shell, git/ssh, make/gcc, Go, Python, Node) inside the container.
 
 # ---- build keimling binary only ----
-FROM golang:1.26-bookworm AS build
+FROM golang:1.26-trixie AS build
 
 WORKDIR /src
 COPY src/go.mod src/go.sum ./
@@ -28,7 +28,7 @@ COPY src/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -tags nogui -o /out/keimling .
 
 # ---- runtime ----
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 LABEL org.opencontainers.image.title="keimling" \
       org.opencontainers.image.description="Keimling HTTP agent server (nogui)"
@@ -43,7 +43,6 @@ RUN apt-get update \
       findutils \
       gawk \
       git \
-      golang-go \
       grep \
       jq \
       nodejs \
@@ -54,6 +53,7 @@ RUN apt-get update \
       python3 \
       python3-pip \
       python3-venv \
+      ripgrep \
       sed \
       unzip \
       wget \
@@ -65,10 +65,11 @@ RUN apt-get update \
  && ln -sf python3 /usr/bin/python
 
 COPY --from=build /out/keimling /keimling
+COPY --from=build /usr/local/go /usr/local/go
 
 # Sessions under $HOME=/data; toolchain caches intentionally ephemeral under /tmp.
 ENV HOME=/data \
-    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     GOPATH=/tmp/go \
     GOCACHE=/tmp/go-cache \
     npm_config_cache=/tmp/npm-cache \
