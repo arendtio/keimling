@@ -107,9 +107,12 @@ A name computed while the program runs is not called.
 A program that only calls MCP tools may leave input_ref empty and inputs [].
 
 OUTPUT
-Small results are returned inline. Large results receive
-a new reference. That reference is the full result. Do not split
-the program into smaller inline calls to copy every row into the reply.`
+auto returns a result inline only when it is at most 4 KiB. A larger
+result is a reference to the full value. output_mode inline loads that
+value into the context on purpose, including past 4 KiB, when the
+remaining context can hold it. If it cannot, the call fails and the
+ref still holds the value: narrow to the fields the reply needs and
+inline that once. output_mode ref always returns a reference.`
 
 const dataHelpParser = `DataLang grammar
 
@@ -206,7 +209,7 @@ func dataLangTools() []map[string]any {
 			},
 			"code":        str("DataLang program. input_ref is `input`. Each inputs name is a variable."),
 			"timeout_ms":  map[string]any{"type": "integer", "description": "Execution timeout in milliseconds. Default 30000. Any positive integer."},
-			"output_mode": str("auto, inline, or ref. Default auto."),
+			"output_mode": str("auto, inline, or ref. Default auto. auto inlines at most 4 KiB. inline loads a longer result when the remaining context can hold it."),
 		}, "input_ref", "inputs", "code", "timeout_ms", "output_mode"),
 		toolDef("data_processing_help", "Return the DataLang grammar documentation. topic must be \"parser\".", map[string]any{
 			"topic": str("Documentation topic. Use parser."),
@@ -288,7 +291,7 @@ func (a *Agent) runDataProgram(ctx context.Context, reader *bufio.Reader, args s
 	if err != nil {
 		return dataErrorJSON(err)
 	}
-	text, err := a.toolResults().present(value, in.OutputMode)
+	text, err := a.toolResults().present(value, in.OutputMode, a.inlineByteRoom())
 	if err != nil {
 		return dataErrorJSON(err)
 	}

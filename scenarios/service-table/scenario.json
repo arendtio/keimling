@@ -1,0 +1,8 @@
+{
+  "task": "Bereite die Dienstliste oben als Tabelle auf. Zu jedem Dienst gehören der Name, das Image, der Zustand, die Ports und der Host aus den Labels. Jeder Dienst soll vorkommen.",
+  "setup": "service-table",
+  "answer_needles": ["pure-ftpd", "workshop-tools", "workshop.example.test"],
+  "prefer_tools": ["data_processing"],
+  "prefer_argument": "inline",
+  "forbid_tools": ["delegate"]
+}

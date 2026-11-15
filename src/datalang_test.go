@@ -317,6 +317,43 @@ func TestDataLangInlineDoesNotTruncate(t *testing.T) {
 	}
 }
 
+func TestDataLangInlineUsesTheRemainingContext(t *testing.T) {
+	marker := "LATE-MARKER"
+	payload := strings.Repeat("row ", 1500) + marker
+	if len(payload) <= dataModelLimit {
+		t.Fatalf("fixture is %d bytes", len(payload))
+	}
+	wide := &Agent{Cfg: Config{ContextLimit: 8000}}
+	text, err := wide.toolResults().hold("text", payload, "tiny")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := strings.TrimPrefix(text, "tiny\nref: ")
+	got := wide.runDataTool(`{"input_ref":"` + ref + `","code":"return input","output_mode":"inline","timeout_ms":1000}`)
+	if strings.Contains(got, "RESULT_TOO_LARGE") || !strings.Contains(got, marker) {
+		t.Fatalf("an explicit inline that fits the window must return the value: %s", got)
+	}
+	auto := wide.runDataTool(`{"input_ref":"` + ref + `","code":"return input","output_mode":"auto","timeout_ms":1000}`)
+	if strings.Contains(auto, marker) || !strings.Contains(auto, `"preview"`) {
+		t.Fatal(auto)
+	}
+	tight := &Agent{Cfg: Config{ContextLimit: 1500}}
+	huge := strings.Repeat("x", 20000)
+	text, err = tight.toolResults().hold("text", huge, "tiny")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref = strings.TrimPrefix(text, "tiny\nref: ")
+	got = tight.runDataTool(`{"input_ref":"` + ref + `","code":"return input","output_mode":"inline","timeout_ms":1000}`)
+	if !strings.Contains(got, "RESULT_TOO_LARGE") || !strings.Contains(got, "Narrow it to the fields") || strings.Contains(got, huge[:80]) {
+		clip := got
+		if len(clip) > 240 {
+			clip = clip[:240]
+		}
+		t.Fatalf("an inline that would fill the window must keep the ref: %s", clip)
+	}
+}
+
 func TestDataLangExtractRejectsEmptyMatch(t *testing.T) {
 	_, err := runDataLang("grammar { empty = \"\" }\nreturn extract(input, empty)", "abc", time.Second)
 	de, ok := err.(*dataError)
@@ -512,6 +549,9 @@ func TestDataLangHelpAndToolDescription(t *testing.T) {
 	}
 	if !strings.Contains(sharedWorkInstructions(), "Use data_processing") {
 		t.Fatal("work prompt missing data_processing")
+	}
+	if !strings.Contains(dataRunDescription, "remaining context") || !strings.Contains(sharedWorkInstructions(), "output_mode to inline") {
+		t.Fatal("the model is not told it may inline a longer result")
 	}
 }
 

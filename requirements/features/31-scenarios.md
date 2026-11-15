@@ -199,3 +199,13 @@
 - **Fit criterion:** A maximum of 2 keeps a third run waiting. The default maximum is the number of runs, so they may all proceed together. The printed report still lists each scenario's repetitions together, in scenario order.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SC-21 A service table past the small inline size
+
+- **Bin:** explicit requirement
+- **Statement:** One scenario shall ask for a table of every service in a stored list. The list shall be larger than the small inline size, and the asked host shall be absent from its opening. The answer shall name an early service, the last service, and that host. A data program is the preferred path, and reading the result inline is the preferred argument. A delegate is a wrong path.
+- **Origin:** User, 2026-11-15, after a table of sixteen services was fetched in one program and then split across four more because the projection was just past 4 KiB (quote: "die Datenverarbeitung etwas suboptimal verhalten hat" and "Vielleicht sind das auch mehrer Szenarien die wir aus unserem Beispiel oben ableiten sollten?").
+- **Rationale:** The reply is the rows. A list that is only a little past the small size should be read once, not recovered field by field.
+- **Fit criterion:** The stored list is larger than 4 KiB. Its first 1024 bytes do not contain the host. A run whose answer contains the early service, the last service, and the host has a right outcome. A data program that asks for inline is the preferred path. A delegate is a wrong path.
+- **Priority:** shall
+- **Status:** confirmed

@@ -41,3 +41,9 @@
 **As** a user, **I want** a repeated task whose stored table is a large XML document with names in a header and cells listed down each column, **so that** a change handles the same shape as a data-preview response.
 
 **Acceptance:** traces REQ-SC-17. The table has 120 columns. The opening of the document does not contain the asked cell. The answer is the cell that shares its index with a late key, and the first cell of that column is a decoy. A data program is preferred, and a delegate is a wrong path.
+
+## US-78 — Show every service in one table
+
+**As** a user, **I want** a repeated task whose stored service list is past the small inline size, **so that** a table of every service is one read and not a series of narrower ones.
+
+**Acceptance:** traces REQ-SC-21. The list is larger than 4 KiB and its opening does not contain the host. The answer names an early service, the last service, and that host. A data program that asks for inline is preferred, and a delegate is a wrong path.

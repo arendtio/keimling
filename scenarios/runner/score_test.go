@@ -9,9 +9,29 @@ import (
 	"testing"
 )
 
+func TestServiceTableNeedsAnIntentionalInline(t *testing.T) {
+	raw, err := json.Marshal(serviceTableValue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) <= 4096 || strings.Contains(string(raw[:1024]), serviceLateHost) {
+		t.Fatalf("service table %d", len(raw))
+	}
+	if strings.Count(string(raw), serviceLateHost) != 1 || strings.Count(string(raw), serviceEarlyName) != 1 {
+		t.Fatal("names are not unique")
+	}
+	spec, err := loadSpec(filepath.Join("..", "service-table", "scenario.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(spec.Task, serviceLateHost) {
+		t.Fatal("the task names the host")
+	}
+}
+
 func TestTasksStayOutOfTheShippingSources(t *testing.T) {
 	src := filepath.Join("..", "..", "src")
-	needles := []string{phoneNumber, dockCode, otherLine, "welche Nummer gehört zu Ada", plainDock, coverCode, refuseCode, copiedCmd, roleAnswer, exportName, skuWant, binAnswer}
+	needles := []string{phoneNumber, dockCode, otherLine, "welche Nummer gehört zu Ada", plainDock, coverCode, refuseCode, copiedCmd, roleAnswer, exportName, skuWant, binAnswer, serviceLateHost, serviceLateName}
 	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err

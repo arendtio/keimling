@@ -90,6 +90,9 @@ func prepare(id, specSetup string) (*prepared, error) {
 	case "column-table":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, columnTablePrior(), 0o600)
+	case "service-table":
+		p.PriorResult = filepath.Join(data, "prior.json")
+		err = os.WriteFile(p.PriorResult, serviceTablePrior(), 0o600)
 	default:
 		err = fmt.Errorf("scenario %s has unknown setup %q", id, specSetup)
 	}
@@ -236,6 +239,47 @@ func writeColumn(b *strings.Builder, name, description string, cell func(int) st
 		fmt.Fprintf(b, "<data>%s</data>", cell(i))
 	}
 	b.WriteString(`</dataSet></columns>`)
+}
+
+const (
+	serviceRows      = 18
+	serviceEarlyName = "pure-ftpd"
+	serviceLateName  = "workshop-tools"
+	serviceLateHost  = "workshop.example.test"
+)
+
+func serviceTableValue() []map[string]any {
+	note := strings.Repeat("uptime steady; ", 16)
+	rows := make([]map[string]any, 0, serviceRows)
+	for i := 1; i <= serviceRows; i++ {
+		name := fmt.Sprintf("svc-%02d", i)
+		labels := "traefik.enable=true"
+		switch i {
+		case 1:
+			name = serviceEarlyName
+		case serviceRows:
+			name = serviceLateName
+			labels = "traefik.http.routers.workshop.rule=Host(`" + serviceLateHost + "`)"
+		}
+		rows = append(rows, map[string]any{
+			"project":     fmt.Sprintf("p%02d", i),
+			"exit_status": 0,
+			"services": []map[string]any{{
+				"name": name, "image": "img:1", "state": "running",
+				"health": "", "status": note, "ports": "80/tcp", "labels": labels,
+			}},
+		})
+	}
+	return rows
+}
+
+func serviceTablePrior() []byte {
+	doc := map[string]any{
+		"user": "Here is the service list.", "tool": "mcp__ops__project_status",
+		"arguments": map[string]string{"scope": "all"}, "value": serviceTableValue(),
+	}
+	b, _ := json.Marshal(doc)
+	return b
 }
 
 func columnTablePrior() []byte {

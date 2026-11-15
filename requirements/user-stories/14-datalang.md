@@ -29,3 +29,9 @@
 **As** a user, **I want** a search over a phone-book-sized file to return one entry, **so that** the size of the file does not block the search.
 
 **Acceptance:** traces REQ-DL-10. A CSV larger than 8 MiB, searched for one name, returns that row and leaves the other rows out of the result. The run does not fail because of the file's size. The shape of that file names the header and the row count and leaves out a cell value.
+
+## US-77 — Read a longer list on purpose
+
+**As** a user, **I want** the agent to be able to read a stored result that is past the small size when the reply needs those rows, **so that** it does not fetch the same list again in pieces.
+
+**Acceptance:** traces REQ-DL-12. A result above 4 KiB stays a reference under the default mode. The same result, read inline while the context has room, includes the payload. An inline that would fill the context keeps the reference and says to narrow the fields and read that once.

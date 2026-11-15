@@ -167,7 +167,7 @@ func (s *dataStore) hold(kind string, value any, display string) (string, error)
 	return display + "\nref: " + it.id, nil
 }
 
-func (s *dataStore) present(value any, mode string) (string, error) {
+func (s *dataStore) present(value any, mode string, inlineRoom int) (string, error) {
 	mode = strings.TrimSpace(mode)
 	if mode == "" {
 		mode = "auto"
@@ -175,14 +175,22 @@ func (s *dataStore) present(value any, mode string) (string, error) {
 	if mode != "auto" && mode != "inline" && mode != "ref" {
 		return "", dataErr("TYPE_ERROR", "output_mode must be auto, inline, or ref")
 	}
+	if inlineRoom < dataModelLimit {
+		inlineRoom = dataModelLimit
+	}
 	it, err := s.put(kindOf(value), value)
 	if err != nil {
 		return "", err
 	}
-	inline := mode == "inline" || (mode == "auto" && it.bytes <= dataModelLimit)
-	if mode == "inline" && it.bytes > dataModelLimit {
-		return "", &dataError{Code: "RESULT_TOO_LARGE", Message: fmt.Sprintf("result is %d bytes and the inline limit is %d", it.bytes, dataModelLimit), Ref: it.id, Suggestion: "The ref holds the full result. Answer from that ref. Do not split the result to copy every row into the reply."}
+	if mode == "inline" && it.bytes > inlineRoom {
+		return "", &dataError{
+			Code:       "RESULT_TOO_LARGE",
+			Message:    fmt.Sprintf("result is %d bytes and the remaining context holds %d", it.bytes, inlineRoom),
+			Ref:        it.id,
+			Suggestion: "The ref holds the full result. Narrow it to the fields the reply needs and inline that once.",
+		}
 	}
+	inline := mode == "inline" || (mode == "auto" && it.bytes <= dataModelLimit)
 	if mode == "ref" {
 		inline = false
 	}
@@ -191,6 +199,25 @@ func (s *dataStore) present(value any, mode string) (string, error) {
 		return "", dataErr("TYPE_ERROR", err.Error())
 	}
 	return string(b), nil
+}
+
+// inlineByteRoom is how many bytes an explicit inline may place in the context.
+// The small limit always applies. A known window raises it to the remaining tokens,
+// at four bytes per token, the same measure as a delegate source.
+func (a *Agent) inlineByteRoom() int {
+	room := dataModelLimit
+	if a == nil {
+		return room
+	}
+	b := a.contextBudget()
+	if b.Limit < 1000 {
+		return room
+	}
+	n := b.Remaining * 4
+	if n > room {
+		return n
+	}
+	return room
 }
 
 func canonValue(v any) (any, int, error) {

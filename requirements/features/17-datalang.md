@@ -109,3 +109,13 @@
 - **Fit criterion:** `indexOf` on an array returns the first index. A missing value returns an empty result. That index reads the same position from a second array. A pipeline form accepts the array on the left.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-DL-12 An explicit inline may use the remaining context
+
+- **Bin:** explicit requirement
+- **Statement:** By default a result shall enter the model context only when it is small. When the model asks to read a result, that result shall enter the context even past that small size, unless doing so would fill the context. A result that does not fit shall stay stored, and the failure shall say to narrow it to the fields the reply needs and to read that once.
+- **Origin:** User, 2026-11-15 (quote: "Hat ein model eigentlich die Möglichkeit bewusst den inhalt einer referenz die größer ist als 4kib in den kontext zu laden? Also ich denke das es die möglichkeit geben sollte. […] per default Anworten nur in den kontext wandern wenn sie klein sind, aber wenn ein model absichtlich eine etwas längere Liste lesen möchte soll das auch möglich sein. Außer natürlich der kontext wäre dann überfüllt.").
+- **Rationale:** The harness keeps an accidental dump out of the window. The model is the one who knows that the reply needs the rows, and a refusal at the small size makes it fetch those rows in several passes.
+- **Fit criterion:** A result above 4 KiB asked for with the default mode comes back as a reference and does not contain the payload. The same result asked for inline, with room left in the context, contains the payload. An inline that would fill the context fails, names the reference, does not contain the payload, and tells the model to narrow the fields and inline that once.
+- **Priority:** shall
+- **Status:** confirmed
