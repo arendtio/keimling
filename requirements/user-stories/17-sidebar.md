@@ -47,3 +47,9 @@
 **As** a user, **I want** the sidebar to change when I change chats, **so that** I am looking at this conversation.
 
 **Acceptance:** traces REQ-SB-10. Switching threads, opening an agent, or starting a new thread replaces the sidebar content with that chat's at that moment. A new thread shows an empty context before a message is sent.
+
+## US-80 — Put the side controls above the tabs
+
+**As** a user, **I want** Focus, Fullscreen, and Close above the sidebar tabs, **so that** the controls for the whole side area sit with the frame and the tabs sit with the page.
+
+**Acceptance:** traces REQ-SB-11. With the side area open, those three controls are above the Now tab. The tabs still change the page.

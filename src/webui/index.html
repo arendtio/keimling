@@ -850,6 +850,13 @@
       <aside id="artifact-pane" class="artifact-pane mode-dock" hidden>
         <div id="artifact-resize" class="artifact-resize" role="separator" aria-orientation="vertical" aria-label="Resize artifact panel" tabindex="0"></div>
         <header class="artifact-head">
+          <div class="artifact-actions">
+            <button type="button" id="artifact-mode-dock" class="ghost" title="Dock beside chat" hidden>Dock</button>
+            <button type="button" id="artifact-mode-overlay" class="ghost" title="Focus overlay">Focus</button>
+            <button type="button" id="artifact-fullscreen" class="ghost" title="Fullscreen">Fullscreen</button>
+            <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab" hidden>Open</button>
+            <button type="button" id="artifact-close" class="ghost" aria-label="Close sidebar">Close</button>
+          </div>
           <nav id="sidebar-tabs" class="sidebar-tabs" aria-label="Sidebar">
             <button type="button" data-side="now" aria-selected="true">Now</button>
             <button type="button" data-side="agents" aria-selected="false">Agents</button>
@@ -858,13 +865,6 @@
             <button type="button" data-side="connections" aria-selected="false">Connections</button>
             <button type="button" data-side="instructions" aria-selected="false">Instructions</button>
           </nav>
-          <div class="artifact-actions">
-            <button type="button" id="artifact-mode-dock" class="ghost" title="Dock beside chat" hidden>Dock</button>
-            <button type="button" id="artifact-mode-overlay" class="ghost" title="Focus overlay">Focus</button>
-            <button type="button" id="artifact-fullscreen" class="ghost" title="Fullscreen">Fullscreen</button>
-            <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab" hidden>Open</button>
-            <button type="button" id="artifact-close" class="ghost" aria-label="Close sidebar">Close</button>
-          </div>
         </header>
         <div id="side-now" class="side-panel" data-side="now">
           <div class="side-now-scroll">
@@ -875,7 +875,7 @@
                 <div id="side-bars" class="side-bars" aria-hidden="true"></div>
                 <div id="side-mark" class="side-mark" aria-hidden="true"><span>120</span></div>
               </div>
-              <div class="side-scan" aria-hidden="true"><span class="side-scan-eye"></span></div>
+              <div class="side-scan" aria-hidden="true"><span class="side-scan-eye"><span></span></span></div>
               <p id="side-dash-read" class="side-dash-read"></p>
             </div>
           </section>

@@ -2357,9 +2357,10 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .artifact-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.35rem;
   min-width: 0;
   padding: 0.15rem 0.35rem 0 0.55rem;
 }
@@ -2514,7 +2515,7 @@ button.wide { width: 100%; max-width: 100%; }
   flex-wrap: wrap;
   gap: 0.25rem;
   min-width: 0;
-  flex: 1 1 12rem;
+  flex: 0 0 auto;
 }
 .sidebar-tabs button {
   background: transparent;
@@ -2529,7 +2530,7 @@ button.wide { width: 100%; max-width: 100%; }
   border-color: var(--line);
   background: var(--panel);
 }
-.artifact-head { flex-wrap: wrap; align-items: flex-start; }
+.artifact-head { align-items: stretch; }
 .side-panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -2673,17 +2674,24 @@ button.wide { width: 100%; max-width: 100%; }
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2.75rem;
   left: 0;
+  width: calc(100% - 2.75rem);
+  visibility: hidden;
+}
+.side-scan-eye span {
+  display: block;
+  width: 2.75rem;
+  height: 100%;
   border-radius: 999px;
   background: var(--accent);
-  visibility: hidden;
+}
+.side-dash[data-state="thinking"] .side-scan-eye {
+  visibility: visible;
   animation: side-scan 1.15s ease-in-out infinite alternate;
 }
-.side-dash[data-state="thinking"] .side-scan-eye { visibility: visible; }
 @keyframes side-scan {
-  from { left: 0; }
-  to { left: calc(100% - 2.75rem); }
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
 }
 .side-dash-read {
   margin: 0;
@@ -2699,9 +2707,9 @@ button.wide { width: 100%; max-width: 100%; }
 .side-dash[data-state="idle"] .side-dash-read,
 .side-dash[data-state="quiet"] .side-dash-read { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
-  .side-scan-eye {
+  .side-dash[data-state="thinking"] .side-scan-eye {
     animation: none;
-    left: calc(50% - 1.375rem);
+    transform: translateX(50%);
   }
 }
 .side-mcp {
