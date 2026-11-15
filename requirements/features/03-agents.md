@@ -455,6 +455,16 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-37 A quiet refresh leaves the chat where it is
+
+- **Bin:** explicit requirement
+- **Statement:** A background refresh of the agent list shall not move the chat. The page shall be rewritten only when the refresh reports a change the user can see.
+- **Origin:** User, 2026-11-15 (quote: "wenn ich ganz nach unten scrolle dauert es einen kleinen Augenblick und dann ruckt der Hauptbereich wieder ein paar Pixel zurück und ich kann erneut nach unten scrollen. […] fühlt sich auf jeden Fall unruhig an und sollte so nicht sein").
+- **Rationale:** The agent list is fetched on a timer. Rebuilding the sidebar and the composer when nothing changed shifts the scroll anchor, so the bottom of the chat slips by a few pixels.
+- **Fit criterion:** With the chat scrolled to the bottom and no agent changing state, the next background refresh leaves the scroll position at the bottom. A change of who is running still shows in the list.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 Until the user saves tools on a definition, that definition grants every tool. Saving stores the checked tools. An instance with no narrower set uses that definition. Saving the same set again clears the instance override. REQ-AG-2’s unanswered default is this design, not a stakeholder shall.

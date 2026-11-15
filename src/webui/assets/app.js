@@ -2482,6 +2482,13 @@
   function placeComposerControls() {
     var col = document.querySelector(".composer-send-col");
     if (!composerMoreMenu || !col || !send) return;
+    function parked(btn, where) {
+      if (!btn) return true;
+      var inMenu = where === "menu";
+      return btn.parentElement === (inMenu ? composerMoreMenu : col) && btn.classList.contains("icon-btn") !== inMenu;
+    }
+    var screen = typeof screenBtn !== "undefined" ? screenBtn : null;
+    if (parked(attachFileBtn, "menu") && parked(screen, "menu") && parked(voiceBtn, "col") && parked(callBtn, "col") && parked(callMuteBtn, "col") && parked(stopBtn, "col")) return;
     function park(btn, where) {
       if (!btn) return;
       btn.classList.toggle("icon-btn", where !== "menu");
@@ -3117,11 +3124,20 @@
     mark();
   }
 
+  var threadListDrawn = "";
+
   function renderThreadListFromCache() {
     renderSideChatRef();
     if (!threadListEl) return;
     var query = threadSearchEl ? String(threadSearchEl.value || "").trim() : "";
     var threads = visibleThreads(threadsCache, currentThreadID);
+    var sig = [
+      query, currentThreadID, currentAgentInstanceID, runningThreadID, stoppingThreadID,
+      callLive ? 1 : 0, threadsShowAll ? 1 : 0, threadsCache.length,
+      threads.map(function (th) { return th.id + "\t" + (th.title || ""); }).join("\n")
+    ].join("\u0001");
+    if (sig === threadListDrawn && threadListEl.childElementCount) return;
+    threadListDrawn = sig;
     threadListEl.innerHTML = "";
     if (!threadsCache.length) {
       var empty = document.createElement("p");
@@ -3399,6 +3415,14 @@
     });
   }
 
+  var agentsPollDrawn = "";
+
+  function agentsPollSig() {
+    return (currentAgentInstanceID || "") + "\n" + agentState + "\n" + agentsCache.map(function (ag) {
+      return [ag.id, ag.name || "", ag.busy ? 1 : 0, ag.running ? 1 : 0, ag.attached ? 1 : 0, ag.phase || "", ag.call ? 1 : 0, stoppingAgents[ag.id] ? 1 : 0].join("\t");
+    }).join("\n");
+  }
+
   function loadAgents(opts) {
     opts = opts || {};
     if (!connected) return Promise.resolve();
@@ -3420,6 +3444,9 @@
             // Host reports no agent attached (e.g. after thread switch).
             currentAgentInstanceID = "";
           }
+          var sig = agentsPollSig();
+          if (opts.poll && sig === agentsPollDrawn) return;
+          agentsPollDrawn = sig;
           renderAgentList();
           setState(agentState);
         });
@@ -7754,9 +7781,16 @@
     return "Idle";
   }
 
+  var agentBoardDrawn = "";
+
   function renderAgentBoard(list) {
     var board = document.getElementById("agent-board");
     if (!board) return;
+    var sig = (list || []).map(function (ag) {
+      return [ag.id, ag.name || "", ag.recipe_name || ag.recipe_id || "", ag.phase || "", ag.call ? 1 : 0, ag.waiting || ""].join("\t");
+    }).join("\n");
+    if (sig === agentBoardDrawn && board.childElementCount) return;
+    agentBoardDrawn = sig;
     board.innerHTML = "";
     if (!list.length) {
       var empty = document.createElement("p");

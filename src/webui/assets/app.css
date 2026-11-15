@@ -468,6 +468,7 @@ button.wide { width: 100%; max-width: 100%; }
   border-right: 0;
   background: var(--chrome);
   overflow-x: clip;
+  overflow-anchor: none;
 }
 .sidebar-top {
   display: grid;
@@ -1725,6 +1726,7 @@ button.wide { width: 100%; max-width: 100%; }
 .composer {
   position: sticky;
   bottom: 0.75rem;
+  overflow-anchor: none;
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 2px);

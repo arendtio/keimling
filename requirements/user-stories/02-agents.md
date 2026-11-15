@@ -159,3 +159,9 @@
 **As** a user, **I want** an agent instance to be instructed as that agent, **so that** it is not also told it is the workspace assistant.
 
 **Acceptance:** traces REQ-AG-23.
+
+## US-76 — Stay at the bottom of the chat
+
+**As** a user, **I want** the chat to stay put while nothing new is happening, **so that** resting at the bottom does not slip and ask me to scroll again.
+
+**Acceptance:** traces REQ-AG-37. Scrolled to the bottom, with no agent changing state, the next background refresh leaves that position. A real change of who is running still shows in the list.
