@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,7 @@ type appServer struct {
 	mu                    sync.Mutex
 	busy                  bool
 	viewThread            string // workspace thread shown while a run keeps another journal
+	runs                  map[string]*liveThread
 	cancel                context.CancelFunc
 	stopRequested         bool
 	skillCandidates       []SkillCandidate
@@ -61,6 +63,7 @@ func newAppServer(opts appServerOpts) *appServer {
 		hub:           newEventHub(),
 		mux:           http.NewServeMux(),
 		skillPreviews: newSkillPreviewHub(),
+		runs:          map[string]*liveThread{},
 	}
 	if s.agent != nil {
 		if s.agent.Shares == nil {
@@ -72,7 +75,7 @@ func newAppServer(opts appServerOpts) *appServer {
 		s.agent.Emit = func(kind, text string) {
 			switch kind {
 			case "status":
-				s.hub.Broadcast("status", map[string]string{"state": text})
+				s.hub.Broadcast("status", map[string]string{"state": text, "thread_id": s.agent.Cfg.ThreadID})
 			case "progress":
 				var payload map[string]any
 				if json.Unmarshal([]byte(text), &payload) == nil {
@@ -178,6 +181,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/skills/check-update", s.requireSecret(http.HandlerFunc(s.handleSkillsCheckUpdate)))
 	s.mux.Handle("/api/skills/update", s.requireSecret(http.HandlerFunc(s.handleSkillsUpdate)))
 	s.mux.Handle("/api/mcp", s.requireSecret(http.HandlerFunc(s.handleMCP)))
+	s.mux.Handle("/api/artifact-proxy", s.requireSecret(http.HandlerFunc(s.handleArtifactProxy)))
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
@@ -353,16 +357,17 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"thread_id":             threadID,
 		"low_context":           s.threadLowContext(threadID),
 		"running_thread":        runningID,
-		"background_busy":       background && s.isBusy(),
+		"background_busy":       s.otherBusy(threadID),
+		"approval":              s.pendingApproval(threadID),
 		"agent_instance_id":     s.agent.Cfg.AgentInstanceID,
 		"lines":                 sessionTranscript(uiHistory, 200),
 		"messages":              msgs,
 		"chapters":              sessionChaptersFor(path),
 		"working_state":         sessionWorkingState(path),
-		"busy":                  s.isBusy() && !background,
+		"busy":                  s.threadBusy(threadID),
 		"voice":                 s.voiceAvailable(),
 		"state": func() string {
-			if s.isBusy() && !background {
+			if s.threadBusy(threadID) {
 				return "running"
 			}
 			return "idle"
@@ -756,8 +761,13 @@ func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(body.ID)
 	s.mu.Lock()
 	busy := s.busy
+	_, forkOwns := s.runs[id]
+	shellID := ""
+	if s.agent != nil {
+		shellID = s.agent.Cfg.ThreadID
+	}
 	s.mu.Unlock()
-	if busy && id != s.agent.Cfg.ThreadID {
+	if forkOwns || (busy && id != shellID) {
 		if st, err := os.Stat(threadDir(s.agent.Cfg.WorkspaceID, id)); err != nil || !st.IsDir() {
 			http.Error(w, "unknown thread", http.StatusBadRequest)
 			return
@@ -814,7 +824,7 @@ func (s *appServer) handleThreadDelete(w http.ResponseWriter, r *http.Request) {
 	busy := s.busy
 	view := s.viewThread
 	s.mu.Unlock()
-	if busy && id == s.agent.Cfg.ThreadID {
+	if (busy && id == s.agent.Cfg.ThreadID) || s.threadBusy(id) {
 		http.Error(w, "agent busy", http.StatusConflict)
 		return
 	}
@@ -1260,6 +1270,7 @@ func (s *appServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
+	s.agent.refreshMCPTokens(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"servers": s.agent.ensureMCP().Status(),
@@ -1447,7 +1458,7 @@ func (s *appServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if s.agent != nil {
-		s.agent.reloadMCP(r.Context())
+		s.agent.reconnectMCP(r.Context(), name)
 	}
 	fmt.Fprintf(w, "<p>Signed in to %s. You can close this tab.</p>", htmlEscape(name))
 }
@@ -1841,6 +1852,10 @@ type agentSettings struct {
 	Autopilot                  *bool           `json:"autopilot,omitempty"`
 	AutopilotInstructions      *string         `json:"autopilot_instructions,omitempty"`
 	AutopilotInstructionsReset *bool           `json:"autopilot_instructions_reset,omitempty"`
+	ApprovalPolicy             *string         `json:"approval_policy,omitempty"`
+	ApprovalPolicyReset        *bool           `json:"approval_policy_reset,omitempty"`
+	ToolAsk                    map[string]bool `json:"tool_ask,omitempty"`
+	ArtifactProxy              *bool           `json:"artifact_proxy,omitempty"`
 	MaxSteps                   *int            `json:"max_steps,omitempty"`
 	MCPParallel                *int            `json:"mcp_parallel,omitempty"`
 	ContextLimit               *int            `json:"context_limit,omitempty"`
@@ -1858,6 +1873,13 @@ type agentSettings struct {
 	OpenAIKeySet               bool            `json:"openai_api_key_set"`       // GET only
 	ModelProviders             []modelProvider `json:"model_providers,omitempty"`
 	ActiveModelProviderID      string          `json:"active_model_provider_id,omitempty"`
+}
+
+func approvalPolicyText(a *Agent) string {
+	if a == nil || !a.Cfg.ApprovalPolicyReplace || strings.TrimSpace(a.Cfg.ApprovalPolicy) == "" {
+		return defaultPolicy
+	}
+	return a.Cfg.ApprovalPolicy
 }
 
 func (s *appServer) settingsSnapshot() map[string]any {
@@ -1888,6 +1910,10 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"autopilot":                     auto,
 		"autopilot_instructions":        effectiveGlobal,
 		"autopilot_instructions_custom": globalCustom,
+		"approval_policy":               approvalPolicyText(s.agent),
+		"approval_policy_custom":        strings.TrimSpace(s.agent.Cfg.ApprovalPolicy) != "" && s.agent.Cfg.ApprovalPolicyReplace,
+		"tool_ask":                      builtinToolChoices(s.agent.Cfg.ToolAsk),
+		"artifact_proxy":                s.agent.Cfg.ArtifactProxy,
 		"max_steps":                     steps,
 		"mcp_parallel":                  mcpParallelLimit(s.agent.Cfg.MCPParallel),
 		"context_limit":                 limit,
@@ -2028,6 +2054,19 @@ func (s *appServer) applySettings(body agentSettings) error {
 	}
 	if body.Autopilot != nil {
 		cfg.Autopilot = *body.Autopilot
+	}
+	if body.ApprovalPolicyReset != nil && *body.ApprovalPolicyReset {
+		cfg.ApprovalPolicy = ""
+		cfg.ApprovalPolicyReplace = false
+	} else if body.ApprovalPolicy != nil {
+		cfg.ApprovalPolicy = strings.TrimSpace(*body.ApprovalPolicy)
+		cfg.ApprovalPolicyReplace = cfg.ApprovalPolicy != ""
+	}
+	if body.ToolAsk != nil {
+		cfg.ToolAsk = body.ToolAsk
+	}
+	if body.ArtifactProxy != nil {
+		cfg.ArtifactProxy = *body.ArtifactProxy
 	}
 	if resetInstructions {
 		cfg.AutopilotInstructions = ""
@@ -2529,6 +2568,13 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 		if writeAutopilotInstructions {
 			fc.Features.AutopilotInstructions = cfg.AutopilotInstructions
 		}
+		if cfg.ApprovalPolicyReplace {
+			fc.Features.ApprovalPolicy = cfg.ApprovalPolicy
+		} else {
+			fc.Features.ApprovalPolicy = ""
+		}
+		fc.Features.ToolAsk = cfg.ToolAsk
+		fc.Features.ArtifactProxy = cfg.ArtifactProxy
 		fc.Reasoning = cfg.Reasoning
 		fc.VoiceModel = cfg.VoiceModel
 		fc.VoiceProviderID = cfg.VoiceProviderID
@@ -2564,7 +2610,29 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
+	view := s.viewedThread()
 	s.mu.Lock()
+	if run := s.runs[view]; run != nil && run.cancel != nil {
+		cancel := run.cancel
+		others := s.busy || len(s.runs) > 1
+		s.mu.Unlock()
+		cancel()
+		if !others {
+			killTrackedCommands()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "stopped": true})
+		return
+	}
+	shellID := ""
+	if s.agent != nil {
+		shellID = s.agent.Cfg.ThreadID
+	}
+	if view != "" && view != shellID {
+		s.mu.Unlock()
+		http.Error(w, "agent not running", http.StatusConflict)
+		return
+	}
 	if !s.busy || s.cancel == nil {
 		on := s.realtimeOn
 		cancel := s.realtimeCancel
@@ -2587,6 +2655,7 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	cancel := s.cancel
 	s.stopRequested = true
+	others := len(s.runs) > 0
 	s.mu.Unlock()
 	if id := strings.TrimSpace(s.agent.Cfg.AgentInstanceID); id != "" {
 		_ = setAgentWakesHeld(id, true)
@@ -2595,7 +2664,9 @@ func (s *appServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	// A decision queued before/while stopping must not auto-approve the next run.
 	drainApproval(s.agent)
 	cancel()
-	killTrackedCommands()
+	if !others {
+		killTrackedCommands()
+	}
 	if s.agent.Compaction != nil && s.agent.Compaction.cancel != nil {
 		s.agent.Compaction.cancel()
 	}
@@ -3021,7 +3092,7 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 		s.mu.Lock()
 		busy := s.busy
 		s.mu.Unlock()
-		if !busy && view != "" && view != run {
+		if !busy && view != "" && view != run && !s.threadBusy(view) {
 			if err := s.agent.SwitchThread(view); err != nil {
 				return false, err
 			}
@@ -3030,10 +3101,13 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 			s.mu.Unlock()
 		}
 		if busy && view != "" && view != run {
-			if err := enqueueThreadMessage(s.agent.Cfg.WorkspaceID, view, text, from, kind); err != nil {
+			if s.threadBusy(view) {
+				return s.steerThread(view, text)
+			}
+			if err := s.startForkedRun(view, text); err != nil {
 				return false, err
 			}
-			return true, nil
+			return false, nil
 		}
 	}
 	if s.startAgentRun(text) {
@@ -3111,6 +3185,161 @@ func (s *appServer) startAgentRun(text string) bool {
 		}
 	}()
 	return true
+}
+
+// liveThread is a model run that owns one thread while the shell agent owns another.
+type liveThread struct {
+	agent    *Agent
+	cancel   context.CancelFunc
+	approval map[string]any
+}
+
+func (s *appServer) threadBusy(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.busy && s.agent != nil && s.agent.Cfg.ThreadID == id {
+		return true
+	}
+	_, ok := s.runs[id]
+	return ok
+}
+
+func (s *appServer) otherBusy(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.busy && s.agent != nil && s.agent.Cfg.ThreadID != "" && s.agent.Cfg.ThreadID != id {
+		return true
+	}
+	for tid := range s.runs {
+		if tid != id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *appServer) pendingApproval(id string) map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run := s.runs[id]; run != nil && run.approval != nil {
+		return run.approval
+	}
+	return nil
+}
+
+func (s *appServer) steerThread(id, text string) (bool, error) {
+	s.mu.Lock()
+	var agent *Agent
+	if s.busy && s.agent != nil && s.agent.Cfg.ThreadID == id {
+		agent = s.agent
+	} else if run := s.runs[id]; run != nil {
+		agent = run.agent
+	}
+	s.mu.Unlock()
+	if agent == nil || agent.Control == nil {
+		return false, fmt.Errorf("agent busy")
+	}
+	select {
+	case agent.Control.events <- controlEvent{kind: "steer", text: text}:
+		return true, nil
+	default:
+		return false, fmt.Errorf("steering queue is full")
+	}
+}
+
+func (s *appServer) startForkedRun(threadID, text string) error {
+	if s.agent == nil || s.agent.Client == nil {
+		return fmt.Errorf("no model client")
+	}
+	b := &Agent{
+		Cfg:         s.agent.Cfg,
+		Client:      &Client{APIKey: s.agent.Client.APIKey, BaseURL: s.agent.Client.BaseURL, HTTP: s.agent.Client.HTTP, Parallel: s.agent.Client.Parallel},
+		Skills:      s.agent.Skills,
+		MCP:         s.agent.MCP,
+		Credentials: s.agent.Credentials,
+		SessionCtx:  s.agent.SessionCtx,
+		ApprovalCh:  make(chan bool, 1),
+	}
+	if err := b.attachThreadJournal(threadID); err != nil {
+		return err
+	}
+	b.Emit = func(kind, text string) {
+		s.emitFork(b, kind, text)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	control := newTaskControl(cancel)
+	b.Control = control
+	s.mu.Lock()
+	if s.runs[threadID] != nil {
+		s.mu.Unlock()
+		cancel()
+		if b.Journal != nil {
+			_ = b.Journal.Close()
+		}
+		return fmt.Errorf("thread is already running")
+	}
+	s.runs[threadID] = &liveThread{agent: b, cancel: cancel}
+	s.mu.Unlock()
+	s.hub.Broadcast("message", map[string]any{"role": "user", "text": text, "thread_id": threadID})
+	s.hub.Broadcast("status", map[string]string{"state": "running", "thread_id": threadID})
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.runs, threadID)
+			s.mu.Unlock()
+			if b.Journal != nil {
+				_ = b.Journal.Close()
+			}
+			s.hub.Broadcast("status", map[string]string{"state": "idle", "thread_id": threadID})
+		}()
+		err := b.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
+		if err != nil && ctx.Err() != nil {
+			_ = b.repairInterruptedCalls()
+		}
+	}()
+	return nil
+}
+
+func (s *appServer) emitFork(a *Agent, kind, text string) {
+	if a == nil {
+		return
+	}
+	id := a.Cfg.ThreadID
+	if kind == "status" {
+		s.hub.Broadcast("status", map[string]string{"state": text, "thread_id": id})
+		return
+	}
+	if kind == "approval" {
+		var payload map[string]any
+		if json.Unmarshal([]byte(text), &payload) == nil {
+			payload["thread_id"] = id
+			s.mu.Lock()
+			if run := s.runs[id]; run != nil {
+				run.approval = payload
+			}
+			s.mu.Unlock()
+			s.hub.Broadcast("approval", payload)
+		}
+		return
+	}
+	if s.agent != nil && s.agent.Emit != nil {
+		s.agent.Emit(kind, withThreadID(id, text))
+	}
+}
+
+func withThreadID(id, text string) string {
+	var payload map[string]any
+	if json.Unmarshal([]byte(text), &payload) != nil {
+		return text
+	}
+	if _, ok := payload["thread_id"]; !ok {
+		payload["thread_id"] = id
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return text
+	}
+	return string(b)
 }
 
 func (s *appServer) agentWakeLoop() {
@@ -3230,7 +3459,15 @@ func (s *appServer) handleApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.agent == nil || s.agent.ApprovalCh == nil {
+	target := s.agent
+	if view := s.viewedThread(); view != "" {
+		s.mu.Lock()
+		if run := s.runs[view]; run != nil && run.agent != nil && run.agent.ApprovalCh != nil {
+			target = run.agent
+		}
+		s.mu.Unlock()
+	}
+	if target == nil || target.ApprovalCh == nil {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
@@ -3249,12 +3486,62 @@ func (s *appServer) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	select {
-	case s.agent.ApprovalCh <- body.Allow:
+	case target.ApprovalCh <- body.Allow:
+		if view := s.viewedThread(); view != "" {
+			s.mu.Lock()
+			if run := s.runs[view]; run != nil {
+				run.approval = nil
+			}
+			s.mu.Unlock()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	default:
 		http.Error(w, "no pending approval", http.StatusConflict)
 	}
+}
+
+func (s *appServer) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil || !s.agent.Cfg.ArtifactProxy {
+		http.Error(w, "artifact proxy is off", http.StatusForbidden)
+		return
+	}
+	raw := strings.TrimSpace(r.URL.Query().Get("url"))
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		http.Error(w, "http(s) url required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		http.Error(w, "bad url", http.StatusBadRequest)
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, 8<<20))
 }
 
 func (s *appServer) handleEvents(w http.ResponseWriter, r *http.Request) {

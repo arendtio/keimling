@@ -34,6 +34,10 @@ type Client struct {
 	builtChatBody []byte
 	// chatTools, when set, is the tool list for this chat request.
 	chatTools *[]map[string]any
+	// Parallel is how many calls to this endpoint may run at once.
+	// 0 picks the default: one for a loopback model, unlimited otherwise.
+	// A negative value is unlimited even on loopback.
+	Parallel int
 }
 
 func NewClient(key string) *Client {
@@ -148,6 +152,11 @@ func threadVoiceInstructions() string {
 }
 
 func (c *Client) Respond(ctx context.Context, model, reasoning string, history []json.RawMessage, web bool, instructions string, extraTools []map[string]any, grant []string) (Response, error) {
+	release, err := c.acquireModelSlot(ctx)
+	if err != nil {
+		return Response{}, err
+	}
+	defer release()
 	input, err := normalizeResponseInput(history)
 	if err != nil {
 		return Response{}, err

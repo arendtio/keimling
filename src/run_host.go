@@ -96,9 +96,6 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 		}
 		initialWorkspace = ws.ID
 	}
-	if err := h.Attach(ctx, initialWorkspace); err != nil {
-		return err
-	}
 
 	stopWake := make(chan struct{})
 	defer close(stopWake)
@@ -126,7 +123,9 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 	}()
 
 	page := uiURL("http://"+addr+"/", h.Secret())
-	guiErr := openWebViewLocal(page, "Keimling", configPath, page)
+	guiErr := openWebViewPrepared(page, "Keimling", configPath, page, func() error {
+		return h.Attach(ctx, initialWorkspace)
+	})
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutCancel()

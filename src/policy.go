@@ -129,16 +129,8 @@ func forceApproval(name, args string) (bool, string) {
 		if privatePath(a.Path) {
 			return true, "protected path"
 		}
-		cwd, _ := os.Getwd()
-		rel, err := filepath.Rel(cwd, p)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		if !insideWorkingDir(p) {
 			return true, "write outside working directory"
-		}
-		if name == "edit_file" {
-			return true, "modifying existing file"
-		}
-		if _, e := os.Lstat(p); e == nil {
-			return true, "overwriting an existing path"
 		}
 		return false, ""
 	}
@@ -416,9 +408,38 @@ type toolGate struct {
 	Reason string
 }
 
+// builtinToolNames is every tool the settings screen can set to ask or not.
+func builtinToolNames() []string {
+	return []string{
+		"exec", "read_file", "edit_file", "write_file", "share_file", "show_artifact",
+		"search_history", "read_history", "activate_skill", "read_skill_file",
+		"delegate", "update_plan", "finish_task", "web_search",
+		"agent_instructions", "save_agent", "spawn_agent", "save_team", "spawn_team",
+		"list_agents", "message_agent", "stop_agent", "delete_agent",
+		"create_watch", "list_watches", "cancel_watch", "change_workspace",
+		"list_credentials", "data_processing", "data_processing_help",
+		"find_tools", "mcp_tools", "builtin_tools",
+		"screen_click", "screen_scroll", "screen_key", "screen_type",
+	}
+}
+
+func builtinToolChoices(saved map[string]bool) []map[string]any {
+	out := make([]map[string]any, 0, len(builtinToolNames()))
+	for _, name := range builtinToolNames() {
+		ask := !toolNeverAsks(name)
+		if saved != nil {
+			if v, ok := saved[name]; ok {
+				ask = v
+			}
+		}
+		out = append(out, map[string]any{"name": name, "ask": ask})
+	}
+	return out
+}
+
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "screen_click", "screen_scroll", "screen_key", "screen_type":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "search_history", "read_history", "activate_skill", "read_skill_file", "screen_click", "screen_scroll", "screen_key", "screen_type":
 		return true
 	default:
 		return false
@@ -442,7 +463,27 @@ func watchIsTimeOnly(args string) bool {
 }
 
 func gateToolCall(agent bool, mode, name, args string, whitelisted bool) toolGate {
-	if mode == "yolo" || toolNeverAsks(name) || whitelisted || (name == "create_watch" && watchIsTimeOnly(args)) {
+	return gateTool(agent, mode, name, args, whitelisted, nil)
+}
+
+// gateTool applies a saved per-tool choice. ask[name]==true forces a question.
+// ask[name]==false skips the question. A missing name keeps the built-in list.
+// A hard floor (a write outside the workspace, a protected path, a destructive
+// command) still asks. Yolo still does not.
+func gateTool(agent bool, mode, name, args string, whitelisted bool, ask map[string]bool) toolGate {
+	if mode == "yolo" || whitelisted || (name == "create_watch" && watchIsTimeOnly(args)) {
+		return toolGate{Allow: true}
+	}
+	quiet := toolNeverAsks(name)
+	if ask != nil {
+		if v, ok := ask[name]; ok {
+			quiet = !v
+		}
+	}
+	if quiet {
+		if forced, why := forceApproval(name, args); forced && why != "unknown tool" {
+			return toolGate{Ask: true, Reason: why}
+		}
 		return toolGate{Allow: true}
 	}
 	if name == "delete_agent" {

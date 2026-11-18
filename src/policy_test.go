@@ -15,7 +15,7 @@ func TestApprovalFloors(t *testing.T) {
 		{"exec", `{"command":"sudo pacman -S foo","interactive":false}`, true},
 		{"exec", `{"command":"git reset --hard HEAD~1","interactive":false}`, true},
 		{"exec", `{"command":"scp file remote:/tmp","interactive":true}`, true},
-		{"edit_file", `{"path":"local-new.txt"}`, true},
+		{"edit_file", `{"path":"local-new.txt"}`, false},
 		{"write_file", `{"path":"local-new.txt"}`, false},
 	}
 	for _, c := range cases {
@@ -45,5 +45,21 @@ func TestSoftSuspicion(t *testing.T) {
 	// Hard floor still owns secrets; soft may also match /etc/ but force wins first.
 	if forced, _ := forceApproval("exec", `{"command":"cat /etc/shadow"}`); !forced {
 		t.Fatal("shadow must stay hard")
+	}
+}
+
+func TestToolAskOverride(t *testing.T) {
+	ask := map[string]bool{"search_history": true, "exec": false}
+	if g := gateTool(false, "ask", "search_history", "{}", false, ask); !g.Ask {
+		t.Fatalf("search_history should ask: %+v", g)
+	}
+	if g := gateTool(false, "ask", "exec", `{"command":"ls"}`, false, ask); !g.Allow {
+		t.Fatalf("plain exec should be allowed: %+v", g)
+	}
+	if g := gateTool(false, "ask", "exec", `{"command":"sudo ls"}`, false, ask); !g.Ask {
+		t.Fatalf("sudo still asks: %+v", g)
+	}
+	if g := gateTool(false, "yolo", "search_history", "{}", false, ask); !g.Allow {
+		t.Fatalf("yolo still allows: %+v", g)
 	}
 }

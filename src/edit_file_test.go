@@ -106,11 +106,11 @@ func TestPolicyFileEditTargetsAreChecked(t *testing.T) {
 	if forced, why := forceApproval("write_file", `{"path":"../x.txt","content":"x\n"}`); !forced || why != "write outside working directory" {
 		t.Fatalf("unexpected verdict: %v %q", forced, why)
 	}
-	if forced, why := forceApproval("edit_file", `{"path":"a.txt","old_string":"x\n","new_string":"y\n","replace_all":false}`); !forced || !strings.Contains(why, "modifying") {
-		t.Fatalf("unexpected verdict: %v %q", forced, why)
+	if forced, why := forceApproval("edit_file", `{"path":"a.txt","old_string":"x\n","new_string":"y\n","replace_all":false}`); forced {
+		t.Fatalf("workspace edit should not force: %v %q", forced, why)
 	}
-	if forced, why := forceApproval("write_file", `{"path":"a.txt","content":"z\n"}`); !forced || !strings.Contains(why, "overwriting") {
-		t.Fatalf("unexpected verdict: %v %q", forced, why)
+	if forced, why := forceApproval("write_file", `{"path":"a.txt","content":"z\n"}`); forced {
+		t.Fatalf("workspace overwrite should not force: %v %q", forced, why)
 	}
 }
 

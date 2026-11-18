@@ -17,3 +17,7 @@ func openWebView(url, title, configPath string) error {
 func openWebViewLocal(url, title, configPath, localHome string) error {
 	return openWebViewWithHomeImpl(url, title, configPath, localHome)
 }
+
+func openWebViewPrepared(url, title, configPath, localHome string, beforeRun func() error) error {
+	return openWebViewPreparedImpl(url, title, configPath, localHome, beforeRun)
+}

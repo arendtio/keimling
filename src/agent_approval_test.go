@@ -26,8 +26,16 @@ func TestGateToolCallAgentAutoReviewsEditsAndMCP(t *testing.T) {
 
 func TestGateToolCallWorkspaceKeepsTheFloor(t *testing.T) {
 	edit := gateToolCall(false, "auto", "edit_file", `{"path":"policy.go"}`, false)
-	if !edit.Ask || edit.Review {
+	if !edit.Allow {
 		t.Fatalf("workspace edit: %+v", edit)
+	}
+	outside := gateToolCall(false, "auto", "edit_file", `{"path":"../outside.go"}`, false)
+	if !outside.Ask {
+		t.Fatalf("outside edit: %+v", outside)
+	}
+	history := gateToolCall(false, "ask", "search_history", `{"query":"x"}`, false)
+	if !history.Allow {
+		t.Fatalf("search history: %+v", history)
 	}
 	mcp := gateToolCall(false, "auto", "mcp__demo__echo", `{}`, false)
 	if !mcp.Ask || mcp.Reason != "MCP tool call" {

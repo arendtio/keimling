@@ -750,3 +750,45 @@ func (a *Agent) SwitchThread(threadID string) error {
 	}
 	return nil
 }
+
+// attachThreadJournal opens one thread's journal on this agent. It does not
+// change which thread the workspace calls active, and it does not clear a
+// shared file or artifact hub.
+func (a *Agent) attachThreadJournal(threadID string) error {
+	threadID = strings.TrimSpace(threadID)
+	if a == nil || a.Cfg.WorkspaceID == "" || threadID == "" {
+		return fmt.Errorf("thread switch requires workspace")
+	}
+	if !isWorkspaceThreadID(threadID) {
+		return fmt.Errorf("unknown thread %q", threadID)
+	}
+	session := threadSessionPath(a.Cfg.WorkspaceID, threadID)
+	if _, err := os.Stat(filepath.Dir(session)); err != nil {
+		return fmt.Errorf("unknown thread %q", threadID)
+	}
+	if a.Journal != nil {
+		_ = a.Journal.Close()
+	}
+	j, err := OpenJournal(session, true)
+	if err != nil {
+		return err
+	}
+	a.Journal = j
+	a.History = j.History
+	a.Cfg.SessionPath = session
+	a.Cfg.ThreadID = threadID
+	if ch, err := loadCharter(session); err == nil {
+		a.Charter = ch
+	} else {
+		a.Charter = &Charter{Version: charterVersion}
+	}
+	a.Plan = nil
+	a.TaskActive = false
+	a.branchHold = nil
+	a.branchPending = 0
+	a.branchUserReady = false
+	a.restoreActiveBranch()
+	a.LastTaskMessage, a.ResumeAvailable = pendingTask(session)
+	a.toolData = nil
+	return nil
+}

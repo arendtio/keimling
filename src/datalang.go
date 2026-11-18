@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	dataModelLimit     = 4 << 10
-	dataStoreByteLimit = 32 << 20
-	dataStoreMaxItems  = 64
+	dataModelLimit = 4 << 10
+	// A stored result stays for the life of the thread. Count and byte caps
+	// of zero mean there is no cap. Tests set a cap when they need eviction.
+	dataStoreByteLimit = 0
+	dataStoreMaxItems  = 0
 	dataDefaultTimeout = 30 * time.Second
 )
 
@@ -125,7 +127,12 @@ func (s *dataStore) put(kind string, value any) (*dataItem, error) {
 }
 
 func (s *dataStore) evict() {
-	for len(s.order) > s.maxItems || (s.used > s.maxBytes && len(s.order) > 1) {
+	for {
+		overCount := s.maxItems > 0 && len(s.order) > s.maxItems
+		overBytes := s.maxBytes > 0 && s.used > s.maxBytes && len(s.order) > 1
+		if !overCount && !overBytes || len(s.order) == 0 {
+			return
+		}
 		id := s.order[0]
 		s.order = s.order[1:]
 		if it := s.items[id]; it != nil {

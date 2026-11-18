@@ -34,6 +34,8 @@ type Config struct {
 	AllowedWorkspaces                                                        []string
 	Autopilot                                                                bool
 	AutopilotInstructions                                                    string // saved global prompt; empty means the factory text
+	ToolAsk                                                                  map[string]bool
+	ArtifactProxy                                                            bool
 	ExternalClient                                                           *Client
 	VoiceProviderID                                                          string
 	RealtimeModel, RealtimeProviderID, RealtimeVoice                         string
@@ -93,10 +95,13 @@ type fileConfig struct {
 		KeyFile string `json:"key_file,omitempty"`
 	} `json:"openai"`
 	Features struct {
-		WebSearch               *bool  `json:"web_search"`
-		DisableExternalServices bool   `json:"disable_external_services"`
-		Autopilot               *bool  `json:"autopilot,omitempty"`
-		AutopilotInstructions   string `json:"autopilot_instructions,omitempty"`
+		WebSearch               *bool           `json:"web_search"`
+		DisableExternalServices bool            `json:"disable_external_services"`
+		Autopilot               *bool           `json:"autopilot,omitempty"`
+		AutopilotInstructions   string          `json:"autopilot_instructions,omitempty"`
+		ApprovalPolicy          string          `json:"approval_policy,omitempty"`
+		ToolAsk                 map[string]bool `json:"tool_ask,omitempty"`
+		ArtifactProxy           bool            `json:"artifact_proxy,omitempty"`
 	} `json:"features"`
 	Reasoning             string                     `json:"reasoning,omitempty"`
 	VoiceModel            string                     `json:"voice_model,omitempty"`
@@ -395,6 +400,7 @@ func main() {
 		os.Exit(2)
 	}
 	policyText := ""
+	policyReplace := false
 	if *approvalPolicy != "" {
 		pb, e := os.ReadFile(*approvalPolicy)
 		if e != nil {
@@ -402,6 +408,10 @@ func main() {
 			os.Exit(2)
 		}
 		policyText = string(pb)
+		policyReplace = strings.TrimSpace(policyText) != ""
+	} else if t := strings.TrimSpace(fc.Features.ApprovalPolicy); t != "" {
+		policyText = t
+		policyReplace = true
 	}
 	key := ""
 	var err error
@@ -567,7 +577,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer journal.Close()
-	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, RealtimeModel: strings.TrimSpace(fc.RealtimeModel), RealtimeProviderID: realtimeProviderID, RealtimeVoice: strings.TrimSpace(fc.RealtimeVoice), HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, MCPParallel: mcpParallelLimit(fc.MCPParallel), ReviewModel: *reviewModel, ApprovalPolicy: policyText, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
+	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, RealtimeModel: strings.TrimSpace(fc.RealtimeModel), RealtimeProviderID: realtimeProviderID, RealtimeVoice: strings.TrimSpace(fc.RealtimeVoice), HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, MCPParallel: mcpParallelLimit(fc.MCPParallel), ReviewModel: *reviewModel, ApprovalPolicy: policyText, ApprovalPolicyReplace: policyReplace, ToolAsk: fc.Features.ToolAsk, ArtifactProxy: fc.Features.ArtifactProxy, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
 	a.Cfg.ConversationMode = a.Cfg.Mode
 	a.applyDefinitionApproval()

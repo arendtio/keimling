@@ -169,3 +169,15 @@ func TestMCPRefreshPersistsTokenNotHeader(t *testing.T) {
 		t.Fatal(string(raw))
 	}
 }
+
+func TestOAuthRefreshTokenStaysSignedIn(t *testing.T) {
+	cfg := MCPServerConfig{OAuth: &MCPOAuth{
+		AccessToken:  "old",
+		RefreshToken: "keep",
+		TokenURL:     "https://login.example/token",
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	}}
+	if got := cfg.oauthState(time.Now()); got != "signed_in" {
+		t.Fatalf("oauth %q", got)
+	}
+}

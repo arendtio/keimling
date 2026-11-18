@@ -2128,6 +2128,36 @@ button.wide { width: 100%; max-width: 100%; }
 .context-dialog::backdrop {
   background: color-mix(in srgb, #000 45%, transparent);
 }
+.instruction-editor {
+  width: min(960px, 92vw);
+  height: min(80vh, 820px);
+  max-width: 92vw;
+}
+.instruction-editor form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 8px;
+}
+.instruction-editor textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+}
+.instruction-editor:fullscreen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+.tool-ask {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-height: 220px;
+  overflow: auto;
+}
 .confirm-dialog {
   max-width: min(28rem, 94vw);
 }
@@ -2737,12 +2767,6 @@ button.wide { width: 100%; max-width: 100%; }
 }
 .side-dash[data-state="idle"] .side-dash-read,
 .side-dash[data-state="quiet"] .side-dash-read { color: var(--muted); }
-@media (prefers-reduced-motion: reduce) {
-  .side-dash[data-state="thinking"] .side-scan-eye {
-    animation: none;
-    transform: translateX(50%);
-  }
-}
 .side-mcp {
   list-style: none;
   margin: 0 0 0.75rem;

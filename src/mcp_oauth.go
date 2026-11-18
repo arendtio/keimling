@@ -46,8 +46,13 @@ func (c MCPServerConfig) oauthState(now time.Time) string {
 	if c.OAuth == nil {
 		return ""
 	}
-	valid := c.OAuth.AccessToken != "" && (c.OAuth.ExpiresAt.IsZero() || now.Before(c.OAuth.ExpiresAt))
-	if valid {
+	accessOK := c.OAuth.AccessToken != "" && (c.OAuth.ExpiresAt.IsZero() || now.Before(c.OAuth.ExpiresAt))
+	if accessOK {
+		return "signed_in"
+	}
+	// The access token is the short one. A refresh token is the grant the
+	// user already gave, so the UI must not ask for a browser sign-in yet.
+	if c.OAuth.RefreshToken != "" && c.OAuth.TokenURL != "" {
 		return "signed_in"
 	}
 	if c.OAuth.RefreshToken != "" || c.OAuth.AccessToken != "" {

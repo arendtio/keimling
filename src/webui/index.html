@@ -284,10 +284,13 @@
           </select>
         </label>
         <label class="check"><input id="set-autopilot" type="checkbox"> Autopilot</label>
-        <label>Autopilot instructions
-          <textarea id="set-autopilot-instructions" class="autopilot-instructions" rows="8" spellcheck="false"></textarea>
-        </label>
-        <p class="hint">Replaces the built-in supervisor prompt for every thread that has not saved its own. Approval mode is unchanged.</p>
+        <div class="skills-row">
+          <button type="button" id="edit-autopilot-text" class="ghost">Edit autopilot instructions</button>
+          <button type="button" id="edit-review-text" class="ghost">Edit auto-review instructions</button>
+        </div>
+        <textarea id="set-autopilot-instructions" class="autopilot-instructions" hidden></textarea>
+        <textarea id="set-approval-policy" hidden></textarea>
+        <p class="hint">Autopilot instructions replace the built-in supervisor prompt for every thread that has not saved its own. Auto-review instructions are the global text for auto mode.</p>
         <p id="set-autopilot-instructions-status" class="hint"></p>
         <p id="set-autopilot-instructions-err" class="gate-err" hidden></p>
         <div class="skills-row">
@@ -296,6 +299,11 @@
         <div class="skills-row">
           <button type="button" id="set-autopilot-instructions-reset" class="ghost">Reset to built-in</button>
         </div>
+        <p class="settings-section-title">Ask before these tools</p>
+        <div id="set-tool-ask" class="tool-ask"></div>
+        <p class="hint">A protected path, a write outside the workspace, or a destructive command still asks. Yolo does not ask.</p>
+        <label class="check"><input id="set-artifact-proxy" type="checkbox"> Artifact proxy</label>
+        <p class="hint">When on, an artifact may fetch any http or https URL through <code>/api/artifact-proxy?url=</code>.</p>
         <label>Max steps
           <input id="set-max-steps" type="number" min="1" step="1">
         </label>
@@ -755,6 +763,21 @@
           <div id="screen-targets" class="screen-targets"></div>
           <div class="skills-row confirm-actions">
             <button type="submit" class="ghost" value="cancel">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="instruction-editor" class="context-dialog instruction-editor" aria-labelledby="instruction-editor-title">
+        <form method="dialog" class="context-panel">
+          <div class="skills-row">
+            <h2 id="instruction-editor-title">Instructions</h2>
+            <button type="button" id="instruction-editor-full" class="ghost">Fullscreen</button>
+          </div>
+          <textarea id="instruction-editor-text" spellcheck="false"></textarea>
+          <p id="instruction-editor-err" class="gate-err" hidden></p>
+          <div class="skills-row confirm-actions">
+            <button type="submit" class="ghost" value="cancel">Cancel</button>
+            <button type="button" id="instruction-editor-save">Save</button>
           </div>
         </form>
       </dialog>

@@ -18,6 +18,10 @@ func openWebViewImpl(url, title, configPath string) error {
 // embedded agent), "switch to local" navigates back there; otherwise it clears
 // gui-prefs and relaunches a local process (pure --connect session).
 func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
+	return openWebViewPreparedImpl(url, title, configPath, localHome, nil)
+}
+
+func openWebViewPreparedImpl(url, title, configPath, localHome string, beforeRun func() error) error {
 	if title == "" {
 		title = "Keimling"
 	}
@@ -35,6 +39,7 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
 		return fmt.Errorf("%w: %v", errGUIUnavailable, err)
 	}
 	defer w.Destroy()
+	prepareDesktopApp()
 	applyWindowIcon(w)
 	// Before the first page load, so the document is created with WebRTC and the mic.
 	allowMediaPermissions(w)
@@ -134,6 +139,11 @@ func openWebViewWithHomeImpl(url, title, configPath, localHome string) error {
   e.preventDefault();e.stopPropagation();
   try{keimlingOpenExternal(a.href);}catch(err){}
 },true);`)
+	if beforeRun != nil {
+		if err := beforeRun(); err != nil {
+			return err
+		}
+	}
 	if err := w.Run(); err != nil {
 		return fmt.Errorf("%w: %v", errGUIUnavailable, err)
 	}

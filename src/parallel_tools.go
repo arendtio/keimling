@@ -69,7 +69,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 	}
 	a.applyDefinitionApproval()
 	agentRun := strings.TrimSpace(a.Cfg.AgentInstanceID) != ""
-	g := gateToolCall(agentRun, a.Cfg.Mode, item.Name, item.Arguments, mcpToolAlwaysAllowed(a.Cfg.ConfigPath, item.Name))
+	g := gateTool(agentRun, a.Cfg.Mode, item.Name, item.Arguments, mcpToolAlwaysAllowed(a.Cfg.ConfigPath, item.Name), a.Cfg.ToolAsk)
 	reason := g.Reason
 	if g.Review {
 		cwd, _ := os.Getwd()

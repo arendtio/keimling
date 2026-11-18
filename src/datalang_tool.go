@@ -414,7 +414,7 @@ func (a *Agent) historySectionValue(id string) (any, error) {
 	var n int
 	for i := start; i <= end && i <= len(events); i++ {
 		n += len(events[i-1])
-		if n > dataStoreByteLimit {
+		if dataStoreByteLimit > 0 && n > dataStoreByteLimit {
 			return nil, dataErr("RESULT_TOO_LARGE", "history section is too large")
 		}
 		var v any

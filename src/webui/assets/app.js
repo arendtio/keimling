@@ -223,6 +223,20 @@
   var setAutopilotInstructionsErr = document.getElementById("set-autopilot-instructions-err");
   var setAutopilotInstructionsReset = document.getElementById("set-autopilot-instructions-reset");
   var setAutopilotInstructionsUndo = document.getElementById("set-autopilot-instructions-undo");
+  var setApprovalPolicy = document.getElementById("set-approval-policy");
+  var setToolAsk = document.getElementById("set-tool-ask");
+  var setArtifactProxy = document.getElementById("set-artifact-proxy");
+  var editAutopilotText = document.getElementById("edit-autopilot-text");
+  var editReviewText = document.getElementById("edit-review-text");
+  var instructionEditor = document.getElementById("instruction-editor");
+  var instructionEditorTitle = document.getElementById("instruction-editor-title");
+  var instructionEditorText = document.getElementById("instruction-editor-text");
+  var instructionEditorErr = document.getElementById("instruction-editor-err");
+  var instructionEditorSave = document.getElementById("instruction-editor-save");
+  var instructionEditorFull = document.getElementById("instruction-editor-full");
+  var instructionKind = "";
+  var approvalPolicyBaseline = "";
+  var threadDrafts = {};
   var autopilotSettingsCustom = false;
   var autopilotSettingsBaseline = "";
   var autopilotSettingsUndoText = "";
@@ -2014,6 +2028,10 @@
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
     applyAutopilotSettingsFields(j);
+    approvalPolicyBaseline = j.approval_policy || "";
+    if (setApprovalPolicy) setApprovalPolicy.value = approvalPolicyBaseline;
+    renderToolAsk(j.tool_ask);
+    if (setArtifactProxy) setArtifactProxy.checked = !!j.artifact_proxy;
     if (setAutopilotInstructionsUndo) setAutopilotInstructionsUndo.hidden = true;
     setMaxSteps.value = j.max_steps != null ? j.max_steps : 200;
     if (setMCPParallel) setMCPParallel.value = j.mcp_parallel != null ? j.mcp_parallel : 10;
@@ -2601,7 +2619,7 @@
     deny.disabled = !waiting;
     // Allow typing/voice/sending while busy → server queues or steers (CLI-like).
     // While recording, Send/Queue = stop mic + transcribe + send/queue.
-    var queueHere = busyish || backgroundBusy;
+    var queueHere = busyish;
     send.disabled = !connected || needsProvider;
     msg.disabled = !connected || needsProvider;
     if (attachFileBtn) attachFileBtn.disabled = !connected || needsProvider;
@@ -2641,7 +2659,7 @@
     if (stopBtn) {
       var hereStopping = composerIsStopping();
       var workspaceStopping = !currentAgentInstanceID && !!stoppingThreadID && (busyish || backgroundBusy);
-      var stopVisible = connected && (busyish || backgroundBusy || callLive);
+      var stopVisible = connected && (busyish || callLive);
       stopBtn.hidden = !stopVisible;
       stopBtn.disabled = !connected || !stopVisible || hereStopping || (workspaceStopping && !hereStopping);
       setControlLabel(stopBtn, hereStopping ? "Stopping…" : "Interrupt", hereStopping ? "This one is stopping" : (callLive && !busyish ? "Stop the current spoken reply" : "Interrupt the running agent"));
@@ -3348,6 +3366,8 @@
   function switchThread(id) {
     if (!id) return;
     if (!currentAgentInstanceID && id === currentThreadID) return;
+    if (msg && currentThreadID) threadDrafts[currentThreadID] = msg.value;
+    if (stateEl) stateEl.textContent = "opening";
     fetch(apiURL("/api/threads/switch"), {
       method: "POST",
       headers: headers(),
@@ -3371,6 +3391,10 @@
         activeChapter = null;
         clearLive();
         hideApproval();
+        if (msg) {
+          msg.value = threadDrafts[id] || "";
+          fitComposer();
+        }
         return loadSession();
       })
       .then(function () {
@@ -5669,6 +5693,7 @@
     // The run can already be idle while this snapshot still says busy.
     if (next === "running" && sideClosed) next = "idle";
     setState(next);
+    if (j.approval) showApproval(j.approval);
     if (!j.busy) clearLive();
   }
 
@@ -5724,6 +5749,18 @@
               if (ev === "compaction") updateCompactionProgress(payload);
               if (ev === "thread") updateThreadTitle(payload);
               if (ev === "status" && payload.state) {
+                var foreignStatus = payload.thread_id && currentThreadID && payload.thread_id !== currentThreadID && !currentAgentInstanceID;
+                if (foreignStatus) {
+                  if (payload.state === "idle") {
+                    if (payload.thread_id === stoppingThreadID) stoppingThreadID = "";
+                    if (runningThreadID === payload.thread_id) runningThreadID = "";
+                    backgroundBusy = !!runningThreadID && runningThreadID !== currentThreadID;
+                    loadThreads();
+                  } else {
+                    runningThreadID = payload.thread_id;
+                    backgroundBusy = true;
+                  }
+                } else {
                 if (payload.thread_id) runningThreadID = payload.thread_id;
                 var otherView = !currentAgentInstanceID && runningThreadID && currentThreadID && runningThreadID !== currentThreadID;
                 if (payload.state === "idle") {
@@ -5746,6 +5783,7 @@
                   backgroundBusy = false;
                   if (payload.state === "running" && agentState === "idle") resetSideSamples();
                   setState(payload.state);
+                }
                 }
               }
             });
@@ -7354,6 +7392,21 @@
     }
     if (tab === "connections") loadMcpList().catch(function () {});
     if (tab === "instructions") loadThreadAutopilot();
+    syncSidePoll();
+  }
+  var sidePollTimer = null;
+  function syncSidePoll() {
+    if (sidePollTimer) {
+      clearInterval(sidePollTimer);
+      sidePollTimer = null;
+    }
+    if (!connected) return;
+    if (sideTab !== "connections" && sideTab !== "context" && sideTab !== "now") return;
+    sidePollTimer = setInterval(function () {
+      if (!connected) return;
+      if (sideTab === "connections") loadMcpList().catch(function () {});
+      if (sideTab === "context" || sideTab === "now") refreshSideContext();
+    }, 4000);
   }
   function openSidebar() {
     selectSidebar(sideTab);
@@ -8175,6 +8228,96 @@
       if (btn.getAttribute("data-tab") === "secrets" && connected) loadCredentialsUI();
       if (btn.getAttribute("data-tab") === "plugins" && connected) loadPlugins();
     });
+  });
+  function renderToolAsk(rows) {
+    if (!setToolAsk) return;
+    setToolAsk.innerHTML = "";
+    (rows || []).forEach(function (row) {
+      var label = document.createElement("label");
+      label.className = "check";
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !!row.ask;
+      input.setAttribute("data-tool", row.name);
+      input.addEventListener("change", saveToolAsk);
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + row.name));
+      setToolAsk.appendChild(label);
+    });
+  }
+  function saveToolAsk() {
+    if (!setToolAsk || !connected) return;
+    var map = {};
+    setToolAsk.querySelectorAll("input[data-tool]").forEach(function (el) {
+      map[el.getAttribute("data-tool")] = el.checked;
+    });
+    fetch(apiURL("/api/settings"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify({ tool_ask: map }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.tool_ask) renderToolAsk(j.tool_ask);
+    }).catch(function () {});
+  }
+  function openInstructionEditor(kind) {
+    if (!instructionEditor || !instructionEditorText) return;
+    instructionKind = kind;
+    if (instructionEditorErr) instructionEditorErr.hidden = true;
+    if (instructionEditorTitle) {
+      instructionEditorTitle.textContent = kind === "review" ? "Auto-review instructions" : "Autopilot instructions";
+    }
+    instructionEditorText.value = kind === "review"
+      ? (setApprovalPolicy ? setApprovalPolicy.value : approvalPolicyBaseline)
+      : (setAutopilotInstructions ? setAutopilotInstructions.value : "");
+    if (typeof instructionEditor.showModal === "function") instructionEditor.showModal();
+  }
+  function saveInstructionEditor() {
+    if (!instructionEditorText) return;
+    var text = instructionEditorText.value;
+    var body = {};
+    if (instructionKind === "review") {
+      body.approval_policy = text;
+    } else {
+      if (!text.trim()) {
+        if (instructionEditorErr) {
+          instructionEditorErr.hidden = false;
+          instructionEditorErr.textContent = "Autopilot instructions cannot be empty. Use Reset to go back to the built-in prompt.";
+        }
+        return;
+      }
+      body.autopilot_instructions = text;
+    }
+    fetch(apiURL("/api/settings"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
+        fillAgentSettings(j);
+        if (instructionEditor && instructionEditor.open) instructionEditor.close();
+      });
+    }).catch(function (e) {
+      if (instructionEditorErr) {
+        instructionEditorErr.hidden = false;
+        instructionEditorErr.textContent = String(e.message || e);
+      }
+    });
+  }
+  if (editAutopilotText) editAutopilotText.addEventListener("click", function () { openInstructionEditor("autopilot"); });
+  if (editReviewText) editReviewText.addEventListener("click", function () { openInstructionEditor("review"); });
+  if (instructionEditorSave) instructionEditorSave.addEventListener("click", saveInstructionEditor);
+  if (instructionEditorFull) instructionEditorFull.addEventListener("click", function () {
+    if (!instructionEditor) return;
+    if (document.fullscreenElement === instructionEditor) document.exitFullscreen();
+    else if (instructionEditor.requestFullscreen) instructionEditor.requestFullscreen();
+  });
+  if (setArtifactProxy) setArtifactProxy.addEventListener("change", function () {
+    fetch(apiURL("/api/settings"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify({ artifact_proxy: setArtifactProxy.checked }),
+    }).catch(function () {});
   });
   saveSettingsBtn.addEventListener("click", saveAgentSettings);
 

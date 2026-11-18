@@ -89,6 +89,22 @@ func (m *MCPManager) Reload(ctx context.Context, configs map[string]MCPServerCon
 	m.ConnectAll(ctx, configs)
 }
 
+// ReconnectOne replaces a single server session. The others stay connected.
+func (m *MCPManager) ReconnectOne(ctx context.Context, name string, cfg MCPServerConfig) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if s := m.sessions[name]; s != nil && s.client != nil {
+		_ = s.client.Close()
+		s.client = nil
+	}
+	delete(m.sessions, name)
+	m.mu.Unlock()
+	m.connectOne(ctx, name, cfg)
+	m.rebuildIndex()
+}
+
 func (m *MCPManager) ConnectAll(ctx context.Context, configs map[string]MCPServerConfig) {
 	if m == nil {
 		return
@@ -478,4 +494,43 @@ func (a *Agent) reloadMCP(ctx context.Context) {
 	m := a.ensureMCP()
 	m.setServerSources(sources, names)
 	m.Reload(ctx, configs)
+}
+
+// reconnectMCP replaces one server. A sign-in for that server does not
+// restart the others.
+func (a *Agent) reconnectMCP(ctx context.Context, name string) {
+	if a == nil || strings.TrimSpace(name) == "" {
+		return
+	}
+	configs, sources, names := loadMCPServers(a.Cfg.ConfigPath)
+	m := a.ensureMCP()
+	m.setServerSources(sources, names)
+	cfg, ok := configs[name]
+	if !ok {
+		return
+	}
+	m.ReconnectOne(ctx, name, cfg)
+}
+
+// refreshMCPTokens renews access tokens that are about to lapse and
+// reconnects only those servers. A still-valid refresh token is the grant.
+func (a *Agent) refreshMCPTokens(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	configs, _, _ := loadMCPServers(a.Cfg.ConfigPath)
+	now := time.Now()
+	for name, cfg := range configs {
+		if cfg.OAuth == nil || cfg.OAuth.RefreshToken == "" || cfg.OAuth.TokenURL == "" {
+			continue
+		}
+		if cfg.OAuth.AccessToken != "" && (cfg.OAuth.ExpiresAt.IsZero() || now.Before(cfg.OAuth.ExpiresAt.Add(-time.Minute))) {
+			continue
+		}
+		prepared, err := prepareMCPConnection(ctx, name, cfg)
+		if err != nil {
+			continue
+		}
+		a.ensureMCP().ReconnectOne(ctx, name, prepared)
+	}
 }

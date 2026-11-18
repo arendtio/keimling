@@ -492,7 +492,7 @@ func TestAppServerApproveRejectedAfterStop(t *testing.T) {
 	}
 }
 
-func TestBusyWorkspaceQueuesOnViewedThread(t *testing.T) {
+func TestBusyWorkspaceStartsTheViewedThread(t *testing.T) {
 	withTempAgentHomes(t)
 	ws, err := ensureWorkspaceForRoot(t.TempDir())
 	if err != nil {
@@ -517,6 +517,7 @@ func TestBusyWorkspaceQueuesOnViewedThread(t *testing.T) {
 			HasModelProvider: true,
 		},
 		Journal: j,
+		Client:  &Client{APIKey: "test", BaseURL: "http://127.0.0.1:1", HTTP: &http.Client{Timeout: 50 * time.Millisecond}, Parallel: -1},
 	}
 	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
 	srv.mu.Lock()
@@ -528,11 +529,30 @@ func TestBusyWorkspaceQueuesOnViewedThread(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer tok")
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"queued":true`) {
-		t.Fatalf("queue: %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted || strings.Contains(rec.Body.String(), `"queued":true`) {
+		t.Fatalf("start the other thread: %d %s", rec.Code, rec.Body.String())
+	}
+	otherPath := threadSessionPath(ws.ID, other.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		ev, err := originalEvents(otherPath)
+		if err == nil && len(ev) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("other thread did not start: %v %v", ev, err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if events, err := originalEvents(session); err != nil || len(events) != 0 {
 		t.Fatalf("running journal should stay empty: %v %v", events, err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for srv.threadBusy(other.ID) {
+		if time.Now().After(deadline) {
+			t.Fatal("other thread still running")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/session", nil)
