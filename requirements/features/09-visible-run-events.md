@@ -56,6 +56,14 @@ Origin: User, 2026-11-18 (quote: "ich möchte auch bei tool calls immer die Mög
 
 Fit: A closed tool row shows the short label. Opening it shows the arguments that were sent and the output that came back, including an output longer than a short preview. A read_file row shows the path and the line numbers, not only the path.
 
+### REQ-VE-8 User messages stay visible
+
+A user message stays outside a folded stretch of a chapter.
+
+Origin: User, 2026-11-19 (quote: "Beim ausblenden/zusammenklappen von Nachrichten, werden auch Nachrichten des Nutzers ausgeblendet. Ich glaube Nutzernachrichten sollte immer eingeblendet bleiben.").
+
+Fit: In a chapter overview, the text of a user message is visible while the fold is closed. Opening the fold is not required to read it.
+
 ### REQ-VE-5 Tool name once
 
 The closed tool line shows the tool name once. Arguments follow that name.

@@ -5091,6 +5091,7 @@
 
   function chapterItemLoud(m) {
     if (!m) return false;
+    if (m.role === "user") return true;
     if (m.role === "tool_group" && (m.status === "failed" || m.status === "stopped")) return true;
     if (m.role === "peer") return true;
     if (m.role === "system" && !m.collapsed) return true;
