@@ -119,3 +119,13 @@
 - **Fit criterion:** A result above 4 KiB asked for with the default mode comes back as a reference and does not contain the payload. The same result asked for inline, with room left in the context, contains the payload. An inline that would fill the context fails, names the reference, does not contain the payload, and tells the model to narrow the fields and inline that once.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-DL-13 A transform can reshape an object and convert a value
+
+- **Bin:** explicit requirement
+- **Statement:** A transformation shall be able to list an object's fields, rebuild an object from those fields, read a field that may be absent without failing, add or replace one field, drop one field, measure a value, name its type, convert between text and a number, and replace text. The tool description shall name these operations. Reading a field with dot notation shall still fail when that field is absent. Adding, replacing, or dropping a field shall leave the value that was passed in unchanged.
+- **Origin:** User, 2026-11-18 (quote: "ob unsere dataLang nicht das gleichen können müsste oder fehlen der Sprache dafür noch zentrale elemente?" and "wenn es nur kleine anpassungen sind, gerne dataLang erweitern inkl. beschreibung"). The same message keeps the binary small (quote: "die anzahl an bytes die wir zur binary hinzufügen"), which REQ-DL-4 already requires.
+- **Rationale:** Models reach for a shell JSON tool to list fields, tolerate a missing field, or rewrite one field. Those steps are data work and belong in the transform.
+- **Fit criterion:** Field names come back in sorted order. Entries of an object rebuild that object. Reading an absent field by name returns an empty result and the program finishes. Dot access of that same field still fails. Asking whether a field exists is false when it is absent. Adding a field and dropping a field each return a new object, and the object that was passed in still has its original fields. Length counts characters of a text, elements of an array, and fields of an object. The type names object, array, string, number, bool, and null. An integer written as text converts to an integer, and a number converts to text. Replacing text replaces every occurrence. The `data_processing` description names listing fields, reading an absent field, setting a field, and replacing text.
+- **Priority:** shall
+- **Status:** confirmed

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type ex struct {
@@ -728,7 +729,8 @@ func uniqueArr(arr []any) []any {
 
 func knownPure(name string) bool {
 	switch name {
-	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "outline", "parse", "extract", "lookup", "indexOf":
+	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "outline", "parse", "extract", "lookup", "indexOf",
+		"keys", "entries", "from_entries", "length", "type", "string", "number", "replace", "has", "get", "set", "omit":
 		return true
 	default:
 		return false
@@ -842,6 +844,30 @@ func callPure(name string, args []any, env *dlEnv) (any, error) {
 		return lookupRow(args)
 	case "indexOf":
 		return indexOfValue(args)
+	case "keys":
+		return objectKeys(args)
+	case "entries":
+		return objectEntries(args)
+	case "from_entries":
+		return objectFromEntries(args)
+	case "length":
+		return valueLength(args)
+	case "type":
+		return valueKind(args)
+	case "string":
+		return valueString(args)
+	case "number":
+		return valueNumber(args)
+	case "replace":
+		return replaceText(args)
+	case "has":
+		return objectHas(args)
+	case "get":
+		return objectGet(args)
+	case "set":
+		return objectSet(args)
+	case "omit":
+		return objectOmit(args)
 	default:
 		return nil, &dataError{Code: "UNKNOWN_FUNCTION", Message: "Unknown function: " + name, Suggestion: "Use filter(predicate)", Example: `return input | filter(.status == "ok")`}
 	}
@@ -923,6 +949,247 @@ func lookupRow(args []any) (any, error) {
 		}
 	}
 	return nil, nil
+}
+
+func objectKeys(args []any) (any, error) {
+	m, err := oneObject("keys", args)
+	if err != nil {
+		return nil, err
+	}
+	raw := make([]string, 0, len(m))
+	for k := range m {
+		raw = append(raw, k)
+	}
+	sort.Strings(raw)
+	out := make([]any, len(raw))
+	for i, k := range raw {
+		out[i] = k
+	}
+	return out, nil
+}
+
+func objectEntries(args []any) (any, error) {
+	m, err := oneObject("entries", args)
+	if err != nil {
+		return nil, err
+	}
+	raw := make([]string, 0, len(m))
+	for k := range m {
+		raw = append(raw, k)
+	}
+	sort.Strings(raw)
+	out := make([]any, len(raw))
+	for i, k := range raw {
+		out[i] = map[string]any{"key": k, "value": m[k]}
+	}
+	return out, nil
+}
+
+func objectFromEntries(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "from_entries expects rows of {key, value}")
+	}
+	arr, ok := args[0].([]any)
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", "from_entries expects rows of {key, value}")
+	}
+	out := map[string]any{}
+	for _, item := range arr {
+		row, ok := item.(map[string]any)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", "from_entries expects rows of {key, value}")
+		}
+		key, ok := row["key"].(string)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", "from_entries expects a string key")
+		}
+		out[key] = row["value"]
+	}
+	return out, nil
+}
+
+func valueLength(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "length expects one value")
+	}
+	switch v := args[0].(type) {
+	case nil:
+		return int64(0), nil
+	case string:
+		return int64(utf8.RuneCountInString(v)), nil
+	case []any:
+		return int64(len(v)), nil
+	case map[string]any:
+		return int64(len(v)), nil
+	default:
+		return nil, dataErr("TYPE_ERROR", "length expects text, an array, an object, or null")
+	}
+}
+
+func valueKind(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "type expects one value")
+	}
+	switch args[0].(type) {
+	case nil:
+		return "null", nil
+	case bool:
+		return "bool", nil
+	case string:
+		return "string", nil
+	case int, int64, float64, json.Number:
+		return "number", nil
+	case []any:
+		return "array", nil
+	case map[string]any:
+		return "object", nil
+	default:
+		return nil, dataErr("TYPE_ERROR", "type expects a JSON value")
+	}
+}
+
+func valueString(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "string expects one value")
+	}
+	switch n := args[0].(type) {
+	case nil:
+		return "null", nil
+	case string:
+		return n, nil
+	case bool:
+		return strconv.FormatBool(n), nil
+	case int:
+		return strconv.Itoa(n), nil
+	case int64:
+		return strconv.FormatInt(n, 10), nil
+	case float64:
+		if n == float64(int64(n)) {
+			return strconv.FormatInt(int64(n), 10), nil
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), nil
+	case json.Number:
+		return n.String(), nil
+	default:
+		b, err := json.Marshal(n)
+		if err != nil {
+			return nil, dataErr("TYPE_ERROR", "string expects a JSON value")
+		}
+		return string(b), nil
+	}
+}
+
+func valueNumber(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "number expects a number or text")
+	}
+	if _, ok := asFloat(args[0]); ok {
+		return args[0], nil
+	}
+	s, ok := args[0].(string)
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", "number expects a number or text")
+	}
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil, dataErr("TYPE_ERROR", "number expects a number or text")
+	}
+	return f, nil
+}
+
+func replaceText(args []any) (any, error) {
+	if len(args) != 3 {
+		return nil, dataErr("TYPE_ERROR", "replace expects text, a search, and a replacement")
+	}
+	text, ok1 := args[0].(string)
+	old, ok2 := args[1].(string)
+	repl, ok3 := args[2].(string)
+	if !ok1 || !ok2 || !ok3 {
+		return nil, dataErr("TYPE_ERROR", "replace expects strings")
+	}
+	if old == "" {
+		return nil, dataErr("TYPE_ERROR", "replace search must not be empty")
+	}
+	return strings.ReplaceAll(text, old, repl), nil
+}
+
+func objectHas(args []any) (any, error) {
+	m, name, err := objectField("has", args)
+	if err != nil {
+		return nil, err
+	}
+	_, ok := m[name]
+	return ok, nil
+}
+
+func objectGet(args []any) (any, error) {
+	m, name, err := objectField("get", args)
+	if err != nil {
+		return nil, err
+	}
+	v, ok := m[name]
+	if !ok {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func objectSet(args []any) (any, error) {
+	if len(args) != 3 {
+		return nil, dataErr("TYPE_ERROR", "set expects an object, a field name, and a value")
+	}
+	m, ok := args[0].(map[string]any)
+	name, ok2 := args[1].(string)
+	if !ok || !ok2 {
+		return nil, dataErr("TYPE_ERROR", "set expects an object, a field name, and a value")
+	}
+	out := copyObject(m)
+	out[name] = args[2]
+	return out, nil
+}
+
+func objectOmit(args []any) (any, error) {
+	m, name, err := objectField("omit", args)
+	if err != nil {
+		return nil, err
+	}
+	out := copyObject(m)
+	delete(out, name)
+	return out, nil
+}
+
+func objectField(fn string, args []any) (map[string]any, string, error) {
+	if len(args) != 2 {
+		return nil, "", dataErr("TYPE_ERROR", fn+" expects an object and a field name")
+	}
+	m, ok := args[0].(map[string]any)
+	name, ok2 := args[1].(string)
+	if !ok || !ok2 {
+		return nil, "", dataErr("TYPE_ERROR", fn+" expects an object and a field name")
+	}
+	return m, name, nil
+}
+
+func oneObject(name string, args []any) (map[string]any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", name+" expects an object")
+	}
+	m, ok := args[0].(map[string]any)
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", name+" expects an object")
+	}
+	return m, nil
+}
+
+func copyObject(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func oneString(name string, args []any) (string, error) {

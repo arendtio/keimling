@@ -35,3 +35,9 @@
 **As** a user, **I want** the agent to be able to read a stored result that is past the small size when the reply needs those rows, **so that** it does not fetch the same list again in pieces.
 
 **Acceptance:** traces REQ-DL-12. A result above 4 KiB stays a reference under the default mode. The same result, read inline while the context has room, includes the payload. An inline that would fill the context keeps the reference and says to narrow the fields and read that once.
+
+## US-79 — Reshape an object without a shell JSON tool
+
+**As** a user, **I want** the agent to list fields, tolerate a missing field, and rewrite one field inside a transform, **so that** a shell JSON tool is not required for that step.
+
+**Acceptance:** traces REQ-DL-13 and REQ-DL-4. Field names come back sorted. Entries rebuild the object. An absent field reads as empty while dot access of that field still fails. Setting and dropping a field leave the passed-in object unchanged. Text replacement, length, type, and conversion between text and a number are available. The tool description names these operations. No new module is added.

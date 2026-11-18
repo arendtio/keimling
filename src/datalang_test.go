@@ -708,3 +708,129 @@ func TestOutlineShowsShapeWithoutValues(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestDataLangReshapesObjectsAndText(t *testing.T) {
+	obj := map[string]any{"b": int64(1), "a": "x"}
+	keys, err := runDataLang(`return keys(input)`, obj, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, ok := keys.([]any)
+	if !ok || len(names) != 2 || names[0] != "a" || names[1] != "b" {
+		t.Fatalf("keys %#v", keys)
+	}
+	back, err := runDataLang(`return input | entries() | from_entries()`, obj, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, ok := back.(map[string]any)
+	if !ok || rebuilt["a"] != "x" || rebuilt["b"] != int64(1) {
+		t.Fatalf("round trip %#v", back)
+	}
+	missing, err := runDataLang(`return get(input, "nope")`, obj, time.Second)
+	if err != nil || missing != nil {
+		t.Fatalf("get absent %#v %v", missing, err)
+	}
+	if _, err := runDataLang(`return input.nope`, obj, time.Second); err == nil {
+		t.Fatal("dot access of an absent field succeeded")
+	}
+	present, err := runDataLang(`return has(input, "a")`, obj, time.Second)
+	if err != nil || present != true {
+		t.Fatalf("has %#v %v", present, err)
+	}
+	absent, err := runDataLang(`return has(input, "z")`, obj, time.Second)
+	if err != nil || absent != false {
+		t.Fatalf("has absent %#v %v", absent, err)
+	}
+	src := map[string]any{"a": int64(1)}
+	set, err := runDataLang(`return set(input, "b", 2)`, src, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, changed := src["b"]; changed || len(src) != 1 {
+		t.Fatalf("set mutated the input %#v", src)
+	}
+	out, ok := set.(map[string]any)
+	if !ok || out["a"] != int64(1) || out["b"] != int64(2) {
+		t.Fatalf("set %#v", set)
+	}
+	dropped, err := runDataLang(`return input | omit("a")`, src, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := src["a"]; !kept {
+		t.Fatal("omit removed the field from the input")
+	}
+	left, ok := dropped.(map[string]any)
+	if !ok || len(left) != 0 {
+		t.Fatalf("omit %#v", dropped)
+	}
+	n, err := runDataLang(`return length("ä")`, nil, time.Second)
+	if err != nil || n != int64(1) {
+		t.Fatalf("rune length %v %v", n, err)
+	}
+	n, err = runDataLang(`return length(input)`, []any{int64(1), int64(2)}, time.Second)
+	if err != nil || n != int64(2) {
+		t.Fatalf("array length %v %v", n, err)
+	}
+	n, err = runDataLang(`return length(input)`, obj, time.Second)
+	if err != nil || n != int64(2) {
+		t.Fatalf("object length %v %v", n, err)
+	}
+	n, err = runDataLang(`return length(null)`, nil, time.Second)
+	if err != nil || n != int64(0) {
+		t.Fatalf("null length %v %v", n, err)
+	}
+	kind, err := runDataLang(`return type(null)`, nil, time.Second)
+	if err != nil || kind != "null" {
+		t.Fatalf("type null %v %v", kind, err)
+	}
+	kind, err = runDataLang(`return type(input)`, obj, time.Second)
+	if err != nil || kind != "object" {
+		t.Fatalf("type object %v %v", kind, err)
+	}
+	kind, err = runDataLang(`return type([1])`, nil, time.Second)
+	if err != nil || kind != "array" {
+		t.Fatalf("type array %v %v", kind, err)
+	}
+	kind, err = runDataLang(`return type("a")`, nil, time.Second)
+	if err != nil || kind != "string" {
+		t.Fatalf("type string %v %v", kind, err)
+	}
+	kind, err = runDataLang(`return type(1)`, nil, time.Second)
+	if err != nil || kind != "number" {
+		t.Fatalf("type number %v %v", kind, err)
+	}
+	kind, err = runDataLang(`return type(true)`, nil, time.Second)
+	if err != nil || kind != "bool" {
+		t.Fatalf("type bool %v %v", kind, err)
+	}
+	num, err := runDataLang(`return number("3")`, nil, time.Second)
+	if err != nil || num != int64(3) {
+		t.Fatalf("number int %v %v", num, err)
+	}
+	num, err = runDataLang(`return number("3.5")`, nil, time.Second)
+	if err != nil || num != 3.5 {
+		t.Fatalf("number float %v %v", num, err)
+	}
+	text, err := runDataLang(`return string(3)`, nil, time.Second)
+	if err != nil || text != "3" {
+		t.Fatalf("string %v %v", text, err)
+	}
+	text, err = runDataLang(`return string(null)`, nil, time.Second)
+	if err != nil || text != "null" {
+		t.Fatalf("string null %v %v", text, err)
+	}
+	text, err = runDataLang(`return "aa" | replace("a", "b")`, nil, time.Second)
+	if err != nil || text != "bb" {
+		t.Fatalf("replace %v %v", text, err)
+	}
+	if _, err := runDataLang(`return replace("ab", "", "x")`, nil, time.Second); err == nil {
+		t.Fatal("empty search was accepted")
+	}
+	for _, name := range []string{"keys(object)", "get(object, name)", "set(object, name, value)", "replace(text, old, new)"} {
+		if !strings.Contains(dataRunDescription, name) {
+			t.Fatalf("description missing %s", name)
+		}
+	}
+}

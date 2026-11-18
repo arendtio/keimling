@@ -44,6 +44,11 @@ lookup(rows, field, key), split(text, sep), join(array, sep),
 trim(text), json(text), csv(text), xml(text), outline(value), indexOf(array, value).
 xml(text) returns {tag, attrs, children}. A text node is {text}. A child is children | filter(.tag == "name"). An attribute is attrs.name.
 indexOf returns the first matching index, or null. Use that index on another array.
+keys(object) returns the field names, sorted. entries(object) returns [{key, value}] in that order. from_entries(rows) rebuilds the object.
+length(value) counts characters, array elements, or fields. null has length 0. count() still scans an array or a file. type(value) is object, array, string, number, bool, or null.
+string(value) and number(value) convert. replace(text, old, new) replaces every old.
+has(object, name) reports the field. get(object, name) returns its value, or null when it is absent. .name still fails when the field is absent.
+set(object, name, value) and omit(object, name) return a new object. The input object is unchanged.
 outline returns the shape of JSON, XML, or CSV: names, types, and list lengths, within 4 KiB, without the values. An XML shape names tag, attrs, and children.
 A file of any size can be an input. A file too large to pass as text is scanned by csv(input), json(input), xml(input), and outline(input). json of such a file reads an array or one value per line. filter, first, take, count, and lookup can stop at the row they need. Return that row, not the file.
 lookup returns the first object whose field equals key, or null.
