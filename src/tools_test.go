@@ -41,6 +41,34 @@ func TestFileTools(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
+func TestReadFileShortensARangePastTheEnd(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	if err := os.WriteFile("test.txt", []byte("alpha\nbeta\ngamma\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := executeTool(context.Background(), "read_file", `{"path":"test.txt","start_line":2,"end_line":50}`)
+	want := []byte("beta\ngamma\n")
+	if !strings.Contains(got, "test.txt:2-3") || !strings.Contains(got, hashBytes(want)) || !strings.HasSuffix(got, string(want)) {
+		t.Fatalf("shortened: %s", got)
+	}
+	got = executeTool(context.Background(), "read_file", `{"path":"test.txt","start_line":9,"end_line":50}`)
+	if got != "invalid line range" {
+		t.Fatalf("start past end: %s", got)
+	}
+	got = executeTool(context.Background(), "read_file", `{"path":"test.txt","start_line":3,"end_line":1}`)
+	if got != "invalid line range" {
+		t.Fatalf("reversed: %s", got)
+	}
+}
+
 func TestReadFileLargeWholeFileIsAPreview(t *testing.T) {
 	dir := t.TempDir()
 	cwd, err := os.Getwd()

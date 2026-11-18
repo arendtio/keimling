@@ -265,6 +265,9 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			x.StartLine = 1
 			x.EndLine = len(lines)
 		}
+		if x.StartLine >= 1 && x.StartLine <= len(lines) && x.EndLine > len(lines) {
+			x.EndLine = len(lines)
+		}
 		if x.StartLine < 1 || x.EndLine < x.StartLine || x.EndLine > len(lines) {
 			return "invalid line range"
 		}

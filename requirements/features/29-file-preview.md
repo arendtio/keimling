@@ -19,3 +19,15 @@
 - **Fit criterion:** A whole-file read of a JSON file larger than 4 KiB contains a field name and the length of its list, and does not contain a value that sits only inside that list. A whole-file read of a binary file contains the size and does not contain the file's raw bytes as the preview text.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-RF-3 A line range past the end is shortened to the last line
+
+- **Bin:** explicit requirement
+- **Statement:** A line range whose end is past the last line shall return the lines from its start through the last line, and shall name that shortened range. A start past the last line shall still be refused. The bytes returned shall be the exact bytes of the shortened range.
+- **Origin:** User, 2026-11-18 (quote: "invalid line range war glaube ich immer der fehler. Können wir dann bitte eine automatische kürzung zulassen?"). Same morning: "wenn ich zu viel angebe, er mir eben weniger zurückgibt".
+- **Rationale:** A guessed end line is the usual way a read fails, and the failure returns none of the lines that were in the file.
+- **Fit criterion:** A three-line file read as lines 2–50 returns lines 2–3 and a hash of those bytes. A read that starts at line 9 returns `invalid line range`. A reversed range still returns `invalid line range`.
+- **Priority:** shall
+- **Status:** confirmed
+
+REQ-RF-1 still requires the bytes of a range that lies inside the file. REQ-RF-3 shortens only an end that runs past the last line. The header names the lines that were returned.
