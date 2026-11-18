@@ -52,6 +52,7 @@ func (a *Agent) presentToolStart(name, args string) {
 		"phase":   "start",
 		"name":    name,
 		"command": cmd,
+		"input":   args,
 	})
 	banner := renderToolCall(name, args)
 	if banner != "" && !strings.HasSuffix(banner, "\n") {
@@ -63,11 +64,12 @@ func (a *Agent) presentToolStart(name, args string) {
 // presentToolResult publishes tool output to GUI and CLI.
 // When filtered is true, result is the model-facing text and raw is the full shell output.
 // When filtered is false, result is the single display output and raw should be empty.
-func (a *Agent) presentToolResult(name, command, result, raw string, ok, filtered bool) {
+func (a *Agent) presentToolResult(name, command, input, result, raw string, ok, filtered bool) {
 	payload := map[string]any{
 		"phase":    "result",
 		"name":     name,
 		"command":  command,
+		"input":    input,
 		"result":   result,
 		"ok":       ok,
 		"filtered": filtered,

@@ -61,7 +61,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 		if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": msg, "ok": false}); err != nil {
 			return toolAdmit{}, err
 		}
-		a.presentToolResult(item.Name, toolCommandLabel(item.Name, item.Arguments), msg, "", false, false)
+		a.presentToolResult(item.Name, toolCommandLabel(item.Name, item.Arguments), item.Arguments, msg, "", false, false)
 		return toolAdmit{Finished: true}, nil
 	}
 	if item.Name != "finish_task" && item.Name != "update_plan" {
@@ -491,9 +491,9 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 		if filteredExec {
 			modelVisible := truncate(result, 32<<10)
 			a.cliWrite(fmt.Sprintf("\033[36m◈ Filtered output → model\033[0m (%d → %d bytes):\n%s\n", len(rawExec), len(modelVisible), modelVisible))
-			a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(result), strings.TrimSpace(rawExec), toolOK, true)
+			a.presentToolResult(item.Name, toolCmd, item.Arguments, strings.TrimSpace(result), strings.TrimSpace(rawExec), toolOK, true)
 		} else {
-			a.presentToolResult(item.Name, toolCmd, strings.TrimSpace(output), "", toolOK, false)
+			a.presentToolResult(item.Name, toolCmd, item.Arguments, strings.TrimSpace(output), "", toolOK, false)
 		}
 		visible := a.attachDataRef(item.Name, result)
 		if visible != result {
@@ -509,11 +509,19 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 		} else {
 			a.cliWrite(fmt.Sprintf("\033[32m✓\033[0m %s\n", truncate(result, 1800)))
 		}
-		a.presentToolResult(item.Name, toolCmd, truncate(result, 1800), "", toolOK, false)
+		a.presentToolResult(item.Name, toolCmd, item.Arguments, result, "", toolOK, false)
 	}
-	outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": truncate(result, 32<<10), "ok": toolOK}
+	modelOut := truncate(result, 32<<10)
+	outItem := map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": modelOut, "ok": toolOK}
+	if result != modelOut {
+		outItem["display"] = result
+	}
 	if filteredExec && !strings.Contains(result, `"ref"`) {
-		outItem["raw_output"] = truncate(rawExec, 32<<10)
+		rawModel := truncate(rawExec, 32<<10)
+		outItem["raw_output"] = rawModel
+		if rawExec != rawModel {
+			outItem["display_raw"] = rawExec
+		}
 	}
 	if err := a.add(outItem); err != nil {
 		return err

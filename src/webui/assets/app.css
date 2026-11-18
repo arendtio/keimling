@@ -1442,6 +1442,24 @@ button.wide { width: 100%; max-width: 100%; }
   padding: 0.2rem 0.15rem;
   font-style: italic;
 }
+.msg.thinking { padding: 0.15rem 0; }
+.msg.thinking .thinking-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.msg.thinking .thinking-fold > summary::-webkit-details-marker { display: none; }
+.msg.thinking .thinking-fold > summary::before { content: "▸ "; }
+.msg.thinking .thinking-fold[open] > summary::before { content: "▾ "; }
+.msg.thinking .thinking-body {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
 .msg.system details.notice > summary {
   cursor: pointer;
   list-style: none;

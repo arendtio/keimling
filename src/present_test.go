@@ -41,7 +41,7 @@ func TestPresentToolStartAndResult(t *testing.T) {
 		},
 	}
 	a.presentToolStart("exec", `{"command":"echo hi"}`)
-	a.presentToolResult("exec", "echo hi", "hi", "", true, false)
+	a.presentToolResult("exec", "echo hi", `{"command":"echo hi"}`, "hi", "", true, false)
 	if len(kinds) != 2 || kinds[0] != "tool" || kinds[1] != "tool" {
 		t.Fatalf("%v", kinds)
 	}

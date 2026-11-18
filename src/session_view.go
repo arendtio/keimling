@@ -10,6 +10,7 @@ type sessionMessage struct {
 	Name        string   `json:"name,omitempty"`
 	Text        string   `json:"text,omitempty"`
 	Command     string   `json:"command,omitempty"`   // tool_group: visible command / label
+	Input       string   `json:"input,omitempty"`     // tool_group: full arguments
 	Result      string   `json:"result,omitempty"`    // display / model-facing output
 	Raw         string   `json:"raw,omitempty"`       // raw shell output only when filtered
 	Filtered    bool     `json:"filtered,omitempty"`  // true when Raw differs from model Result
@@ -114,6 +115,12 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 				name = "From " + peer
 			}
 			out = append(out, sessionMessage{Role: "peer", Name: name, Text: text, Files: names, Event: ev})
+		case item.Type == "keimling_thinking":
+			text := strings.TrimSpace(item.Text)
+			if text == "" {
+				continue
+			}
+			out = append(out, sessionMessage{Role: "thinking", Text: text, Collapsed: true, Event: ev})
 		case item.Type == "keimling_notice":
 			text := strings.TrimSpace(item.Text)
 			if text == "" {
@@ -128,7 +135,13 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 			endEv := ev
 			if outIdx, next, ok := findCallOutput(history, i, item.CallID); ok {
 				result = strings.TrimSpace(next.Output)
+				if strings.TrimSpace(next.Display) != "" {
+					result = next.Display
+				}
 				raw = strings.TrimSpace(next.RawOutput)
+				if strings.TrimSpace(next.DisplayRaw) != "" {
+					raw = next.DisplayRaw
+				}
 				toolOK = next.OK
 				endEv = outIdx + 1
 				consumed[outIdx] = true
@@ -141,6 +154,7 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 				Role:     "tool_group",
 				Name:     item.Name,
 				Command:  cmd,
+				Input:    item.Arguments,
 				Result:   result,
 				Raw:      raw,
 				Filtered: filtered,
@@ -168,20 +182,24 @@ func sessionMessages(history []json.RawMessage, limit int) []sessionMessage {
 }
 
 type callOutput struct {
-	Output    string
-	RawOutput string
-	OK        *bool
+	Output     string
+	Display    string
+	RawOutput  string
+	DisplayRaw string
+	OK         *bool
 }
 
 // findCallOutput pairs a tool call with its result. A peer line may sit between them.
 func findCallOutput(history []json.RawMessage, callIndex int, callID string) (int, callOutput, bool) {
 	for j := callIndex + 1; j < len(history) && j < callIndex+6; j++ {
 		var next struct {
-			Type      string `json:"type"`
-			CallID    string `json:"call_id"`
-			Output    string `json:"output"`
-			RawOutput string `json:"raw_output"`
-			OK        *bool  `json:"ok"`
+			Type       string `json:"type"`
+			CallID     string `json:"call_id"`
+			Output     string `json:"output"`
+			Display    string `json:"display"`
+			RawOutput  string `json:"raw_output"`
+			DisplayRaw string `json:"display_raw"`
+			OK         *bool  `json:"ok"`
 		}
 		if json.Unmarshal(history[j], &next) != nil {
 			continue
@@ -195,7 +213,7 @@ func findCallOutput(history []json.RawMessage, callIndex int, callID string) (in
 		if callID != "" && next.CallID != "" && next.CallID != callID {
 			continue
 		}
-		return j, callOutput{Output: next.Output, RawOutput: next.RawOutput, OK: next.OK}, true
+		return j, callOutput{Output: next.Output, Display: next.Display, RawOutput: next.RawOutput, DisplayRaw: next.DisplayRaw, OK: next.OK}, true
 	}
 	return 0, callOutput{}, false
 }

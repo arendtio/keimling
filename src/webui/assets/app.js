@@ -4560,6 +4560,16 @@
     }
   }
 
+  function toolInputText(raw) {
+    var s = String(raw || "");
+    if (!s) return "";
+    try {
+      return JSON.stringify(JSON.parse(s), null, 2);
+    } catch (e) {
+      return s;
+    }
+  }
+
   function toolFirstLine(cmd) {
     var line = String(cmd || "").trim().split("\n")[0] || "";
     if (line.length > 96) return line.slice(0, 93) + "…";
@@ -4578,6 +4588,7 @@
   function toolCard(m) {
     var name = m.name || "tool";
     var cmd = m.command || m.text || name;
+    var inputBody = toolInputText(m.input);
     var wrap = document.createElement("details");
     wrap.className = "tool-line";
     if (m.pending) wrap.className += " pending";
@@ -4603,12 +4614,21 @@
     var stack = document.createElement("div");
     stack.className = "tool-stack";
 
-    var cmdBox = document.createElement("div");
-    cmdBox.className = "tool-box tool-box-cmd";
-    cmdBox.innerHTML =
-      '<div class="tool-box-label">Command</div>' +
-      '<pre class="tool-body">' + esc(cmd) + "</pre>";
-    stack.appendChild(cmdBox);
+    if (inputBody) {
+      var inBox = document.createElement("div");
+      inBox.className = "tool-box tool-box-cmd";
+      inBox.innerHTML =
+        '<div class="tool-box-label">Input</div>' +
+        '<pre class="tool-body">' + esc(inputBody) + "</pre>";
+      stack.appendChild(inBox);
+    } else if (cmd && cmd !== name) {
+      var cmdBox = document.createElement("div");
+      cmdBox.className = "tool-box tool-box-cmd";
+      cmdBox.innerHTML =
+        '<div class="tool-box-label">Input</div>' +
+        '<pre class="tool-body">' + esc(cmd) + "</pre>";
+      stack.appendChild(cmdBox);
+    }
 
     if (m.pending && !rawBody && !filteredBody) {
       var pend = document.createElement("p");
@@ -4620,7 +4640,7 @@
         var rawBox = document.createElement("div");
         rawBox.className = "tool-box tool-box-raw";
         rawBox.innerHTML =
-          '<div class="tool-box-label">Raw output</div>' +
+          '<div class="tool-box-label">Output</div>' +
           '<pre class="tool-body">' + window.ansiToHtml(rawBody) + "</pre>";
         stack.appendChild(rawBox);
       }
@@ -4703,7 +4723,7 @@
   function messageSig(m) {
     if (!m) return "";
     if (m.role === "tool_group") {
-      return ["tool", m.name || "", m.command || "", m.pending ? "1" : "0", m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
+      return ["tool", m.name || "", m.command || "", m.input || "", m.pending ? "1" : "0", m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
     }
     return [m.role || "", m.text || "", m.name || "", (m.files || []).join(","), m.streaming ? "1" : "0", m.collapsed ? "1" : "0", m.line || 0, m.branch_line || 0, m.branch_index || 0, m.branch_count || 0].join("\u0001");
   }
@@ -4735,6 +4755,25 @@
       stampMessageEl(card, m, m.role);
       parent.appendChild(card);
       return m.role;
+    }
+    if ((m.role || "") === "thinking") {
+      var thought = document.createElement("article");
+      thought.className = "msg thinking";
+      var fold = document.createElement("details");
+      fold.className = "thinking-fold";
+      var sum = document.createElement("summary");
+      sum.textContent = "Thinking";
+      var body = document.createElement("pre");
+      body.className = "thinking-body";
+      body.textContent = m.text || "";
+      fold.appendChild(sum);
+      fold.appendChild(body);
+      thought.appendChild(fold);
+      stampMessageEl(thought, m, "thinking");
+      fold.dataset.domKey = ensureDomKey(m) + ":think";
+      if (heldOpen && heldOpen[fold.dataset.domKey]) fold.open = true;
+      parent.appendChild(thought);
+      return "thinking";
     }
     var el = document.createElement("article");
     var role = m.role || "assistant";
@@ -5245,6 +5284,39 @@
     stickScrollIfNearBottom(stick);
   }
 
+  function patchThinking() {
+    var last = messages[messages.length - 1];
+    if (!last || last.role !== "thinking") {
+      paintTranscript();
+      return;
+    }
+    var nodes = thread.querySelectorAll(".msg.thinking");
+    var el = nodes.length ? nodes[nodes.length - 1] : null;
+    var body = el && el.querySelector(".thinking-body");
+    if (!body) {
+      paintTranscript();
+      return;
+    }
+    var stick = nearBottom();
+    body.textContent = last.text || "";
+    stickScrollIfNearBottom(stick);
+  }
+
+  function handleThinking(payload) {
+    if (payload && payload.thread_id && payload.thread_id !== currentThreadID) return;
+    if (!eventsForThisView()) return;
+    var text = payload.text || "";
+    if (!text) return;
+    var last = messages[messages.length - 1];
+    if (last && last.role === "thinking" && last.streaming) {
+      last.text = (last.text || "") + text;
+      patchThinking();
+      return;
+    }
+    messages.push({ role: "thinking", text: text, streaming: true });
+    paintTranscript();
+  }
+
   function handleStructuredMessage(payload) {
     if (payload && payload.thread_id) {
       if (payload.thread_id !== currentThreadID) return;
@@ -5301,6 +5373,7 @@
         role: "tool_group",
         name: payload.name || "tool",
         command: payload.command || payload.name || "tool",
+        input: payload.input || "",
         result: "",
         raw: "",
         pending: true,
@@ -5319,6 +5392,7 @@
       role: "tool_group",
       name: payload.name || "tool",
       command: payload.command || payload.name || "tool",
+      input: payload.input || "",
       result: resultText,
       raw: payload.filtered ? (payload.raw || "") : "",
       filtered: !!payload.filtered,
@@ -5638,6 +5712,7 @@
               try { payload = JSON.parse(data); } catch (e) {}
               // Agent "line" events are for CLI attach; GUI uses structured message/tool.
               if (ev === "message") handleStructuredMessage(payload);
+              if (ev === "thinking") handleThinking(payload);
               if (ev === "realtime_inject") speakText(payload && payload.text);
               if (ev === "tool") handleStructuredTool(payload);
               if (ev === "approval" && eventsForThisView()) showApproval(payload);

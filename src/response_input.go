@@ -63,6 +63,10 @@ func normalizeResponseInput(history []json.RawMessage) ([]json.RawMessage, error
 				"role":    role,
 				"content": content,
 			}
+		case "keimling_thinking":
+			// Readable reasoning is for the transcript. Replaying it would put
+			// the model's private notes back into the next request.
+			continue
 		case "keimling_notice":
 			var text string
 			_ = json.Unmarshal(item["text"], &text)

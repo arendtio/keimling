@@ -26,6 +26,8 @@ type Client struct {
 	OutputTokens  int64
 	LastMainUsage MainUsage
 	StreamText    func(string)
+	// StreamThinking is the readable reasoning text as it arrives.
+	StreamThinking func(string)
 	// StreamProgress reports streamed rune counts by kind: thinking | text | tool.
 	StreamProgress func(deltaChars int, elapsed time.Duration, kind string)
 	// builtChatBody is the last Responses request this client marshaled.
@@ -163,7 +165,7 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 		"model": model, "store": false, "stream": true, "input": input, "tools": tools, "parallel_tool_calls": true, "include": []string{"reasoning.encrypted_content"},
 		"instructions": instructions,
 	}
-	reqBody["reasoning"] = map[string]any{"effort": reasoning}
+	reqBody["reasoning"] = map[string]any{"effort": reasoning, "summary": "detailed"}
 	if isOpenRouter(c.BaseURL) {
 		delete(reqBody, "include")
 	}
@@ -304,6 +306,9 @@ func (c *Client) readResponseStream(ctx context.Context, r io.Reader) (Response,
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			n := len([]rune(e.Delta))
 			chars += n
+			if e.Delta != "" && c.StreamThinking != nil {
+				c.StreamThinking(e.Delta)
+			}
 			if n > 0 && c.StreamProgress != nil {
 				c.StreamProgress(n, time.Since(start), "thinking")
 			}

@@ -79,7 +79,7 @@ func newAppServer(opts appServerOpts) *appServer {
 					s.hub.Broadcast("progress", payload)
 					return
 				}
-			case "message", "tool":
+			case "message", "tool", "thinking":
 				var payload map[string]any
 				if json.Unmarshal([]byte(text), &payload) == nil {
 					s.hub.Broadcast(kind, payload)

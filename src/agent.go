@@ -294,6 +294,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 		streamPhase.Store("waiting")
 		phaseStarted.Store(started)
 		var streamedText strings.Builder
+		var thought strings.Builder
 		// Rate is tokens over the last measured window, not since the phase
 		// opened. The first instant of a phase divides a burst by a tiny
 		// elapsed time and publishes a speed no model sustains.
@@ -357,6 +358,10 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 			streamedText.WriteString(delta)
 			a.presentAssistant(delta, true, false)
 		}
+		a.Client.StreamThinking = func(delta string) {
+			thought.WriteString(delta)
+			a.emitJSON("thinking", map[string]any{"text": delta})
+		}
 		a.Client.StreamProgress = func(deltaChars int, elapsed time.Duration, kind string) {
 			switch kind {
 			case "thinking":
@@ -413,7 +418,11 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 		close(finished)
 		statusWG.Wait()
 		a.Client.StreamText = nil
+		a.Client.StreamThinking = nil
 		a.Client.StreamProgress = nil
+		if text := strings.TrimSpace(thought.String()); text != "" {
+			_ = a.add(map[string]any{"type": "keimling_thinking", "text": text})
+		}
 		a.emitJSON("progress", map[string]any{"clear": true})
 		a.print("\r\033[2K")
 		if streamingStarted.Load() {

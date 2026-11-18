@@ -34,9 +34,27 @@ Fit: the API input for the following turn contains the note text.
 
 ### REQ-VE-4 What stays ephemeral
 
-Progress such as thinking, generating, and tokens per second is visible while
-the run is going and does not have to remain afterward. The CLI text stream
-is not rendered as a second chat log.
+Progress such as generating and tokens per second is visible while the run is
+going and does not have to remain afterward. The CLI text stream is not
+rendered as a second chat log. The thinking text itself is REQ-VE-6.
+
+### REQ-VE-6 Thinking text
+
+The readable thinking text shall appear in the transcript while it arrives,
+closed until the user opens it, and shall still be there after the run. It
+shall not be sent back to the model.
+
+Origin: User, 2026-11-18 (quote: "Gerne per default zugeklappt, aber ich möchte die Möglichkeit haben live das thinking zu sehen").
+
+Fit: While reasoning text is streaming, the transcript has a closed Thinking row whose body grows with that text. Opening it shows the text so far. After the run goes idle, reopening the thread still shows that row closed, and the next model request does not contain the thinking text.
+
+### REQ-VE-7 Tool input and output
+
+Every tool call shall keep its full arguments and its full output available, closed until the user opens the row.
+
+Origin: User, 2026-11-18 (quote: "ich möchte auch bei tool calls immer die Möglichkeit haben input und output mir vollständig anzusehen (auch gerne per default zugeklappt, aber eben möglich)").
+
+Fit: A closed tool row shows the short label. Opening it shows the arguments that were sent and the output that came back, including an output longer than a short preview. A read_file row shows the path and the line numbers, not only the path.
 
 ### REQ-VE-5 Tool name once
 

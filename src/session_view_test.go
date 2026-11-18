@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -106,6 +107,37 @@ func TestSessionMessagesFinishTaskSummaryCard(t *testing.T) {
 	msgs = sessionMessages([]json.RawMessage{blocked, bout}, 10)
 	if len(msgs) != 2 || !strings.Contains(msgs[1].Text, "Action needed") || !strings.Contains(msgs[1].Text, "Need API key") {
 		t.Fatalf("blocked summary: %#v", msgs)
+	}
+}
+
+func TestSessionThinkingAndToolInput(t *testing.T) {
+	thought, _ := json.Marshal(map[string]any{"type": "keimling_thinking", "text": "check the range"})
+	call, _ := json.Marshal(map[string]any{
+		"type": "function_call", "name": "read_file", "call_id": "r1",
+		"arguments": `{"path":"notes.txt","start_line":1,"end_line":400}`,
+	})
+	out, _ := json.Marshal(map[string]any{
+		"type": "function_call_output", "call_id": "r1",
+		"output": "short", "display": "alpha\nbeta\n",
+	})
+	msgs := sessionMessages([]json.RawMessage{thought, call, out}, 10)
+	if len(msgs) != 2 || msgs[0].Role != "thinking" || msgs[0].Text != "check the range" || !msgs[0].Collapsed {
+		t.Fatalf("thinking %#v", msgs)
+	}
+	if msgs[1].Role != "tool_group" || msgs[1].Input != `{"path":"notes.txt","start_line":1,"end_line":400}` || msgs[1].Result != "alpha\nbeta\n" {
+		t.Fatalf("tool %#v", msgs[1])
+	}
+	normalized, err := normalizeResponseInput([]json.RawMessage{thought, call, out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized) != 2 {
+		t.Fatalf("model input kept thinking: %d", len(normalized))
+	}
+	for _, item := range normalized {
+		if bytes.Contains(item, []byte("check the range")) || bytes.Contains(item, []byte("keimling_thinking")) {
+			t.Fatalf("thinking leaked: %s", item)
+		}
 	}
 }
 
