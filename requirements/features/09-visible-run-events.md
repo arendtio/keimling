@@ -50,11 +50,11 @@ Fit: While reasoning text is streaming, the transcript has a closed Thinking row
 
 ### REQ-VE-7 Tool input and output
 
-Every tool call shall keep its full arguments and its full output available, closed until the user opens the row.
+Every tool call shall use the same card. Closed, it shows the short label. Opened, it shows an Input section and an Output section. The Output section is the full text that came back. When the model received a shorter copy, that copy is shown as well, and the full output starts closed inside the card.
 
-Origin: User, 2026-11-18 (quote: "ich möchte auch bei tool calls immer die Möglichkeit haben input und output mir vollständig anzusehen (auch gerne per default zugeklappt, aber eben möglich)").
+Origin: User, 2026-11-18 (quote: "ich möchte auch bei tool calls immer die Möglichkeit haben input und output mir vollständig anzusehen (auch gerne per default zugeklappt, aber eben möglich)"). User, 2026-11-19 (quote: "bei Tool Calls auch die Parameter sehen kann … die aufzuklappen, sowohl die Eingangsparameter als auch das Ergebnis … für alle Tools gleichermaßen" and the answer "Input, die volle Ausgabe (zugeklappt) und der gefilterte Text wenn es einen gibt").
 
-Fit: A closed tool row shows the short label. Opening it shows the arguments that were sent and the output that came back, including an output longer than a short preview. A read_file row shows the path and the line numbers, not only the path.
+Fit: A closed tool row shows the short label. Opening a read_file row, an exec row, and a row whose arguments are empty each shows an Input section and an Output section, including an output longer than a short preview. The read_file arguments include the path and the line numbers. An exec row whose model saw a shorter text shows that shorter text when the row is opened, and the full output is a closed section in that same row.
 
 ### REQ-VE-8 User messages stay visible
 
@@ -72,13 +72,13 @@ Origin: User, 2026-11-19 (quote: "wenn er fertig ist, sieht man kurz die seite u
 
 Fit: While a reply streams, a task line is already a checkbox with the same gap it has when the reply stops. After the run goes idle, that gap does not change and a row that was open or closed stays that way. A chapter shows its heading and no line before the user's message. Inside one turn the rows share one gap. When the speaker changes, the same larger gap sits before the new voice, under a user message and under a Keimling message.
 
-### REQ-VE-11 Scroll once for a sent message
+### REQ-VE-11 Stay with the latest lines
 
-When a user message is shown, the transcript shall scroll to the bottom once. Lines that arrive after that message shall not pull the page down again. The last line of the transcript shall sit clear of the composer.
+When the page is within 200 pixels of the bottom, growth in the transcript shall move it to the bottom. Growth includes streaming text, a finished message, and a tool result, whether the line is from the user or from the agent. A few pixels above the bottom still count as the bottom. Farther up, growth shall leave the page where it is. Sending one's own message shall move to the bottom even from farther up. Opening another thread shall land at the bottom. The last line shall sit clear of the composer.
 
-Origin: User, 2026-11-19 (quote: "wenn ich eine nachricht abschicke scheint er im chat noch ganz nach unten zu scrollen, das ist etwas anstrengend" and "wenn er eine neue nutzernachricht gerendert hat er immer nach ganz unten im chat scrollt" and "etwas mehr abstand zwischen chatbox und der untersten Zeile des chatverlaufs").
+Origin: User, 2026-11-19 (quote: "wenn er neue Nachrichten … dranhängt … vom User kommen oder vom Agenten, dann scrollt er nicht automatisch weiter runter" and "zum Bereich von 200 Pixeln oder so ist völlig in Ordnung, dass er in dem immer nach unten snappt … wenn neue Nachrichten reinkommen"). Same day, the answers were: follow on every growth, including streaming; sending one's own message always jumps. This replaces the earlier same-day wish that a reply stay put after one scroll. The composer clearance from that wish stays (quote: "etwas mehr abstand zwischen chatbox und der untersten Zeile des chatverlaufs").
 
-Fit: After sending, the user message is at the bottom of the page. As the reply grows, the scroll position stays. The gap under the last line is wider than the gap inside a turn.
+Fit: With the page 80 pixels above the bottom, a streaming token, a tool card, and a finished line each leave the page at the bottom. With the page 400 pixels above the bottom, those arrivals leave the scroll position unchanged. Sending a message from 400 pixels up lands on the bottom, and the reply that follows stays at the bottom. The gap under the last line stays clear of the composer.
 
 ### REQ-VE-9 Follow the live thinking row
 

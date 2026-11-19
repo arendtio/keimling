@@ -4820,16 +4820,26 @@
     return line;
   }
 
+  function toolBox(className, labelHTML, bodyHTML) {
+    var box = document.createElement("div");
+    box.className = "tool-box " + className;
+    box.innerHTML =
+      '<div class="tool-box-label">' + labelHTML + "</div>" +
+      '<pre class="tool-body">' + bodyHTML + "</pre>";
+    return box;
+  }
+
   function toolCard(m) {
     var name = m.name || "tool";
     var cmd = m.command || m.text || name;
     var inputBody = toolInputText(m.input);
+    if (!inputBody && cmd && cmd !== name) inputBody = cmd;
+    if (!inputBody) inputBody = "—";
     var wrap = document.createElement("details");
     wrap.className = "tool-line";
     if (m.pending) wrap.className += " pending";
     var filtered = !!m.filtered && !!(m.raw && m.raw !== m.result);
-    // Unfiltered: single output lives in "raw". Filtered: raw + model result.
-    var rawBody = filtered ? (m.raw || "") : (m.raw || m.result || "");
+    var fullBody = filtered ? (m.raw || "") : (m.raw || m.result || "");
     var filteredBody = filtered ? (m.result || "") : "";
 
     var status = m.status || (m.pending ? "pending" : (m.ok === false ? "failed" : "ran"));
@@ -4848,45 +4858,25 @@
 
     var stack = document.createElement("div");
     stack.className = "tool-stack";
+    stack.appendChild(toolBox("tool-box-cmd", "Input", esc(inputBody)));
 
-    if (inputBody) {
-      var inBox = document.createElement("div");
-      inBox.className = "tool-box tool-box-cmd";
-      inBox.innerHTML =
-        '<div class="tool-box-label">Input</div>' +
-        '<pre class="tool-body">' + esc(inputBody) + "</pre>";
-      stack.appendChild(inBox);
-    } else if (cmd && cmd !== name) {
-      var cmdBox = document.createElement("div");
-      cmdBox.className = "tool-box tool-box-cmd";
-      cmdBox.innerHTML =
-        '<div class="tool-box-label">Input</div>' +
-        '<pre class="tool-body">' + esc(cmd) + "</pre>";
-      stack.appendChild(cmdBox);
-    }
-
-    if (m.pending && !rawBody && !filteredBody) {
-      var pend = document.createElement("p");
-      pend.className = "tool-pending-hint";
-      pend.textContent = "Running…";
-      stack.appendChild(pend);
+    var outputHTML = fullBody ? window.ansiToHtml(fullBody) : esc(m.pending ? "Running…" : "—");
+    if (filtered && filteredBody) {
+      var fold = document.createElement("details");
+      fold.className = "tool-output-fold";
+      fold.dataset.domKey = ensureDomKey(m) + ":output";
+      if (heldOpen && heldOpen[fold.dataset.domKey]) fold.open = true;
+      var foldSum = document.createElement("summary");
+      foldSum.textContent = "Output";
+      var foldBody = document.createElement("pre");
+      foldBody.className = "tool-body";
+      foldBody.innerHTML = outputHTML;
+      fold.appendChild(foldSum);
+      fold.appendChild(foldBody);
+      stack.appendChild(fold);
+      stack.appendChild(toolBox("tool-box-filtered", 'Filtered <span class="tool-line-funnel">▽</span>', window.ansiToHtml(filteredBody)));
     } else {
-      if (rawBody) {
-        var rawBox = document.createElement("div");
-        rawBox.className = "tool-box tool-box-raw";
-        rawBox.innerHTML =
-          '<div class="tool-box-label">Output</div>' +
-          '<pre class="tool-body">' + window.ansiToHtml(rawBody) + "</pre>";
-        stack.appendChild(rawBox);
-      }
-      if (filtered && filteredBody) {
-        var filtBox = document.createElement("div");
-        filtBox.className = "tool-box tool-box-filtered";
-        filtBox.innerHTML =
-          '<div class="tool-box-label">Filtered <span class="tool-line-funnel">▽</span></div>' +
-          '<pre class="tool-body">' + window.ansiToHtml(filteredBody) + "</pre>";
-        stack.appendChild(filtBox);
-      }
+      stack.appendChild(toolBox("tool-box-raw", "Output", outputHTML));
     }
     wrap.appendChild(stack);
     return wrap;
@@ -5398,12 +5388,39 @@
     flush();
   }
 
-  // Scroll once, when a user message has just been drawn. Later lines of the
-  // turn stay put so the page does not chase the reply.
-  function scrollTranscriptToEnd() {
+  // Within this many pixels of the bottom, new transcript growth stays at the bottom.
+  var transcriptFollowPx = 200;
+  var transcriptStick = true;
+
+  function transcriptFromBottom() {
+    var el = document.scrollingElement || document.documentElement;
+    return el.scrollHeight - el.scrollTop - el.clientHeight;
+  }
+
+  function noteTranscriptStick() {
+    transcriptStick = transcriptFromBottom() <= transcriptFollowPx;
+  }
+
+  window.addEventListener("scroll", noteTranscriptStick, { passive: true });
+
+  // force is the reader's own send or a thread change: go to the bottom
+  // even when they were reading higher up. Follow skips the jump if they
+  // have since scrolled away.
+  function scrollTranscript(force) {
     requestAnimationFrame(function () {
-      window.scrollTo(0, document.documentElement.scrollHeight);
+      if (!force && !transcriptStick) return;
+      var el = document.scrollingElement || document.documentElement;
+      window.scrollTo(0, el.scrollHeight);
+      transcriptStick = true;
     });
+  }
+
+  function scrollTranscriptToEnd() {
+    scrollTranscript(true);
+  }
+
+  function followTranscript() {
+    scrollTranscript(false);
   }
 
   function chapterBlockSig() {
@@ -5543,6 +5560,7 @@
 
   function paintTranscript() {
     renderThread();
+    followTranscript();
   }
 
   // Patch only the open streaming bubble — full rebuild per token freezes the UI.
@@ -5565,6 +5583,7 @@
     }
     // Same markdown as the settled message, so lists and checkboxes do not jump when the reply ends.
     body.innerHTML = renderAssistantHTML(last.text || "");
+    followTranscript();
   }
 
   function patchThinking() {
@@ -5581,6 +5600,7 @@
       return;
     }
     body.textContent = last.text || "";
+    followTranscript();
     if (followThinking && last.streaming && followDismissedKey !== ensureDomKey(last)) {
       var fold = el.querySelector(".thinking-fold");
       if (fold && !fold.open) {
@@ -6003,7 +6023,10 @@
     applyLowContext(!!j.low_context);
     shownViewKey = nextKey;
     renderChapters();
-    if (!keepThread) renderThread();
+    if (!keepThread) {
+      renderThread();
+      if (!(j.thread_id && j.thread_id !== openedThread)) followTranscript();
+    }
     if (j.growth) syncGrowthLogo(j.growth.used_pct, false);
     if (j.thread_id && j.thread_id !== openedThread) scrollTranscriptToEnd();
     var next = j.busy ? "running" : (j.state || "idle");
@@ -10152,11 +10175,15 @@
         m.streaming = !done;
         m.liveDone = !!done;
         renderThread();
+        if (role === "user") scrollTranscriptToEnd();
+        else followTranscript();
         return;
       }
     }
     messages.push({ role: role, text: text, live: true, streaming: !done, liveDone: !!done });
     renderThread();
+    if (role === "user") scrollTranscriptToEnd();
+    else followTranscript();
   }
 
   function persistCallLine(role, text) {

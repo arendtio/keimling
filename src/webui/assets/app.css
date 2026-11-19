@@ -1723,6 +1723,36 @@ button.wide { width: 100%; max-width: 100%; }
 .tool-box-filtered {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
+.tool-output-fold {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--tool);
+  padding: 0.45rem 0.65rem 0.55rem;
+  min-width: 0;
+}
+.tool-output-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  user-select: none;
+}
+.tool-output-fold > summary::-webkit-details-marker { display: none; }
+.tool-output-fold > summary::before {
+  content: "▸ ";
+  color: var(--accent);
+}
+.tool-output-fold[open] > summary::before { content: "▾ "; }
+.tool-output-fold > .tool-body {
+  margin: 0.3rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
 
 .approval {
   position: sticky;
