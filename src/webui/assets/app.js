@@ -578,6 +578,204 @@
     saveGuiPrefs(body).catch(function () {});
   }
 
+  var growthLogoOn = false;
+  var growthLogoReady = false;
+  var growthPose = { rest: 1, p: 0 };
+  var growthTarget = { rest: 1, p: 0 };
+  var growthPassSeed = false;
+  var growthFrame = 0;
+  var growthReducedMotion = function () { return false; };
+
+  function growthEase(u) {
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    return u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+  }
+  function growthProgress(percent) {
+    var p = Number(percent);
+    if (!isFinite(p)) p = 0;
+    if (p < 0) p = 0;
+    if (p > 100) p = 100;
+    return Math.log1p(9 * p / 100) / Math.log1p(9);
+  }
+  function growthThreadEmpty() {
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].role === "user" && String(messages[i].text || "").trim()) return false;
+    }
+    return true;
+  }
+  function growthSeed(p) {
+    if (p <= 0) return { op: 1, scale: 1 };
+    if (p >= 0.25) return { op: 0, scale: 0.5 };
+    var u = growthEase(p / 0.25);
+    return { op: 1 - u, scale: 1 - 0.5 * u };
+  }
+  function growthBranch(p) {
+    if (p <= 0.45) return 1;
+    if (p >= 0.7) return 0;
+    return 1 - growthEase((p - 0.45) / 0.25);
+  }
+  function growthFruit(p) {
+    if (p <= 0.7) return 0;
+    return growthEase((p - 0.7) / 0.3);
+  }
+  function paintGrowth(pose) {
+    var logo = document.getElementById("growth-logo");
+    if (!logo) return;
+    var rest = pose.rest;
+    var p = pose.p;
+    if (rest < 0) rest = 0;
+    if (rest > 1) rest = 1;
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    var seed = growthSeed(p);
+    var plant = 0.025 + p * 0.975;
+    function mix(live, still) { return live + (still - live) * rest; }
+    var seedEl = logo.querySelector(".kg-seed");
+    var plantEl = logo.querySelector(".kg-plant");
+    if (seedEl) {
+      seedEl.style.opacity = String(mix(seed.op, 0));
+      seedEl.style.transform = "scale(" + mix(seed.scale, 0.5) + ")";
+    }
+    if (plantEl) plantEl.style.transform = "scale(" + mix(plant, 1) + ")";
+    var dash = String(mix(growthBranch(p), 1));
+    logo.querySelectorAll(".kg-branch").forEach(function (el) { el.style.strokeDashoffset = dash; });
+    var fruit = "scale(" + mix(growthFruit(p), 0) + ")";
+    logo.querySelectorAll(".kg-fruit").forEach(function (el) { el.style.transform = fruit; });
+  }
+  function stopGrowth() {
+    if (growthFrame) cancelAnimationFrame(growthFrame);
+    growthFrame = 0;
+  }
+  function moveGrowth(target, viaSeed) {
+    if (viaSeed) growthPassSeed = true;
+    if (growthReducedMotion()) {
+      growthPassSeed = false;
+      growthPose = { rest: target.rest, p: target.p };
+      paintGrowth(growthPose);
+      return;
+    }
+    var points = [{ rest: growthPose.rest, p: growthPose.p }];
+    var atSeed = growthPose.rest < 0.08 && growthPose.p < 0.04;
+    if (growthPassSeed && !atSeed) points.push({ rest: 0, p: 0 });
+    else growthPassSeed = false;
+    var last = points[points.length - 1];
+    if (Math.abs(last.rest - target.rest) > 0.001 || Math.abs(last.p - target.p) > 0.001) points.push(target);
+    if (points.length < 2) {
+      growthPose = { rest: target.rest, p: target.p };
+      paintGrowth(growthPose);
+      return;
+    }
+    stopGrowth();
+    var seg = 900;
+    var started = performance.now();
+    var nSeg = points.length - 1;
+    function frame(now) {
+      var t = (now - started) / (seg * nSeg);
+      if (t >= 1) {
+        growthPose = { rest: points[nSeg].rest, p: points[nSeg].p };
+        if (growthPose.rest < 0.08 && growthPose.p < 0.04) growthPassSeed = false;
+        paintGrowth(growthPose);
+        growthFrame = 0;
+        return;
+      }
+      var x = t * nSeg;
+      var i = Math.min(nSeg - 1, Math.floor(x));
+      var u = growthEase(x - i);
+      growthPose = {
+        rest: points[i].rest + (points[i + 1].rest - points[i].rest) * u,
+        p: points[i].p + (points[i + 1].p - points[i].p) * u,
+      };
+      if (growthPose.rest < 0.08 && growthPose.p < 0.04) growthPassSeed = false;
+      paintGrowth(growthPose);
+      growthFrame = requestAnimationFrame(frame);
+    }
+    growthFrame = requestAnimationFrame(frame);
+  }
+  function growthSame(a, b) {
+    return Math.abs(a.rest - b.rest) < 0.001 && Math.abs(a.p - b.p) < 0.001;
+  }
+  function syncGrowthLogo(usedPct, viaSeed) {
+    var target = growthThreadEmpty()
+      ? { rest: 1, p: 0 }
+      : { rest: 0, p: growthProgress(usedPct) };
+    if (viaSeed) growthPassSeed = true;
+    if (!viaSeed && growthSame(target, growthTarget) && (growthFrame || growthSame(target, growthPose))) {
+      growthTarget = target;
+      return;
+    }
+    growthTarget = target;
+    if (!growthLogoOn || !growthLogoReady) return;
+    moveGrowth(growthTarget, !!viaSeed);
+  }
+  function noteGrowthMessage(payload) {
+    if (!payload || payload.delta) return;
+    var viaSeed = false;
+    if ((payload.role || "") === "user") {
+      var n = 0;
+      messages.forEach(function (m) {
+        if (m.role === "user" && String(m.text || "").trim()) n++;
+      });
+      viaSeed = n === 1;
+    }
+    if (viaSeed && typeof payload.used_pct !== "number") {
+      syncGrowthLogo(0, true);
+      return;
+    }
+    if (typeof payload.used_pct === "number") syncGrowthLogo(payload.used_pct, viaSeed);
+  }
+  function applyGrowthEnabled(on) {
+    var was = growthLogoOn && growthLogoReady;
+    growthLogoOn = !!on;
+    var box = document.getElementById("growth-logo-toggle");
+    if (box) box.checked = growthLogoOn;
+    var mark = document.getElementById("brand-mark");
+    var logo = document.getElementById("growth-logo");
+    // SVG's hidden property does not drop the attribute, so the plant stays display:none.
+    function showLogo(el, on) {
+      if (!el) return;
+      if (on) el.removeAttribute("hidden");
+      else el.setAttribute("hidden", "");
+    }
+    if (!growthLogoOn) {
+      stopGrowth();
+      growthLogoReady = false;
+      growthPassSeed = false;
+      growthPose = { rest: 1, p: 0 };
+      showLogo(mark, true);
+      showLogo(logo, false);
+      return;
+    }
+    showLogo(mark, false);
+    showLogo(logo, true);
+    growthLogoReady = true;
+    if (!was) {
+      growthPose = { rest: 1, p: 0 };
+      paintGrowth(growthPose);
+      moveGrowth(growthTarget, false);
+    }
+  }
+  function bindGrowthLogo() {
+    var box = document.getElementById("growth-logo-toggle");
+    if (box && !box.dataset.bound) {
+      box.dataset.bound = "1";
+      box.addEventListener("change", function () {
+        applyGrowthEnabled(box.checked);
+        saveGuiPrefs({ growth_logo: box.checked }).catch(function () {});
+      });
+    }
+    if (window.matchMedia && !bindGrowthLogo.listening) {
+      bindGrowthLogo.listening = true;
+      var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+      growthReducedMotion = function () { return mq.matches; };
+      if (mq.addEventListener) {
+        mq.addEventListener("change", function () {
+          if (growthLogoOn && growthLogoReady) moveGrowth(growthTarget, false);
+        });
+      }
+    }
+  }
+
   function loadThemeFromGuiPrefs() {
     var h = { "Content-Type": "application/json" };
     var s = pageAccessSecret();
@@ -588,7 +786,11 @@
         return r.json();
       })
       .then(function (p) {
-        if (!p) return;
+        if (!p) {
+          bindGrowthLogo();
+          applyGrowthEnabled(true);
+          return;
+        }
         if (p.themes && p.themes.length) themeState.themes = p.themes;
         if (p.active_theme) themeState.active = p.active_theme;
         var active = themeActive();
@@ -603,8 +805,13 @@
         applyColorScheme();
         renderThemeList();
         applySidebarFromGuiPrefs(p);
+        bindGrowthLogo();
+        applyGrowthEnabled(p.growth_logo !== false);
       })
-      .catch(function () {});
+      .catch(function () {
+        bindGrowthLogo();
+        applyGrowthEnabled(true);
+      });
   }
 
   function setChoice(next) {
@@ -5445,6 +5652,7 @@
         messages.push({ role: role, text: text });
       }
       paintTranscript();
+      noteGrowthMessage(payload);
       return;
     }
     // Drop an unfinished stream bubble if a full message arrives.
@@ -5464,6 +5672,7 @@
     messages.push({ role: role, text: text, name: payload.name || "", collapsed: !!payload.collapsed });
     paintTranscript();
     if (role === "user") scrollTranscriptToEnd();
+    noteGrowthMessage(payload);
   }
 
   function handleStructuredTool(payload) {
@@ -5795,6 +6004,7 @@
     shownViewKey = nextKey;
     renderChapters();
     if (!keepThread) renderThread();
+    if (j.growth) syncGrowthLogo(j.growth.used_pct, false);
     if (j.thread_id && j.thread_id !== openedThread) scrollTranscriptToEnd();
     var next = j.busy ? "running" : (j.state || "idle");
     // The run can already be idle while this snapshot still says busy.
@@ -9397,6 +9607,7 @@
         pendingFiles = [];
         renderAttachRow();
         messages.push({ role: "user", text: text, files: files.map(function (f) { return f.name; }) });
+        noteGrowthMessage({ role: "user" });
         if (j && j.queued) {
           messages.push({
             role: "system",

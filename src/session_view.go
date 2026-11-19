@@ -24,6 +24,25 @@ type sessionMessage struct {
 	Files       []string `json:"files,omitempty"`
 }
 
+// sessionGrowth reports whether the open chat has a user message yet, and
+// how full its context is (0–100). The sidebar plant reads this.
+func sessionGrowth(msgs []sessionMessage, usedPct float64) map[string]any {
+	empty := true
+	for _, m := range msgs {
+		if m.Role == "user" && strings.TrimSpace(m.Text) != "" {
+			empty = false
+			break
+		}
+	}
+	if usedPct < 0 {
+		usedPct = 0
+	}
+	if usedPct > 100 {
+		usedPct = 100
+	}
+	return map[string]any{"empty": empty, "used_pct": usedPct}
+}
+
 type sessionChapter struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`

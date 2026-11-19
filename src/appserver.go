@@ -333,6 +333,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = s.agent.Cfg.ContextLimit
 	}
+	growth := sessionGrowth(msgs, s.viewedContextBudget().UsedPct)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"model":                 label,
@@ -375,6 +376,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 			return "idle"
 		}(),
 		"budget": s.budgetSnapshot(r.Context(), false),
+		"growth": growth,
 	})
 }
 
@@ -957,6 +959,29 @@ func (s *appServer) handleContext(w http.ResponseWriter, r *http.Request) {
 		"budget":   b,
 		"raw":      raw,
 	})
+}
+
+// viewedContextBudget is the context fill of the chat on screen.
+func (s *appServer) viewedContextBudget() ContextBudget {
+	if s == nil || s.agent == nil {
+		return budgetNumbers(0, 0)
+	}
+	viewID := s.viewedThread()
+	runningID := s.agent.Cfg.ThreadID
+	background := viewID != "" && viewID != runningID && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
+	if !background {
+		return s.agent.contextBudget()
+	}
+	raw := s.agent.rawContextFor(viewID)
+	limit := s.agent.effectiveChatTargetFor(viewID).ContextLimit
+	if limit <= 0 {
+		limit = s.agent.Cfg.ContextLimit
+	}
+	used := 0
+	if n, ok := raw["est_tokens"].(int); ok {
+		used = n
+	}
+	return budgetNumbers(limit, used)
 }
 
 // contextForView is the open chat. While a run holds another thread, this is
@@ -2436,6 +2461,7 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			"sidebar_open":         p.SidebarOpen,
 			"sidebar_tab":          p.SidebarTab,
 			"sidebar_width":        p.SidebarWidth,
+			"growth_logo":          p.GrowthLogo == nil || *p.GrowthLogo,
 		})
 	case http.MethodPut, http.MethodPatch:
 		var body struct {
@@ -2452,6 +2478,7 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			SidebarOpen        *bool                `json:"sidebar_open"`
 			SidebarTab         *string              `json:"sidebar_tab"`
 			SidebarWidth       *int                 `json:"sidebar_width"`
+			GrowthLogo         *bool                `json:"growth_logo"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -2531,6 +2558,9 @@ func (s *appServer) handleGuiPrefs(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.SidebarWidth != nil && *body.SidebarWidth >= 280 && *body.SidebarWidth <= 4000 {
 				p.SidebarWidth = *body.SidebarWidth
+			}
+			if body.GrowthLogo != nil {
+				p.GrowthLogo = body.GrowthLogo
 			}
 			normalizeConnectionProfiles(p)
 			// If only legacy connect was patched without connections array, sync profiles.

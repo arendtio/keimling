@@ -23,12 +23,16 @@ func (a *Agent) presentAssistant(text string, delta, replace bool) {
 	if !delta && strings.TrimSpace(text) == "" && !replace {
 		return
 	}
-	a.emitJSON("message", map[string]any{
+	payload := map[string]any{
 		"role":    "assistant",
 		"text":    text,
 		"delta":   delta,
 		"replace": replace,
-	})
+	}
+	if !delta && a.Client != nil {
+		payload["used_pct"] = a.contextBudget().UsedPct
+	}
+	a.emitJSON("message", payload)
 	if delta {
 		return
 	}
@@ -115,10 +119,14 @@ func (a *Agent) presentFinish(status, summary string) {
 	if body != "" {
 		msg += "\n\n" + body
 	}
-	a.emitJSON("message", map[string]any{
+	done := map[string]any{
 		"role": "assistant",
 		"text": msg,
-	})
+	}
+	if a.Client != nil {
+		done["used_pct"] = a.contextBudget().UsedPct
+	}
+	a.emitJSON("message", done)
 	out := renderFinish(status, summary)
 	if out != "" && !strings.HasSuffix(out, "\n") {
 		out += "\n"

@@ -31,6 +31,7 @@ type guiPrefs struct {
 	SidebarOpen        *bool               `json:"sidebar_open,omitempty"`
 	SidebarTab         string              `json:"sidebar_tab,omitempty"`
 	SidebarWidth       int                 `json:"sidebar_width,omitempty"`
+	GrowthLogo         *bool               `json:"growth_logo,omitempty"` // nil means on
 }
 
 // normalizeColorScheme accepts automatic, light, or dark. Automatic is stored empty.

@@ -132,6 +132,15 @@ body {
   font-size: 1.45rem;
   line-height: 1.1;
 }
+.growth-logo .kg-seed,
+.growth-logo .kg-plant,
+.growth-logo .kg-fruit {
+  transform-box: view-box;
+}
+.growth-logo .kg-seed,
+.growth-logo .kg-plant { transform-origin: 261px 354px; }
+.growth-logo .kg-fruit-left { transform-origin: 174px 281px; }
+.growth-logo .kg-fruit-right { transform-origin: 342px 289px; }
 
 /* —— Gate overlay: one scroll surface (no nested card scroll) —— */
 .gate {

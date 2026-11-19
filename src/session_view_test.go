@@ -193,3 +193,18 @@ func TestSessionChaptersFromIndex(t *testing.T) {
 		t.Fatal(sessionWorkingState(session))
 	}
 }
+
+func TestSessionGrowth(t *testing.T) {
+	empty := sessionGrowth(nil, 12)
+	if empty["empty"] != true || empty["used_pct"] != 12.0 {
+		t.Fatalf("%#v", empty)
+	}
+	full := sessionGrowth([]sessionMessage{{Role: "user", Text: "hi"}}, 140)
+	if full["empty"] != false || full["used_pct"] != 100.0 {
+		t.Fatalf("%#v", full)
+	}
+	blank := sessionGrowth([]sessionMessage{{Role: "user", Text: "  "}}, -3)
+	if blank["empty"] != true || blank["used_pct"] != 0.0 {
+		t.Fatalf("%#v", blank)
+	}
+}

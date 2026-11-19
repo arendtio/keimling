@@ -206,6 +206,29 @@ func TestAppServerGuiPrefsAPI(t *testing.T) {
 	if body.WindowWidth != 1400 || body.BgDark != "#112233" {
 		t.Fatalf("%#v", body)
 	}
+	if body.GrowthLogo == nil || !*body.GrowthLogo {
+		t.Fatalf("growth logo defaults on: %#v", body.GrowthLogo)
+	}
+	off := false
+	req = httptest.NewRequest(http.MethodPut, "/api/gui-prefs", strings.NewReader(`{"growth_logo":false}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("growth put: %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/gui-prefs", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body = guiPrefs{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.GrowthLogo == nil || *body.GrowthLogo != off {
+		t.Fatalf("growth logo stays off: %#v", body.GrowthLogo)
+	}
 }
 
 func TestNormalizeBgColor(t *testing.T) {
