@@ -22,6 +22,16 @@ Keimling lists installed Agent Skills, including ones discovered from another ha
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-SK-3 Skills are managed in the Skills tab
+
+- **Bin:** explicit requirement
+- **Statement:** The Skills settings tab shall show the installed skills and the controls to search, preview, and install. That job shall not sit behind a separate dialog.
+- **Origin:** User, 2026-11-19 (quote: "wenn ich in Tab Skills gehe, dann sehe ich da einen Button Manage Skills. Aber ich wundere mich so ein bisschen, warum können wir nicht einfach das, was in Manage Skills in diesem Pop-up-Dialog steht, einfach direkt in die Liste in den Tab reintun" and "ähnlich wie wir es beim MCP-Server gemacht haben, da war früher auch so ein Button und da haben wir jetzt auch einfach die MCP-Server direkt drin").
+- **Rationale:** The button adds a step to a job the tab already names. The MCP tab already shows its servers in place.
+- **Fit criterion:** Settings → Skills shows the installed list, the search, the preview, and the local path add. There is no Manage skills button and no skills dialog.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 Skills already present when this choice is first saved stay as they are, which today means included, until the user turns one off. The option applies to a skill the first time it is seen after that. `auto_enable_new` defaults off.

@@ -2117,24 +2117,9 @@ button.wide { width: 100%; max-width: 100%; }
   max-width: min(640px, 94vw);
   width: 100%;
 }
-#skills-dialog {
-  max-width: min(720px, 94vw);
-}
 #mcp-tool-dialog .context-panel {
   max-height: min(86vh, 820px);
   overflow: auto;
-}
-#skills-dialog .context-panel {
-  max-height: min(86vh, 820px);
-  overflow: auto;
-}
-#skills-dialog .context-head {
-  position: sticky;
-  top: -1rem;
-  margin: -1rem -1.1rem 0;
-  padding: 1rem 1.1rem 0.65rem;
-  background: var(--panel);
-  z-index: 1;
 }
 .context-dialog::backdrop {
   background: color-mix(in srgb, #000 45%, transparent);

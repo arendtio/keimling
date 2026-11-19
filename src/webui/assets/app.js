@@ -20,8 +20,6 @@
   var choiceLocal = document.getElementById("choice-local");
   var choiceRemote = document.getElementById("choice-remote");
   var openConnection = document.getElementById("open-connection");
-  var openSkillsBtn = document.getElementById("open-skills");
-  var skillsDialog = document.getElementById("skills-dialog");
   var skillsList = document.getElementById("skills-list");
   var skillsResults = document.getElementById("skills-results");
   var skillsPath = document.getElementById("skills-path");
@@ -1273,6 +1271,9 @@
     connectBtn.hidden = tab !== "connection";
     if (tab === "secrets" && connected) loadCredentialsUI();
     if (tab === "plugins" && connected) loadPlugins();
+    if (tab === "skills" && connected) {
+      loadSkillsList().catch(function (err) { showSkillsErr(String(err.message || err)); });
+    }
     if (tab === "mcp" && connected) {
       syncMcpKindUI();
       loadMcpList().catch(function (err) { showMcpErr(String(err.message || err)); });
@@ -6826,23 +6827,6 @@
         if (auto) auto.checked = !!j.auto_enable_new;
         renderSkillsInstalled(j.skills || []);
       });
-  }
-  function openSkillsDialog() {
-    if (!connected || !skillsDialog) return;
-    showSkillsErr("");
-    hideSkillsPreview();
-    loadSkillsList()
-      .then(function () {
-        if (typeof skillsDialog.showModal === "function") skillsDialog.showModal();
-        else skillsDialog.setAttribute("open", "");
-        if (skillsQuery) skillsQuery.focus();
-      })
-      .catch(function (err) {
-        appendLive("\n[skills] " + err + "\n");
-      });
-  }
-  if (openSkillsBtn) {
-    openSkillsBtn.addEventListener("click", openSkillsDialog);
   }
   var skillsAutoNew = document.getElementById("skills-auto-new");
   if (skillsAutoNew) {
