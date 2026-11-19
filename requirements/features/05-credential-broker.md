@@ -78,6 +78,16 @@ Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandant
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-CB-9 A new sign-in uses the scopes from that attempt
+
+- **Bin:** explicit requirement
+- **Statement:** Signing in to an MCP server again shall request the scopes that server states for this attempt. It shall not request a scope list saved from an earlier sign-in.
+- **Origin:** User, 2026-11-19 (quote: "wenn ich ihn wieder neu authentifizieren wollte, also Sign-in machen wollte, dann habe ich immer so eine Fehlermeldung bekommen … dass die Scopes, die angegeben worden sind, nicht valide waren, also irgendwie Invalid Scope" and "in der Zwischenzeit bei dem MCP-Server die erlaubten Scopes geändert worden sind, er aber irgendwo sich abgespeichert hatte, welche Scopes denn zur Authentifizierung genutzt werden sollten und er, wenn ich ihn jetzt erneut über Sign-in geschickt hab, immer noch wieder die alte Liste genommen hat und nicht die neue Liste").
+- **Rationale:** A server can drop a scope after the first sign-in. Sending that old list back makes the new sign-in fail even though the server has already named the scopes it accepts now.
+- **Fit criterion:** A server that was signed in with `old:read` answers the next sign-in with `fresh:read` and still lists `old:read` as a supported scope. The authorization request asks for `fresh:read` and does not ask for `old:read` or for the scope stored from the earlier sign-in.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
 - External vaults for MCP connection tokens. Those tokens stay in `mcp.json` (REQ-CB-4, REQ-CB-5).

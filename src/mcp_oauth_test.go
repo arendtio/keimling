@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -167,6 +168,62 @@ func TestMCPRefreshPersistsTokenNotHeader(t *testing.T) {
 	}}).Status())
 	if strings.Contains(string(raw), "new-access") || strings.Contains(string(raw), "new-refresh") {
 		t.Fatal(string(raw))
+	}
+}
+
+func TestSignInUsesChallengeScopeNotStoredScope(t *testing.T) {
+	var asURL, resourceURL string
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/oauth-authorization-server" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(mcpAuthServer{
+			AuthorizationEndpoint: asURL + "/auth",
+			TokenEndpoint:         asURL + "/token",
+			RegistrationEndpoint:  asURL + "/register",
+			CodeChallengeMethods:  []string{"S256"},
+		})
+	}))
+	defer as.Close()
+	asURL = as.URL
+	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-protected-resource" {
+			_ = json.NewEncoder(w).Encode(mcpResourceMeta{
+				Resource:             resourceURL + "/mcp",
+				AuthorizationServers: []string{as.URL},
+				Scopes:               []string{"old:read", "old:write"},
+			})
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="mcp", error="invalid_scope", scope="fresh:read fresh:write", resource_metadata="`+resourceURL+`/.well-known/oauth-protected-resource"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer resource.Close()
+	resourceURL = resource.URL
+	authURL, err := startMCPSignIn(context.Background(), resource.Client(), "demo", resource.URL+"/mcp", "http://127.0.0.1:7420", "", &MCPOAuth{Scope: "stored:old", ClientID: "already"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("scope"); got != "fresh:read fresh:write" {
+		t.Fatalf("scope %q in %s", got, authURL)
+	}
+	if strings.Contains(u.Query().Get("scope"), "old:") || strings.Contains(u.Query().Get("scope"), "stored:") {
+		t.Fatal(authURL)
+	}
+}
+
+func TestAuthParamIgnoresInsufficientScope(t *testing.T) {
+	h := `Bearer error="insufficient_scope", scope="files:read", resource_metadata="https://mcp.example/meta"`
+	if got := authParam(h, "scope"); got != "files:read" {
+		t.Fatalf("scope %q", got)
+	}
+	if got := quotedParam(h, "resource_metadata"); got != "https://mcp.example/meta" {
+		t.Fatalf("metadata %q", got)
 	}
 }
 

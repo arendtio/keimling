@@ -104,6 +104,9 @@ type mcpResourceMeta struct {
 	Resource             string   `json:"resource"`
 	AuthorizationServers []string `json:"authorization_servers"`
 	Scopes               []string `json:"scopes_supported"`
+	// ChallengeScope is the scope parameter of this attempt's 401 challenge.
+	// It is not part of the metadata document.
+	ChallengeScope string `json:"-"`
 }
 
 func mcpPKCE() (verifier, challenge string, err error) {
@@ -196,33 +199,68 @@ func mcpDiscover(ctx context.Context, client *http.Client, resourceURL string) (
 }
 
 func mcpFetchResourceMeta(ctx context.Context, client *http.Client, resourceURL string) (mcpResourceMeta, error) {
-	var meta mcpResourceMeta
-	metaURL := resourceMetadataURL("", resourceURL)
-	meta, err := mcpGetJSON[mcpResourceMeta](ctx, client, metaURL)
-	if err == nil && len(meta.AuthorizationServers) > 0 {
+	header, probeErr := mcpProbeResource(ctx, client, resourceURL)
+	challengeScope := authParam(header, "scope")
+	candidates := []string{}
+	if found := quotedParam(header, "resource_metadata"); found != "" {
+		candidates = append(candidates, found)
+	}
+	wellKnown := resourceMetadataURL("", resourceURL)
+	if wellKnown != "" && wellKnown != candidatesFirst(candidates) {
+		candidates = append(candidates, wellKnown)
+	}
+	var last error
+	for _, raw := range candidates {
+		meta, err := mcpGetJSON[mcpResourceMeta](ctx, client, raw)
+		if err != nil {
+			last = err
+			continue
+		}
+		if len(meta.AuthorizationServers) == 0 {
+			last = fmt.Errorf("the server did not name an authorization server")
+			continue
+		}
+		meta.ChallengeScope = strings.TrimSpace(challengeScope)
 		return meta, nil
 	}
-	req, err2 := http.NewRequestWithContext(ctx, http.MethodGet, resourceURL, nil)
-	if err2 != nil {
-		if err != nil {
-			return meta, err
-		}
-		return meta, err2
+	if last == nil {
+		last = probeErr
 	}
-	resp, err2 := client.Do(req)
-	if err2 != nil {
-		if err != nil {
-			return meta, err
-		}
-		return meta, err2
+	if last == nil {
+		last = fmt.Errorf("no protected resource metadata")
+	}
+	return mcpResourceMeta{}, last
+}
+
+func candidatesFirst(list []string) string {
+	if len(list) == 0 {
+		return ""
+	}
+	return list[0]
+}
+
+func mcpProbeResource(ctx context.Context, client *http.Client, resourceURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, resourceURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	found := resourceMetadataURL(resp.Header.Get("WWW-Authenticate"), resourceURL)
-	if found == metaURL && err != nil {
-		return meta, err
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	return resp.Header.Get("WWW-Authenticate"), nil
+}
+
+// mcpSignInScope is the scope list for this sign-in attempt.
+// A scope saved from an earlier sign-in is not used.
+// The 401 challenge wins over scopes_supported, which can still name scopes the server no longer accepts.
+func mcpSignInScope(res mcpResourceMeta) string {
+	if s := strings.TrimSpace(res.ChallengeScope); s != "" {
+		return s
 	}
-	return mcpGetJSON[mcpResourceMeta](ctx, client, found)
+	return strings.Join(res.Scopes, " ")
 }
 
 func resourceMetadataURL(wwwAuth, resourceURL string) string {
@@ -245,16 +283,53 @@ func resourceMetadataURL(wwwAuth, resourceURL string) string {
 
 func quotedParam(header, name string) string {
 	key := strings.ToLower(name) + `="`
-	i := strings.Index(strings.ToLower(header), key)
-	if i < 0 {
-		return ""
+	lower := strings.ToLower(header)
+	from := 0
+	for {
+		i := strings.Index(lower[from:], key)
+		if i < 0 {
+			return ""
+		}
+		i += from
+		if i == 0 || !isNameChar(lower[i-1]) {
+			rest := header[i+len(key):]
+			j := strings.Index(rest, `"`)
+			if j < 0 {
+				return ""
+			}
+			return rest[:j]
+		}
+		from = i + len(key)
 	}
-	rest := header[i+len(key):]
-	j := strings.Index(rest, `"`)
-	if j < 0 {
-		return ""
+}
+
+func isNameChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
+}
+
+func authParam(header, name string) string {
+	if v := quotedParam(header, name); v != "" {
+		return v
 	}
-	return rest[:j]
+	key := strings.ToLower(name) + "="
+	lower := strings.ToLower(header)
+	from := 0
+	for {
+		i := strings.Index(lower[from:], key)
+		if i < 0 {
+			return ""
+		}
+		i += from
+		if i == 0 || !isNameChar(lower[i-1]) {
+			rest := strings.TrimSpace(header[i+len(key):])
+			end := strings.IndexAny(rest, ", ")
+			if end < 0 {
+				return rest
+			}
+			return rest[:end]
+		}
+		from = i + len(key)
+	}
 }
 
 func mcpFetchAuthServer(ctx context.Context, client *http.Client, issuer string) (mcpAuthServer, error) {
@@ -507,7 +582,7 @@ func startMCPSignIn(ctx context.Context, client *http.Client, name, resourceURL,
 		return "", err
 	}
 	state := base64.RawURLEncoding.EncodeToString(stateBuf)
-	scope := strings.Join(res.Scopes, " ")
+	scope := mcpSignInScope(res)
 	resource := res.Resource
 	if resource == "" {
 		resource = resourceURL
