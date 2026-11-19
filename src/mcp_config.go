@@ -328,6 +328,33 @@ func UpsertUserMCPServer(name string, cfg MCPServerConfig) error {
 	return writeMCPFile(path, servers)
 }
 
+// keepUserMCPFields copies secrets the edit form does not send. replaceEnv and
+// replaceHeaders mean the request included those maps and they should win.
+func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHeaders bool) MCPServerConfig {
+	path := defaultUserMCPPath()
+	if path == "" {
+		return cfg
+	}
+	prev, err := readMCPFile(path)
+	if err != nil {
+		return cfg
+	}
+	old, ok := prev[strings.TrimSpace(name)]
+	if !ok {
+		return cfg
+	}
+	if !replaceEnv {
+		cfg.Env = old.Env
+	}
+	if !replaceHeaders {
+		cfg.Headers = old.Headers
+	}
+	if cfg.OAuth == nil {
+		cfg.OAuth = old.OAuth
+	}
+	return cfg
+}
+
 // setMCPToolAllow marks or clears one exposed tool name on the file that actually supplies the server.
 func setMCPToolAllow(server, tool string, allow bool, configPath string) ([]string, error) {
 	server = strings.TrimSpace(server)

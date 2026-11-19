@@ -185,6 +185,8 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
+	s.mux.Handle("/api/mcp/reload-one", s.requireSecret(http.HandlerFunc(s.handleMCPReloadOne)))
+	s.mux.Handle("/api/mcp/log", s.requireSecret(http.HandlerFunc(s.handleMCPLog)))
 	s.mux.Handle("/api/mcp/allow", s.requireSecret(http.HandlerFunc(s.handleMCPAllow)))
 	s.mux.Handle("/api/mcp/sign-in", s.requireSecret(http.HandlerFunc(s.handleMCPSignIn)))
 	s.mux.Handle("/api/plugins", s.requireSecret(http.HandlerFunc(s.handlePlugins)))
@@ -1288,38 +1290,51 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name    string            `json:"name"`
-		Command string            `json:"command"`
-		Args    []string          `json:"args"`
-		Env     map[string]string `json:"env"`
-		URL     string            `json:"url"`
-		Headers map[string]string `json:"headers"`
-		Bearer  string            `json:"bearer"`
-		Type    string            `json:"type"`
-		Auth    string            `json:"auth"`
+		Name    string             `json:"name"`
+		Command string             `json:"command"`
+		Args    []string           `json:"args"`
+		Env     *map[string]string `json:"env"`
+		URL     string             `json:"url"`
+		Headers *map[string]string `json:"headers"`
+		Bearer  string             `json:"bearer"`
+		Type    string             `json:"type"`
+		Auth    string             `json:"auth"`
+		Cwd     string             `json:"cwd"`
+		Update  bool               `json:"update"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	var env, headers map[string]string
+	if body.Env != nil {
+		env = *body.Env
+	}
+	if body.Headers != nil {
+		headers = *body.Headers
+	}
 	cfg := MCPServerConfig{
 		Command: body.Command,
 		Args:    body.Args,
-		Env:     body.Env,
+		Env:     env,
 		URL:     body.URL,
-		Headers: body.Headers,
+		Headers: headers,
 		Type:    body.Type,
+		Cwd:     strings.TrimSpace(body.Cwd),
 	}
 	cfg.setBearer(body.Bearer)
 	switch body.Auth {
 	case "none", "bearer", "headers":
 		cfg.OAuth = nil
 	}
+	if body.Update {
+		cfg = keepUserMCPFields(body.Name, cfg, body.Env != nil, body.Headers != nil || strings.TrimSpace(body.Bearer) != "")
+	}
 	if err := UpsertUserMCPServer(body.Name, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s.agent.reloadMCP(r.Context())
+	s.agent.reconnectMCP(r.Context(), strings.TrimSpace(body.Name))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
 }
@@ -1502,6 +1517,50 @@ func (s *appServer) handleMCPReload(w http.ResponseWriter, r *http.Request) {
 	s.agent.reloadMCP(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
+}
+
+func (s *appServer) handleMCPReloadOne(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	s.agent.reconnectMCP(r.Context(), name)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
+}
+
+func (s *appServer) handleMCPLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"log": s.agent.ensureMCP().Log(name)})
 }
 
 func (s *appServer) handleSkillsAdd(w http.ResponseWriter, r *http.Request) {

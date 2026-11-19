@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -30,6 +32,8 @@ type MCPServerStatus struct {
 	Tools      []string `json:"tools,omitempty"`
 	Allow      []string `json:"allow,omitempty"`
 	Command    string   `json:"command,omitempty"`
+	Args       []string `json:"args,omitempty"`
+	Cwd        string   `json:"cwd,omitempty"`
 	URL        string   `json:"url,omitempty"`
 	Disabled   bool     `json:"disabled,omitempty"`
 	Grant      string   `json:"grant,omitempty"`
@@ -58,6 +62,40 @@ type MCPManager struct {
 	loaded      map[string]struct{}
 	sources     map[string]string
 	sourceNames map[string]string
+	logs        map[string]*mcpLogBuf
+}
+
+// mcpLogLimit is the newest process output and connection errors kept per server.
+const mcpLogLimit = 64 << 10
+
+type mcpLogBuf struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+func (l *mcpLogBuf) Write(p []byte) (int, error) {
+	if l == nil || len(p) == 0 {
+		return len(p), nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.b = append(l.b, p...)
+	if len(l.b) > mcpLogLimit {
+		l.b = append([]byte(nil), l.b[len(l.b)-mcpLogLimit:]...)
+		if i := bytes.IndexByte(l.b, '\n'); i >= 0 && i < 2048 {
+			l.b = l.b[i+1:]
+		}
+	}
+	return len(p), nil
+}
+
+func (l *mcpLogBuf) String() string {
+	if l == nil {
+		return ""
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return string(l.b)
 }
 
 func NewMCPManager() *MCPManager {
@@ -94,6 +132,7 @@ func (m *MCPManager) ReconnectOne(ctx context.Context, name string, cfg MCPServe
 	if m == nil {
 		return
 	}
+	m.logLine(name, "reload")
 	m.mu.Lock()
 	if s := m.sessions[name]; s != nil && s.client != nil {
 		_ = s.client.Close()
@@ -103,6 +142,43 @@ func (m *MCPManager) ReconnectOne(ctx context.Context, name string, cfg MCPServe
 	m.mu.Unlock()
 	m.connectOne(ctx, name, cfg)
 	m.rebuildIndex()
+}
+
+func (m *MCPManager) serverLog(name string) *mcpLogBuf {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.logs == nil {
+		m.logs = map[string]*mcpLogBuf{}
+	}
+	if m.logs[name] == nil {
+		m.logs[name] = &mcpLogBuf{}
+	}
+	return m.logs[name]
+}
+
+func (m *MCPManager) logLine(name, line string) {
+	if m == nil {
+		return
+	}
+	line = strings.TrimRight(line, "\n")
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	_, _ = m.serverLog(name).Write([]byte(line + "\n"))
+}
+
+// Log is the recent stderr and connection errors for one server.
+func (m *MCPManager) Log(name string) string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	l := m.logs[name]
+	m.mu.RUnlock()
+	if l == nil {
+		return ""
+	}
+	return l.String()
 }
 
 func (m *MCPManager) ConnectAll(ctx context.Context, configs map[string]MCPServerConfig) {
@@ -122,74 +198,71 @@ func (m *MCPManager) ConnectAll(ctx context.Context, configs map[string]MCPServe
 
 func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerConfig) {
 	sess := &mcpSession{name: name, cfg: cfg, status: "error"}
-	if cfg.Disabled {
-		sess.status = "disabled"
+	store := func() {
 		m.mu.Lock()
 		m.sessions[name] = sess
 		m.mu.Unlock()
+	}
+	fail := func(err error) {
+		if err != nil {
+			sess.err = err.Error()
+			m.logLine(name, sess.err)
+		}
+		store()
+	}
+	if cfg.Disabled {
+		sess.status = "disabled"
+		store()
 		return
 	}
 	if err := cfg.validate(); err != nil {
-		sess.err = err.Error()
-		m.mu.Lock()
-		m.sessions[name] = sess
-		m.mu.Unlock()
+		fail(err)
 		return
 	}
 	cfg, err := prepareMCPConnection(ctx, name, cfg)
 	if err != nil {
-		sess.err = err.Error()
 		sess.cfg = cfg
-		m.mu.Lock()
-		m.sessions[name] = sess
-		m.mu.Unlock()
+		fail(err)
 		return
 	}
 	sess.cfg = cfg
 	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	cli, kind, instructions, err := dialMCP(cctx, cfg)
+	cli, kind, instructions, err := dialMCP(cctx, cfg, m.serverLog(name))
 	if kind != "" {
 		sess.cfg.Type = kind
 	}
 	if err != nil {
-		sess.err = err.Error()
-		m.mu.Lock()
-		m.sessions[name] = sess
-		m.mu.Unlock()
+		fail(err)
 		return
 	}
 	listed, err := cli.ListTools(cctx, mcp.ListToolsRequest{})
 	if err != nil {
 		_ = cli.Close()
-		sess.err = "list tools: " + err.Error()
-		m.mu.Lock()
-		m.sessions[name] = sess
-		m.mu.Unlock()
+		fail(fmt.Errorf("list tools: %w", err))
 		return
 	}
 	sess.client = cli
 	sess.instructions = strings.TrimSpace(instructions)
 	sess.status = "connected"
+	sess.err = ""
 	if listed != nil {
 		sess.tools = listed.Tools
 	}
-	m.mu.Lock()
-	m.sessions[name] = sess
-	m.mu.Unlock()
+	store()
 }
 
-func dialMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, string, string, error) {
+func dialMCP(ctx context.Context, cfg MCPServerConfig, stderr io.Writer) (*mcpclient.Client, string, string, error) {
 	kind := cfg.transportKind()
 	if kind == "streamableHttp" && !cfg.remoteTypeSet() {
-		cli, instructions, err := connectMCP(ctx, cfg)
+		cli, instructions, err := connectMCP(ctx, cfg, stderr)
 		if err == nil {
 			return cli, "streamableHttp", instructions, nil
 		}
 		if legacySSEServer(err) {
 			sse := cfg
 			sse.Type = "sse"
-			cli, instructions, err2 := connectMCP(ctx, sse)
+			cli, instructions, err2 := connectMCP(ctx, sse, stderr)
 			if err2 == nil {
 				return cli, "sse", instructions, nil
 			}
@@ -197,7 +270,7 @@ func dialMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, strin
 		}
 		return nil, "streamableHttp", "", err
 	}
-	cli, instructions, err := connectMCP(ctx, cfg)
+	cli, instructions, err := connectMCP(ctx, cfg, stderr)
 	return cli, kind, instructions, err
 }
 
@@ -205,8 +278,8 @@ func legacySSEServer(err error) bool {
 	return err != nil && (errors.Is(err, transport.ErrLegacySSEServer) || strings.Contains(err.Error(), "legacy SSE"))
 }
 
-func connectMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, string, error) {
-	cli, err := openMCPClient(cfg)
+func connectMCP(ctx context.Context, cfg MCPServerConfig, stderr io.Writer) (*mcpclient.Client, string, error) {
+	cli, err := openMCPClient(cfg, stderr)
 	if err != nil {
 		return nil, "", err
 	}
@@ -225,7 +298,7 @@ func connectMCP(ctx context.Context, cfg MCPServerConfig) (*mcpclient.Client, st
 	return cli, res.Instructions, nil
 }
 
-func openMCPClient(cfg MCPServerConfig) (*mcpclient.Client, error) {
+func openMCPClient(cfg MCPServerConfig, stderr io.Writer) (*mcpclient.Client, error) {
 	switch cfg.transportKind() {
 	case "stdio":
 		env := make([]string, 0, len(cfg.Env))
@@ -233,16 +306,22 @@ func openMCPClient(cfg MCPServerConfig) (*mcpclient.Client, error) {
 			env = append(env, k+"="+v)
 		}
 		sort.Strings(env)
-		cwd := strings.TrimSpace(cfg.Cwd)
-		if cwd == "" {
+		var opts []transport.StdioOption
+		if stderr != nil {
+			opts = append(opts, transport.WithCommandStderrWriter(stderr))
+		}
+		if cwd := strings.TrimSpace(cfg.Cwd); cwd != "" {
+			opts = append(opts, transport.WithCommandFunc(func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
+				cmd := exec.CommandContext(ctx, command, args...)
+				cmd.Env = append(os.Environ(), env...)
+				cmd.Dir = cwd
+				return cmd, nil
+			}))
+		}
+		if len(opts) == 0 {
 			return mcpclient.NewStdioMCPClient(cfg.Command, env, cfg.Args...)
 		}
-		return mcpclient.NewStdioMCPClientWithOptions(cfg.Command, env, cfg.Args, transport.WithCommandFunc(func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
-			cmd := exec.CommandContext(ctx, command, args...)
-			cmd.Env = append(os.Environ(), env...)
-			cmd.Dir = cwd
-			return cmd, nil
-		}))
+		return mcpclient.NewStdioMCPClientWithOptions(cfg.Command, env, cfg.Args, opts...)
 	case "sse":
 		opts := []transport.ClientOption{}
 		if len(cfg.Headers) > 0 {
@@ -377,6 +456,8 @@ func (m *MCPManager) Status() []MCPServerStatus {
 			Status:     s.status,
 			Error:      s.err,
 			Command:    s.cfg.Command,
+			Args:       append([]string(nil), s.cfg.Args...),
+			Cwd:        s.cfg.Cwd,
 			URL:        s.cfg.URL,
 			Disabled:   s.cfg.Disabled,
 			Grant:      mcpServerGrantID(name),

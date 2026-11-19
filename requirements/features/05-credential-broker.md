@@ -68,6 +68,16 @@ Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandant
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-CB-8 A server has its own details, log, and reload
+
+- **Bin:** explicit requirement
+- **Statement:** Each MCP server shall open a details view from Manage MCP servers. That view shall show the server log, and it shall reload that server alone. A server the user added by hand shall be editable from that view. A local command shall take a directory it is started from. Reloading every server shall be a separate control, labeled as such. The side list shall stay the ready-check and the sign-in. A server that comes from a plugin is not edited in details.
+- **Origin:** User, 2026-11-19 (quote: "Ich find den Button noch nicht, um mir das Log anzuzeigen" and "nicht nur den Dialog Allow Tools nennt, sondern irgendwie Details" and "auch 'n Reload-Button hätte pro Server" and "Server auch editieren können möchte" and "bei den Local Command Servern … ein Directory angeben" and "Reload-Button irgendwie auf der Seite mit der Liste … ob das den MCP-Server reloadet oder einfach die Liste neu lädt" and "auch in der Sidebar … keine Absprungmöglichkeit"). Same day (quote: "in der Sidebar ist mir der Details button bei den MCP zu groß" and "da reicht eigentlich der sign in button wenn relevant und sonst kann man ja über den manage MCP dialog gehen").
+- **Rationale:** Connection failures and the process error stream were invisible. The list control restarts every server, which is a different job from restarting the one that failed. A hand-added command often needs a working directory. Plugin servers stay defined by the plugin.
+- **Fit criterion:** Details on a server in Manage MCP shows Log, Reload, and Close. Log is a large read-only view of that server's recent errors and, for a local command, its error stream. Reload reconnects that server and leaves the others running. Reload all is the control that reconnects every server. For a server the user added, Edit can change the command or the URL, and a local command can set the directory it starts in. Saving that directory starts the next run there. A plugin server has Log and Reload and no Edit. The side list shows usable or not, and Sign in when a server needs it. It has no Details control. Remove still asks before deleting.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
 - External vaults for MCP connection tokens. Those tokens stay in `mcp.json` (REQ-CB-4, REQ-CB-5).

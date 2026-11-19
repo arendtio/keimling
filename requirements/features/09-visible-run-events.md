@@ -62,7 +62,31 @@ A user message stays outside a folded stretch of a chapter.
 
 Origin: User, 2026-11-19 (quote: "Beim ausblenden/zusammenklappen von Nachrichten, werden auch Nachrichten des Nutzers ausgeblendet. Ich glaube Nutzernachrichten sollte immer eingeblendet bleiben.").
 
-Fit: In a chapter overview, the text of a user message is visible while the fold is closed. Opening the fold is not required to read it.
+Fit: In a chapter overview, the text of a user message is visible while the fold is closed. Opening the fold is not required to read it. The chapter heading is the only division above that message; there is no horizontal line before it.
+
+### REQ-VE-10 The settled transcript stays put
+
+When a reply finishes, the transcript on screen shall keep the shape it already has. Lists and checkboxes shall keep their spacing. The page shall not draw that reply again in another arrangement, and it shall not open or close a row on its own after the reply is already visible.
+
+Origin: User, 2026-11-19 (quote: "wenn er fertig ist, sieht man kurz die seite und kurz darauf verändern sich dann die abstände von text zu checkbox … und noch einen moment später scheint das automatische ein und ausklappen noch dazu zu kommen" and "immer vor eigenen nachrichten so eine trennlinie … Die Überschrift reicht vollkommen").
+
+Fit: While a reply streams, a task line is already a checkbox with the same gap it has when the reply stops. After the run goes idle, that gap does not change and a row that was open or closed stays that way. A chapter shows its heading and no line before the user's message. Inside one turn the rows share one gap. When the speaker changes, the same larger gap sits before the new voice, under a user message and under a Keimling message.
+
+### REQ-VE-11 Scroll once for a sent message
+
+When a user message is shown, the transcript shall scroll to the bottom once. Lines that arrive after that message shall not pull the page down again. The last line of the transcript shall sit clear of the composer.
+
+Origin: User, 2026-11-19 (quote: "wenn ich eine nachricht abschicke scheint er im chat noch ganz nach unten zu scrollen, das ist etwas anstrengend" and "wenn er eine neue nutzernachricht gerendert hat er immer nach ganz unten im chat scrollt" and "etwas mehr abstand zwischen chatbox und der untersten Zeile des chatverlaufs").
+
+Fit: After sending, the user message is at the bottom of the page. As the reply grows, the scroll position stays. The gap under the last line is wider than the gap inside a turn.
+
+### REQ-VE-9 Follow the live thinking row
+
+The More menu shall offer Follow thinking, off until the user turns it on. While it is on, the thinking row that is receiving text stays open, and that row closes when the text stops. The next thinking row opens on its own. A thinking row the user opened stays open. Turning Follow thinking off leaves rows closed until the user opens one. The choice is still there on the next visit.
+
+Origin: User, 2026-11-19 (quote: "Das thinking feature bitte auch umsetzen"), after the agreed shape: a control in the chat More menu, off by default, that follows only the row currently receiving tokens and closes it when that row finishes, while a row opened by hand stays open.
+
+Fit: With Follow thinking off, a thinking row stays closed while its text arrives. Turning it on opens the row that is receiving text. When the reply or a tool call starts, that row closes. The next thinking row opens. A row the user opened before that stays open. Turning the control off closes nothing the user opened, and the next thinking row stays closed. Reloading the page keeps the control as the user left it.
 
 ### REQ-VE-5 Tool name once
 

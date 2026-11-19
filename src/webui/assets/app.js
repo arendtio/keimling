@@ -44,6 +44,9 @@
   var mcpName = document.getElementById("mcp-name");
   var mcpKind = document.getElementById("mcp-kind");
   var mcpCommand = document.getElementById("mcp-command");
+  var mcpCwd = document.getElementById("mcp-cwd");
+  var mcpCwdRow = document.getElementById("mcp-cwd-row");
+  var mcpLogTimer = 0;
   var mcpUrl = document.getElementById("mcp-url");
   var mcpToken = document.getElementById("mcp-token");
   var mcpStdioRow = document.getElementById("mcp-stdio-row");
@@ -375,6 +378,11 @@
   var composerMoreMenu = document.getElementById("composer-more-menu");
   var lowContextBtn = document.getElementById("low-context");
   var lowContextOn = false;
+  var followThinkingBtn = document.getElementById("follow-thinking");
+  var followThinking = false;
+  var followDismissedKey = "";
+  var applyingFollow = false;
+  try { followThinking = localStorage.getItem("keimling.follow_thinking") === "1"; } catch (e) {}
   var voiceStatus = document.getElementById("voice-status");
 
   var es = null;
@@ -4752,6 +4760,48 @@
     return [m.role || "", m.text || "", m.name || "", (m.files || []).join(","), m.streaming ? "1" : "0", m.collapsed ? "1" : "0", m.line || 0, m.branch_line || 0, m.branch_index || 0, m.branch_count || 0].join("\u0001");
   }
 
+  // True when two signatures differ only by the streaming flag, so the node can stay.
+  function sameMessageShape(prevSig, nextSig) {
+    var a = String(prevSig || "").split("\u0001");
+    var b = String(nextSig || "").split("\u0001");
+    if (a.length !== b.length || a.length < 5 || a[0] === "tool") return false;
+    a[4] = "0";
+    b[4] = "0";
+    return a.join("\u0001") === b.join("\u0001");
+  }
+
+  function transcriptMatches(live, incoming) {
+    if (!live || live.length !== (incoming || []).length) return false;
+    for (var i = 0; i < live.length; i++) {
+      var a = live[i];
+      var b = incoming[i];
+      if ((a.role || "") !== (b.role || "")) return false;
+      if (a.role === "tool_group") {
+        if ((a.name || "") !== (b.name || "")) return false;
+        if ((a.command || "") !== (b.command || "")) return false;
+        if ((a.result || "") !== (b.result || "")) return false;
+        if (!!a.pending) return false;
+        continue;
+      }
+      if (String(a.text || "").trim() !== String(b.text || "").trim()) return false;
+    }
+    return true;
+  }
+
+  function adoptSessionFields(live, incoming) {
+    for (var i = 0; i < live.length; i++) {
+      var a = live[i];
+      var b = incoming[i];
+      // event would pull the live row into a chapter on the next paint.
+      if (b.line) a.line = b.line;
+      if (b.branch_line) a.branch_line = b.branch_line;
+      if (b.branch_index != null) a.branch_index = b.branch_index;
+      if (b.branch_count) a.branch_count = b.branch_count;
+      if (b.files) a.files = b.files;
+      delete a.streaming;
+    }
+  }
+
   function stampMessageEl(el, m, role) {
     if (!el) return;
     el.dataset.domKey = ensureDomKey(m);
@@ -4765,6 +4815,7 @@
     if (!el) return open;
     function take(d) {
       if (!d || !d.open) return;
+      if (d.dataset && d.dataset.autoFollow === "1") return;
       var key = d.dataset.domKey || d.dataset.foldKey;
       if (key) open[key] = true;
     }
@@ -4795,7 +4846,14 @@
       thought.appendChild(fold);
       stampMessageEl(thought, m, "thinking");
       fold.dataset.domKey = ensureDomKey(m) + ":think";
-      if (heldOpen && heldOpen[fold.dataset.domKey]) fold.open = true;
+      var userOpen = heldOpen && heldOpen[fold.dataset.domKey];
+      var follow = followThinking && m.streaming && followDismissedKey !== ensureDomKey(m);
+      if (userOpen || follow) {
+        applyingFollow = true;
+        fold.open = true;
+        applyingFollow = false;
+        if (follow && !userOpen) fold.dataset.autoFollow = "1";
+      }
       parent.appendChild(thought);
       return "thinking";
     }
@@ -4995,7 +5053,10 @@
       if (agentState === "idle") resetSideSamples();
       setState("running");
       return loadSession();
-    }).then(function () { return refreshSideContext(); });
+    }).then(function () {
+      scrollTranscriptToEnd();
+      return refreshSideContext();
+    });
   }
 
   function selectContinuation(line, index) {
@@ -5134,16 +5195,9 @@
     flush();
   }
 
-  var SCROLL_STICKY_PX = 100;
-
-  function nearBottom() {
-    var el = document.documentElement;
-    var gap = el.scrollHeight - (window.scrollY + window.innerHeight);
-    return gap <= SCROLL_STICKY_PX;
-  }
-
-  function stickScrollIfNearBottom(wasNear) {
-    if (!wasNear) return;
+  // Scroll once, when a user message has just been drawn. Later lines of the
+  // turn stay put so the page does not chase the reply.
+  function scrollTranscriptToEnd() {
     requestAnimationFrame(function () {
       window.scrollTo(0, document.documentElement.scrollHeight);
     });
@@ -5170,6 +5224,12 @@
     var prev = "";
     for (var k = 0; k < kids.length; k++) {
       var sig = messageSig(list[k]);
+      if (kids[k].dataset.sig !== sig && sameMessageShape(kids[k].dataset.sig, sig)) {
+        kids[k].classList.toggle("streaming", !!list[k].streaming);
+        kids[k].dataset.sig = sig;
+        prev = kids[k].dataset.msgRole || prev;
+        continue;
+      }
       if (kids[k].dataset.sig !== sig) {
         var holder = document.createElement("div");
         var prevHeld = heldOpen;
@@ -5199,8 +5259,8 @@
   }
 
   function renderThread() {
-    var stick = nearBottom();
     if (thread.dataset.rebuild === "1") {
+      heldOpen = openMapFrom(thread);
       thread.innerHTML = "";
       delete thread.dataset.rebuild;
     }
@@ -5210,14 +5270,14 @@
       hint.className = "msg system";
       hint.innerHTML = '<p class="who">Keimling</p><p class="body">Send a message to continue this session.</p>';
       thread.appendChild(hint);
-      stickScrollIfNearBottom(stick);
       return;
     }
 
     // Single chapter: full transcript for that range.
     if (activeChapter) {
       var prevHeld = heldOpen;
-      heldOpen = openMapFrom(thread);
+      var seenOpen = openMapFrom(thread);
+      if (Object.keys(seenOpen).length) heldOpen = seenOpen;
       thread.innerHTML = "";
       var head = document.createElement("div");
       head.className = "msg system";
@@ -5226,7 +5286,6 @@
       thread.appendChild(head);
       appendMessageList(thread, messages.filter(inChapter));
       heldOpen = prevHeld;
-      stickScrollIfNearBottom(stick);
       return;
     }
 
@@ -5238,7 +5297,7 @@
       if (!block || block.dataset.sig !== sig || !tail) {
         var chapterOpen = openMapFrom(thread);
         var prevOpen = heldOpen;
-        heldOpen = chapterOpen;
+        if (Object.keys(chapterOpen).length) heldOpen = chapterOpen;
         thread.innerHTML = "";
         block = document.createElement("div");
         block.className = "chapter-block";
@@ -5255,13 +5314,11 @@
       } else if (!syncMessageList(tail, messagesOutsideChapters())) {
         fillMessageList(tail, messagesOutsideChapters());
       }
-      stickScrollIfNearBottom(stick);
       return;
     }
 
     if (thread.querySelector(".chapter-block, .thread-tail")) thread.innerHTML = "";
     if (!syncMessageList(thread, messages)) fillMessageList(thread, messages);
-    stickScrollIfNearBottom(stick);
   }
 
   function appendLive(text) {
@@ -5303,10 +5360,8 @@
       paintTranscript();
       return;
     }
-    var stick = nearBottom();
-    // Lightweight during stream: plain text; markdown applied on replace/final paint.
-    body.textContent = last.text || "";
-    stickScrollIfNearBottom(stick);
+    // Same markdown as the settled message, so lists and checkboxes do not jump when the reply ends.
+    body.innerHTML = renderAssistantHTML(last.text || "");
   }
 
   function patchThinking() {
@@ -5322,9 +5377,34 @@
       paintTranscript();
       return;
     }
-    var stick = nearBottom();
     body.textContent = last.text || "";
-    stickScrollIfNearBottom(stick);
+    if (followThinking && last.streaming && followDismissedKey !== ensureDomKey(last)) {
+      var fold = el.querySelector(".thinking-fold");
+      if (fold && !fold.open) {
+        applyingFollow = true;
+        fold.open = true;
+        fold.dataset.autoFollow = "1";
+        applyingFollow = false;
+      }
+    }
+  }
+
+  function finishLiveThinking() {
+    var live = false;
+    messages.forEach(function (m) {
+      if (m.role === "thinking" && m.streaming) {
+        delete m.streaming;
+        live = true;
+      }
+    });
+    followDismissedKey = "";
+    if (!live) return;
+    applyingFollow = true;
+    document.querySelectorAll(".thinking-fold[data-auto-follow='1']").forEach(function (fold) {
+      fold.open = false;
+      delete fold.dataset.autoFollow;
+    });
+    applyingFollow = false;
   }
 
   function handleThinking(payload) {
@@ -5348,6 +5428,7 @@
     } else if (!eventsForThisView()) return;
     var text = payload.text || "";
     var role = payload.role || "assistant";
+    finishLiveThinking();
     if (payload.delta) {
       var last = messages[messages.length - 1];
       if (last && last.role === "assistant" && last.streaming) {
@@ -5386,10 +5467,12 @@
     }
     messages.push({ role: role, text: text, name: payload.name || "", collapsed: !!payload.collapsed });
     paintTranscript();
+    if (role === "user") scrollTranscriptToEnd();
   }
 
   function handleStructuredTool(payload) {
     if (!eventsForThisView()) return;
+    finishLiveThinking();
     if (payload.phase === "start") {
       // Finalize any open stream so tool sits in the monologue correctly.
       var open = messages[messages.length - 1];
@@ -5651,13 +5734,30 @@
   }
 
   function applySession(j) {
+    var openedThread = currentThreadID;
     applyProviderGate(!!j.needs_provider);
     modelEl.textContent = needsProvider ? "—" : (j.model || "—");
     applyModelChrome(j);
     modeEl.textContent = j.mode || "—";
-    messages = j.messages || [];
-    chapters = j.chapters || [];
-    if (thread) thread.dataset.rebuild = "1";
+    var incoming = j.messages || [];
+    var keepThread = transcriptMatches(messages, incoming);
+    if (keepThread) {
+      adoptSessionFields(messages, incoming);
+      chapters = j.chapters || [];
+      if (thread) {
+        thread.querySelectorAll(".msg.streaming").forEach(function (el) { el.classList.remove("streaming"); });
+        applyingFollow = true;
+        thread.querySelectorAll(".thinking-fold[data-auto-follow='1']").forEach(function (fold) {
+          fold.open = false;
+          delete fold.dataset.autoFollow;
+        });
+        applyingFollow = false;
+      }
+    } else {
+      messages = incoming;
+      chapters = j.chapters || [];
+      if (thread) thread.dataset.rebuild = "1";
+    }
     voiceOK = !!j.voice;
     voiceBtn.hidden = !voiceOK;
     realtimeReady = !!j.realtime_ready;
@@ -5689,7 +5789,8 @@
     renderBudgetLine(j.budget);
     applyLowContext(!!j.low_context);
     renderChapters();
-    renderThread();
+    if (!keepThread) renderThread();
+    if (j.thread_id && j.thread_id !== openedThread) scrollTranscriptToEnd();
     var next = j.busy ? "running" : (j.state || "idle");
     // The run can already be idle while this snapshot still says busy.
     if (next === "running" && sideClosed) next = "idle";
@@ -6917,6 +7018,42 @@
     row.appendChild(value);
     list.appendChild(row);
   }
+  function mcpQuoteArg(s) {
+    s = String(s || "");
+    if (!s || /[\s"']/.test(s)) return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+    return s;
+  }
+  function mcpSplitCommand(line) {
+    var out = [];
+    var cur = "";
+    var quote = "";
+    for (var i = 0; i < line.length; i++) {
+      var c = line.charAt(i);
+      if (quote) {
+        if (c === "\\" && quote === '"' && i + 1 < line.length) {
+          cur += line.charAt(++i);
+          continue;
+        }
+        if (c === quote) quote = "";
+        else cur += c;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        quote = c;
+        continue;
+      }
+      if (/\s/.test(c)) {
+        if (cur) {
+          out.push(cur);
+          cur = "";
+        }
+        continue;
+      }
+      cur += c;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
   function mcpReadPairs(list) {
     var out = {};
     if (!list) return out;
@@ -6937,6 +7074,7 @@
   function syncMcpKindUI() {
     var remote = mcpKind && mcpKind.value === "url";
     if (mcpStdioRow) mcpStdioRow.hidden = remote;
+    if (mcpCwdRow) mcpCwdRow.hidden = remote;
     if (mcpEnvRow) mcpEnvRow.hidden = remote;
     if (mcpUrlRow) mcpUrlRow.hidden = !remote;
     if (mcpAuthRow) mcpAuthRow.hidden = !remote;
@@ -7083,7 +7221,7 @@
     var list = document.getElementById("mcp-tool-list");
     var actions = document.getElementById("mcp-tool-actions");
     if (!list || !s) return;
-    if (title) title.textContent = s.name || "Allow tools";
+    if (title) title.textContent = s.name || "Details";
     var note = mcpServerNote(s);
     if (meta) meta.textContent = (s.transport || "") + " · " + (s.status || "") + note.from + (note.errText ? " — " + note.errText : "");
     list.innerHTML = "";
@@ -7133,6 +7271,32 @@
     }
     if (!actions) return;
     actions.innerHTML = "";
+    var logBtn = document.createElement("button");
+    logBtn.type = "button";
+    logBtn.className = "ghost";
+    logBtn.textContent = "Log";
+    logBtn.addEventListener("click", function () { openMcpLog(s.name); });
+    actions.appendChild(logBtn);
+    var reloadBtn = document.createElement("button");
+    reloadBtn.type = "button";
+    reloadBtn.className = "ghost";
+    reloadBtn.textContent = "Reload";
+    reloadBtn.title = "Reconnect this server";
+    reloadBtn.addEventListener("click", function () {
+      showMcpErr("");
+      reloadBtn.disabled = true;
+      mcpReloadOne(s.name).catch(function (e) { showMcpErr(e.message || e); })
+        .finally(function () { reloadBtn.disabled = false; });
+    });
+    actions.appendChild(reloadBtn);
+    if (s.source === "user") {
+      var editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "ghost";
+      editBtn.textContent = "Edit";
+      editBtn.addEventListener("click", function () { showMcpEdit(s); });
+      actions.appendChild(editBtn);
+    }
     if (s.url) {
       var sign = document.createElement("button");
       sign.type = "button";
@@ -7184,9 +7348,135 @@
       actions.appendChild(rm);
     }
   }
+  function mcpReloadOne(name) {
+    return fetch(apiURL("/api/mcp/reload-one"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: name }),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+        renderMcpServers(j.servers || []);
+        return j;
+      });
+    });
+  }
+  function showMcpEdit(s) {
+    var box = document.getElementById("mcp-edit");
+    var stdioBox = document.getElementById("mcp-edit-stdio");
+    var urlBox = document.getElementById("mcp-edit-url-row");
+    var cwdBox = document.getElementById("mcp-edit-cwd-row");
+    var command = document.getElementById("mcp-edit-command");
+    var cwd = document.getElementById("mcp-edit-cwd");
+    var url = document.getElementById("mcp-edit-url");
+    if (!box || !s) return;
+    var stdio = s.transport === "stdio" || (!s.url && !!s.command);
+    if (stdioBox) stdioBox.hidden = !stdio;
+    if (cwdBox) cwdBox.hidden = !stdio;
+    if (urlBox) urlBox.hidden = stdio;
+    if (stdio) {
+      var bits = [];
+      if (s.command) bits.push(s.command);
+      (s.args || []).forEach(function (arg) { bits.push(arg); });
+      if (command) command.value = bits.map(mcpQuoteArg).join(" ");
+      if (cwd) cwd.value = s.cwd || "";
+    } else if (url) {
+      url.value = s.url || "";
+    }
+    box.hidden = false;
+  }
+  function saveMcpEdit() {
+    var name = mcpToolName;
+    if (!name) return;
+    var stdioBox = document.getElementById("mcp-edit-stdio");
+    var stdio = !stdioBox || !stdioBox.hidden;
+    var body = { name: name, update: true };
+    if (stdio) {
+      var line = ((document.getElementById("mcp-edit-command") || {}).value || "").trim();
+      if (!line) {
+        showMcpErr("Command required.");
+        return;
+      }
+      var parts = mcpSplitCommand(line);
+      body.command = parts[0];
+      body.args = parts.slice(1);
+      body.cwd = ((document.getElementById("mcp-edit-cwd") || {}).value || "").trim();
+    } else {
+      body.url = ((document.getElementById("mcp-edit-url") || {}).value || "").trim();
+      if (!body.url) {
+        showMcpErr("URL required.");
+        return;
+      }
+    }
+    var save = document.getElementById("mcp-edit-save");
+    if (save) save.disabled = true;
+    showMcpErr("");
+    fetch(apiURL("/api/mcp/add"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+        return j;
+      });
+    }).then(function (j) {
+      var edit = document.getElementById("mcp-edit");
+      if (edit) edit.hidden = true;
+      renderMcpServers(j.servers || []);
+    }).catch(function (e) {
+      showMcpErr(e.message || e);
+    }).finally(function () {
+      if (save) save.disabled = false;
+    });
+  }
+  function openMcpLog(name) {
+    var dlg = document.getElementById("mcp-log-dialog");
+    var title = document.getElementById("mcp-log-title");
+    var text = document.getElementById("mcp-log-text");
+    if (!dlg || !text) return;
+    if (title) title.textContent = "Log · " + (name || "");
+    function pull() {
+      return fetch(apiURL("/api/mcp/log?name=" + encodeURIComponent(name)), { headers: headers() })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && j.error) || r.status);
+            return j;
+          });
+        })
+        .then(function (j) {
+          var next = (j && j.log) || "";
+          if (!next) next = "No output yet. Connection errors land here. A local command also writes its error stream here.";
+          if (text.value !== next) {
+            var atEnd = text.scrollTop + text.clientHeight >= text.scrollHeight - 24;
+            text.value = next;
+            if (atEnd) text.scrollTop = text.scrollHeight;
+          }
+        })
+        .catch(function (e) { text.value = String(e.message || e); });
+    }
+    pull();
+    if (mcpLogTimer) clearInterval(mcpLogTimer);
+    mcpLogTimer = setInterval(function () {
+      if (!dlg.open && !dlg.hasAttribute("open")) {
+        clearInterval(mcpLogTimer);
+        mcpLogTimer = 0;
+        return;
+      }
+      pull();
+    }, 1000);
+    if (typeof dlg.showModal === "function") dlg.showModal();
+    else dlg.setAttribute("open", "");
+  }
   function openMcpToolDialog(name) {
     var s = mcpServerByName(name);
     if (!s || !mcpToolDialog) return;
+    var edit = document.getElementById("mcp-edit");
+    if (edit) edit.hidden = true;
     mcpToolName = name;
     showMcpErr("");
     fillMcpToolDialog(s);
@@ -7194,7 +7484,8 @@
     else mcpToolDialog.setAttribute("open", "");
   }
   function renderMcpServers(servers) {
-    renderSideMcp(servers);
+    mcpServersCache = servers || [];
+    renderSideMcp(mcpServersCache);
     if (!mcpList) return;
     mcpList.innerHTML = "";
     if (!servers || !servers.length) {
@@ -7213,7 +7504,7 @@
         var open = document.createElement("button");
         open.type = "button";
         open.className = "ghost";
-        open.textContent = "Allow tools";
+        open.textContent = "Details";
         open.addEventListener("click", function () { openMcpToolDialog(s.name); });
         head.appendChild(title);
         head.appendChild(open);
@@ -7248,6 +7539,26 @@
     showMcpErr("");
     showGate({ manage: true, keepApp: true, tab: "mcp" });
   }
+  var mcpEditSave = document.getElementById("mcp-edit-save");
+  if (mcpEditSave) mcpEditSave.addEventListener("click", saveMcpEdit);
+  var mcpToolForm = document.getElementById("mcp-tool-form");
+  if (mcpToolForm) mcpToolForm.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || !e.target || e.target.tagName !== "INPUT") return;
+    if (String(e.target.id || "").indexOf("mcp-edit-") !== 0) return;
+    e.preventDefault();
+    saveMcpEdit();
+  });
+  var mcpLogDialog = document.getElementById("mcp-log-dialog");
+  if (mcpLogDialog) mcpLogDialog.addEventListener("close", function () {
+    if (mcpLogTimer) clearInterval(mcpLogTimer);
+    mcpLogTimer = 0;
+  });
+  var mcpLogFull = document.getElementById("mcp-log-full");
+  if (mcpLogFull) mcpLogFull.addEventListener("click", function () {
+    if (!mcpLogDialog) return;
+    if (document.fullscreenElement === mcpLogDialog) document.exitFullscreen();
+    else if (mcpLogDialog.requestFullscreen) mcpLogDialog.requestFullscreen();
+  });
   var sideMcpManage = document.getElementById("side-mcp-manage");
   if (sideMcpManage) sideMcpManage.addEventListener("click", openMcpSettings);
   var sideChatRefCopy = document.getElementById("side-chat-ref-copy");
@@ -7629,10 +7940,11 @@
           showMcpErr("Command required.");
           return;
         }
-        var parts = line.split(/\s+/);
+        var parts = mcpSplitCommand(line);
         body.command = parts[0];
         body.args = parts.slice(1);
         body.env = mcpReadPairs(mcpEnvList);
+        body.cwd = (mcpCwd && mcpCwd.value || "").trim();
       } else {
         var url = (mcpUrl && mcpUrl.value || "").trim();
         if (!url) {
@@ -7681,6 +7993,7 @@
           }
           if (mcpName) mcpName.value = "";
           if (mcpCommand) mcpCommand.value = "";
+          if (mcpCwd) mcpCwd.value = "";
           if (mcpUrl) mcpUrl.value = "";
           if (mcpToken) mcpToken.value = "";
         })
@@ -8070,6 +8383,15 @@
     });
   }
   mountGlyphs();
+  function paintComposerMore() {
+    if (!composerMoreBtn) return;
+    var on = lowContextOn || followThinking;
+    composerMoreBtn.classList.toggle("low-on", on);
+    var bits = [];
+    if (lowContextOn) bits.push("Reduce context is on");
+    if (followThinking) bits.push("Follow thinking is on");
+    composerMoreBtn.title = bits.length ? bits.join(". ") : "More";
+  }
   function applyLowContext(on) {
     lowContextOn = !!on;
     if (lowContextBtn) {
@@ -8080,10 +8402,47 @@
     }
     var state = document.getElementById("low-context-state");
     if (state) state.textContent = lowContextOn ? "On" : "Off";
-    if (composerMoreBtn) {
-      composerMoreBtn.classList.toggle("low-on", lowContextOn);
-      composerMoreBtn.title = lowContextOn ? "Reduce context is on" : "More";
+    paintComposerMore();
+  }
+  function applyFollowThinking(on) {
+    followThinking = !!on;
+    try {
+      if (followThinking) localStorage.setItem("keimling.follow_thinking", "1");
+      else localStorage.removeItem("keimling.follow_thinking");
+    } catch (e) {}
+    if (followThinkingBtn) {
+      followThinkingBtn.setAttribute("aria-checked", followThinking ? "true" : "false");
+      followThinkingBtn.title = followThinking
+        ? "On. The thinking row that is receiving text stays open."
+        : "Off. Thinking stays closed.";
     }
+    var state = document.getElementById("follow-thinking-state");
+    if (state) state.textContent = followThinking ? "On" : "Off";
+    paintComposerMore();
+  }
+  applyFollowThinking(followThinking);
+  if (followThinkingBtn) {
+    followThinkingBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyFollowThinking(!followThinking);
+    });
+  }
+  if (thread) {
+    thread.addEventListener("toggle", function (e) {
+      if (applyingFollow) return;
+      var d = e.target;
+      if (!d || !d.classList || !d.classList.contains("thinking-fold")) return;
+      if (d.open) {
+        delete d.dataset.autoFollow;
+        followDismissedKey = "";
+        return;
+      }
+      if (d.dataset.autoFollow === "1") {
+        followDismissedKey = String(d.dataset.domKey || "").replace(/:think$/, "");
+        delete d.dataset.autoFollow;
+      }
+    }, true);
   }
   if (lowContextBtn) {
     lowContextBtn.addEventListener("click", function (e) {
@@ -9017,6 +9376,7 @@
             messages.push({ role: "peer", name: "To " + (d.name || d.id), text: bodyText, files: sentFiles });
           });
           renderThread();
+          scrollTranscriptToEnd();
           setState(agentState);
           return Promise.all(j.delivered.map(function (d) {
             return fetch(apiURL("/api/agents/instances/message"), {
@@ -9067,6 +9427,7 @@
           setState("running");
         }
         renderThread();
+        scrollTranscriptToEnd();
         setState(agentState); // refresh Send/Queue label + enabled state
       })
       .catch(function (err) {

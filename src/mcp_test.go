@@ -371,3 +371,58 @@ func TestForceApprovalMCP(t *testing.T) {
 		t.Fatalf("got %v %q", forced, why)
 	}
 }
+
+func TestMCPLogDropsTheOldestBytes(t *testing.T) {
+	m := NewMCPManager()
+	_, _ = m.serverLog("s").Write([]byte(strings.Repeat("a", mcpLogLimit)))
+	_, _ = m.serverLog("s").Write([]byte("TAIL"))
+	got := m.Log("s")
+	if len(got) > mcpLogLimit {
+		t.Fatalf("len %d", len(got))
+	}
+	if !strings.HasSuffix(got, "TAIL") {
+		t.Fatalf("log ends %q", got[len(got)-8:])
+	}
+}
+
+func TestMCPStdioLogKeepsTheWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	m := NewMCPManager()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	m.connectOne(ctx, "demo", MCPServerConfig{
+		Command: "sh",
+		Args:    []string{"-c", "echo MCP-LOG-LINE >&2; pwd -P >&2; exit 1"},
+		Cwd:     dir,
+	})
+	got := m.Log("demo")
+	if !strings.Contains(got, "MCP-LOG-LINE") {
+		t.Fatalf("log %q", got)
+	}
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, want) && !strings.Contains(got, dir) {
+		t.Fatalf("log %q, want cwd %s", got, want)
+	}
+	st := m.Status()
+	if len(st) != 1 || st[0].Cwd != dir || st[0].Command != "sh" {
+		t.Fatalf("status %+v", st)
+	}
+}
+
+func TestKeepUserMCPFieldsLeavesEnv(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := UpsertUserMCPServer("demo", MCPServerConfig{
+		Command: "echo",
+		Env:     map[string]string{"TOKEN": "secret"},
+		Cwd:     "/tmp",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	next := keepUserMCPFields("demo", MCPServerConfig{Command: "echo", Args: []string{"x"}, Cwd: "/srv"}, false, false)
+	if next.Env["TOKEN"] != "secret" || next.Cwd != "/srv" || len(next.Args) != 1 {
+		t.Fatalf("%#v", next)
+	}
+}
