@@ -7,39 +7,33 @@ Whatever you see in the WebView is the same HTML/CSS/JS the server would serve t
 
 ## Workspaces and agents
 
-A **host** process serves the UI and proxies to **worker** OS processes:
+Traces to REQ-WS-6, REQ-WS-7, REQ-WS-8, REQ-WS-11, REQ-AG-11.
 
-- **Workspace worker** — one per workspace (human threads); CWD = workspace root.
-- **Agent-instance worker** — one per agent instance; CWD switches among ACL workspaces via `change_workspace`.
+One process serves the UI and runs every workspace and every agent instance. A workspace is not an operating-system process. Switching workspace is the same kind of change as switching thread. A run keeps going in that process while the user looks at another thread. Each workspace still has its own root: a session starts there, and a tool path is judged inside or outside that root. Each thread then keeps its own working directory, so a directory change in one thread does not move another (REQ-WS-11). An agent instance keeps its own queue and its own directory when it changes workspace among the folders it may use. Those are in-process, too.
 
-Switching (workspace or agent) **reattaches** the UI; other workers keep running until the host exits. See `requirements/features/02-workspaces-and-threads.md` and `requirements/features/03-agents.md`.
+Copy, paste, and the command-line fallback in REQ-WR-8 stay. The window is still created before any second copy of this binary would have been started; opening a workspace no longer starts one.
 
 ## Recommended topology
 
 ```
 ┌──────────────────────────────────┐
-│  Host (UI + workspace API +      │
-│  reverse-proxy to attached       │
-│  worker)                         │
-│    ├── Worker A (workspace A)    │
-│    └── Worker B (workspace B)    │
+│  One process (UI + workspaces +  │
+│  threads + agent instances)      │
 └─────────────▲────────────────────┘
               │ same origin / same UI
      ┌────────┴────────┬──────────────────┐
      │                 │                  │
- CLI client*     WebView client     Phone/browser
+ CLI client      WebView client     Phone/browser
 ```
-
-\*CLI without host still runs a single in-process agent for the launch CWD.
 
 Optional: TLS reverse proxy in front of `--listen` for remote exposure.
 
 ### Local interactive use (auto / ui / cli without remote)
 
-1. Start a **host** on `127.0.0.1` with an ephemeral port and a short-lived local token; spawn a worker for the initial workspace.
-2. **GUI path:** open WebView → host URL; workspace switch reattaches proxy, no relaunch.
-3. **CLI path:** in-process agent for the launch workspace (no multi-worker host).
-4. When the host exits, all workers are stopped.
+1. Start one process on `127.0.0.1` with an ephemeral port and a short-lived local token. The launch workspace is in that process, with its root as the session directory.
+2. **GUI path:** open WebView → that URL. A workspace switch loads the other workspace in the same process.
+3. **CLI path:** the same in-process agent for the launch workspace.
+4. When that process exits, its runs stop.
 
 ### Remote attach
 

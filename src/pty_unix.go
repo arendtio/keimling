@@ -31,6 +31,9 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 		_ = unix.IoctlSetWinsize(int(slave.Fd()), unix.TIOCSWINSZ, ws)
 	}
 	cmd := shellCommand(shell, command)
+	if dir := threadDirFrom(ctx); dir != "" {
+		cmd.Dir = dir
+	}
 	if len(extraEnv) > 0 {
 		cmd.Env = overlayEnv(os.Environ(), extraEnv)
 	}

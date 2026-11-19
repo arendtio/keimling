@@ -641,8 +641,9 @@ func createThreadActive(workspaceID string, makeActive bool) (ThreadMeta, string
 	return meta, session, nil
 }
 
-// resolveStartupWorkspace picks global or a workspace for launchCWD and chdirs to its root.
-func resolveStartupWorkspace(launchCWD string) (WorkspaceMeta, string, string, error) {
+// lookupStartupWorkspace picks global or a workspace for launchCWD.
+// It does not change the process working directory.
+func lookupStartupWorkspace(launchCWD string) (WorkspaceMeta, string, string, error) {
 	global, err := ensureGlobalWorkspace()
 	if err != nil {
 		return WorkspaceMeta{}, "", "", err
@@ -662,13 +663,22 @@ func resolveStartupWorkspace(launchCWD string) (WorkspaceMeta, string, string, e
 			return WorkspaceMeta{}, "", "", err
 		}
 	}
-	if err := os.Chdir(ws.Root); err != nil {
-		return WorkspaceMeta{}, "", "", fmt.Errorf("chdir workspace %s: %w", ws.Root, err)
-	}
 	threadID, session, err := ensureActiveThread(ws.ID)
 	if err != nil {
 		return WorkspaceMeta{}, "", "", err
 	}
 	_ = writeWorkspaceMeta(ws) // touch UpdatedAt
+	return ws, threadID, session, nil
+}
+
+// resolveStartupWorkspace picks the launch workspace and chdirs to its root.
+func resolveStartupWorkspace(launchCWD string) (WorkspaceMeta, string, string, error) {
+	ws, threadID, session, err := lookupStartupWorkspace(launchCWD)
+	if err != nil {
+		return WorkspaceMeta{}, "", "", err
+	}
+	if err := os.Chdir(ws.Root); err != nil {
+		return WorkspaceMeta{}, "", "", fmt.Errorf("chdir workspace %s: %w", ws.Root, err)
+	}
 	return ws, threadID, session, nil
 }

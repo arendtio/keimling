@@ -459,8 +459,8 @@ func main() {
 		}
 	}
 
-	// Host supervises one worker OS process per workspace. Workers re-enter this
-	// binary with KEIMLING_ROLE=worker and run a normal agent server.
+	// One process serves the UI and runs the workspaces. A worker role is an
+	// old child of this binary; it must not start another host.
 	if !isWorkerRole() {
 		if presentation == presentationServer {
 			if err := runHostServer(*listenAddr, *accessSecret, *configPath, wsIDPref); err != nil {

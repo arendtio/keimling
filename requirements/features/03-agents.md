@@ -2,7 +2,7 @@
 
 ## Intent
 
-An **agent** is a reusable **definition** that can be **instantiated**. Instances are independent of workspaces: a definition lives globally; an instance may be granted access to one or more workspaces and runs with its own main thread, message queue, and OS worker process.
+An **agent** is a reusable **definition** that can be **instantiated**. Instances are independent of workspaces: a definition lives globally; an instance may be granted access to one or more workspaces and runs with its own main thread and message queue, in the same process as the window (REQ-WS-7).
 
 Human workspace **threads** stay as they are. Agents are created explicitly (no default instance).
 
@@ -37,17 +37,16 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 
 ## Process model
 
-- One OS worker per instance (`--agent-instance`).
-- Host keys: `agent:<id>` vs `ws:<id>`.
-- `change_workspace` among ACL roots.
-- Peer delivery is same-host filesystem enqueue to the target’s `queue.jsonl` (+ ensure/wake worker when possible).
+- One process with the window (REQ-WS-7).
+- `change_workspace` among ACL roots. The session directory follows that root (REQ-WS-8).
+- Peer delivery is a filesystem enqueue to the target’s `queue.jsonl`, then a run in this process when the instance is idle.
 
 ## Lifecycle
 
 1. Create/edit/delete **definitions**; optional **teams**.
 2. Create **instance** from definition (or spawn team).
 3. Messages / peer messages / watches → queue → run when idle.
-4. Stop cancels; delete instance removes dir + worker.
+4. Stop cancels; delete instance removes its data.
 
 ## UI
 

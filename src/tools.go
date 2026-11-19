@@ -156,6 +156,19 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if strings.TrimSpace(x.Command) == "" {
 			return "empty command"
 		}
+		command := x.Command
+		var marker string
+		slot := cwdSlotFrom(ctx)
+		if dir := threadDirFrom(ctx); dir != "" {
+			f, ferr := os.CreateTemp("", "keimling-cwd-*")
+			if ferr != nil {
+				return "working directory: " + ferr.Error()
+			}
+			marker = f.Name()
+			_ = f.Close()
+			command = wrapDirCommand(dir, x.Command, marker)
+			defer noteThreadDir(slot, marker)
+		}
 		if x.TimeoutSeconds < 1 {
 			if x.Interactive {
 				x.TimeoutSeconds = 900
@@ -178,9 +191,12 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			if binDir != "" {
 				env = append(env, "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			}
-			return interactiveExec(runCtx, shell, x.Command, time.Duration(x.TimeoutSeconds)*time.Second, env...)
+			return interactiveExec(runCtx, shell, command, time.Duration(x.TimeoutSeconds)*time.Second, env...)
 		}
-		cmd := shellCommand(shell, x.Command)
+		cmd := shellCommand(shell, command)
+		if dir := threadDirFrom(ctx); dir != "" {
+			cmd.Dir = dir
+		}
 		if len(extraEnv) > 0 || binDir != "" {
 			cmd.Env = commandEnv(extraEnv, binDir)
 		}
@@ -230,6 +246,9 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		}
 		if err := decodeArgs(args, &x); err != nil {
 			return err.Error()
+		}
+		if !chatRef(x.Path) {
+			x.Path = resolveToolPath(ctx, x.Path)
 		}
 		if privatePath(x.Path) {
 			return "access denied: protected path"
@@ -286,7 +305,8 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if err := decodeArgs(args, &x); err != nil {
 			return err.Error()
 		}
-		msg, err := editFile(x.Path, x.OldString, x.NewString, x.ReplaceAll)
+		x.Path = resolveToolPath(ctx, x.Path)
+		msg, err := editFileIn(ctx, x.Path, x.OldString, x.NewString, x.ReplaceAll)
 		if err != nil {
 			return err.Error()
 		}
@@ -299,7 +319,8 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		if err := decodeArgs(args, &x); err != nil {
 			return err.Error()
 		}
-		msg, err := writeFile(x.Path, x.Content)
+		x.Path = resolveToolPath(ctx, x.Path)
+		msg, err := writeFileIn(ctx, x.Path, x.Content)
 		if err != nil {
 			return err.Error()
 		}

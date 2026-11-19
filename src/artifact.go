@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -85,7 +86,9 @@ func (a *Agent) showArtifact(argsJSON string) string {
 	if base := strings.TrimSpace(a.Cfg.PublicURL); base != "" {
 		a.Shares.SetPublicBase(base)
 	}
-	if !insideWorkingDir(x.Path) {
+	ctx := a.bindDirs(context.Background())
+	x.Path = resolveToolPath(ctx, x.Path)
+	if !pathInWorkspace(ctx, x.Path) {
 		return "show_artifact error: path outside working directory"
 	}
 	// Snapshot into workspace side data, then serve that copy.

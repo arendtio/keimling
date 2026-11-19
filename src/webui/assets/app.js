@@ -183,6 +183,10 @@
   var currentThreadID = "";
   var workspaceThreadID = "";
   var currentAgentInstanceID = "";
+  // Painted conversation. A snapshot replaces the transcript when this changes,
+  // including when both conversations are empty or their text happens to match.
+  var shownViewKey = "";
+  var sessionEpoch = 0;
   var selectedDefinitionID = "";
   var editingDefinitionID = "";
   var agentsPollTimer = null;
@@ -3037,9 +3041,6 @@
       try { es.close(); } catch (e) {}
       es = null;
     }
-    messages = [];
-    chapters = [];
-    activeChapter = null;
     clearLive();
     hideApproval();
     return loadSession()
@@ -3057,9 +3058,6 @@
       try { es.close(); } catch (e) {}
       es = null;
     }
-    messages = [];
-    chapters = [];
-    activeChapter = null;
     clearLive();
     hideApproval();
     return loadSession()
@@ -3394,9 +3392,6 @@
           try { es.close(); } catch (e) {}
           es = null;
         }
-        messages = [];
-        chapters = [];
-        activeChapter = null;
         clearLive();
         hideApproval();
         if (msg) {
@@ -5733,6 +5728,11 @@
       });
   }
 
+  function sessionViewKey(j) {
+    j = j || {};
+    return [j.agent_instance_id || "", j.workspace_id || "", j.thread_id || ""].join("\u0001");
+  }
+
   function applySession(j) {
     var openedThread = currentThreadID;
     applyProviderGate(!!j.needs_provider);
@@ -5740,7 +5740,10 @@
     applyModelChrome(j);
     modeEl.textContent = j.mode || "—";
     var incoming = j.messages || [];
-    var keepThread = transcriptMatches(messages, incoming);
+    var nextKey = sessionViewKey(j);
+    var sameView = shownViewKey !== "" && nextKey === shownViewKey;
+    if (!sameView) activeChapter = null;
+    var keepThread = sameView && transcriptMatches(messages, incoming);
     if (keepThread) {
       adoptSessionFields(messages, incoming);
       chapters = j.chapters || [];
@@ -5788,6 +5791,7 @@
     }
     renderBudgetLine(j.budget);
     applyLowContext(!!j.low_context);
+    shownViewKey = nextKey;
     renderChapters();
     if (!keepThread) renderThread();
     if (j.thread_id && j.thread_id !== openedThread) scrollTranscriptToEnd();
@@ -5800,8 +5804,11 @@
   }
 
   function loadSession() {
+    sessionEpoch += 1;
+    var epoch = sessionEpoch;
     return fetch(apiURL("/api/session"), { headers: headers() }).then(function (r) {
       return r.json().then(function (j) {
+        if (epoch !== sessionEpoch) return;
         if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
         applySession(j);
       });
@@ -8843,17 +8850,12 @@
           try { es.close(); } catch (e) {}
           es = null;
         }
-        messages = [];
-        chapters = [];
-        activeChapter = null;
         clearLive();
         hideApproval();
         return loadSession();
       })
       .then(function () {
         connectEvents();
-        renderChapters();
-        renderThread();
         return Promise.all([loadThreads(), loadAgents(), refreshSidebar()]);
       })
       .then(function () {

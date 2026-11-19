@@ -238,7 +238,7 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 	review := false
 	var listed []string
 	for _, name := range names {
-		g := gateTool(agentRun, a.Cfg.Mode, name, "{}", mcpToolAlwaysAllowed(a.Cfg.ConfigPath, name), a.Cfg.ToolAsk)
+		g := gateToolIn(agentRun, a.Cfg.Mode, name, "{}", mcpToolAlwaysAllowed(a.Cfg.ConfigPath, name), a.Cfg.ToolAsk, a.Cfg.WorkspaceRoot, a.threadDir())
 		if g.Deny {
 			why := g.Reason
 			if why == "" {

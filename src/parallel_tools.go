@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 )
@@ -69,10 +68,10 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 	}
 	a.applyDefinitionApproval()
 	agentRun := strings.TrimSpace(a.Cfg.AgentInstanceID) != ""
-	g := gateTool(agentRun, a.Cfg.Mode, item.Name, item.Arguments, mcpToolAlwaysAllowed(a.Cfg.ConfigPath, item.Name), a.Cfg.ToolAsk)
+	g := gateToolIn(agentRun, a.Cfg.Mode, item.Name, item.Arguments, mcpToolAlwaysAllowed(a.Cfg.ConfigPath, item.Name), a.Cfg.ToolAsk, a.Cfg.WorkspaceRoot, a.threadDir())
 	reason := g.Reason
 	if g.Review {
-		cwd, _ := os.Getwd()
+		cwd := a.threadDir()
 		var sus *SoftSuspicion
 		if hit, ok := softSuspicion(item.Name, item.Arguments); ok {
 			sus = &hit
@@ -210,6 +209,7 @@ func (a *Agent) runParallelWave(ctx context.Context, message string, reader *buf
 }
 
 func (a *Agent) parallelToolBody(ctx context.Context, name, args string) string {
+	ctx = a.bindDirs(ctx)
 	switch name {
 	case "read_file":
 		return executeTool(ctx, name, args)
@@ -277,6 +277,7 @@ func (a *Agent) handleFunctionCall(ctx context.Context, message string, reader *
 }
 
 func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message string, item Item) (result, rawExec string) {
+	ctx = a.bindDirs(ctx)
 	switch item.Name {
 	case "update_plan":
 		var p struct {

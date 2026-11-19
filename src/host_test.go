@@ -18,6 +18,7 @@ func TestHostAttachProxiesSession(t *testing.T) {
 		t.Skip("spawns worker process")
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	root := t.TempDir()
 	ws, err := ensureWorkspaceForRoot(root)
 	if err != nil {
@@ -65,10 +66,27 @@ func TestHostAttachProxiesSession(t *testing.T) {
 		t.Fatalf("workspace missing: %#v", body)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// EnsureWorker will try to spawn; with test binary it may fail fast — acceptable.
-	_ = h.Attach(ctx, ws.ID)
+	if err := h.Attach(ctx, ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.liveAgentWorker("nope"); ok {
+		t.Fatal("workspace attach started an agent")
+	}
+	h.mu.Lock()
+	wkr := h.workers[workspaceWorkerKey(ws.ID)]
+	h.mu.Unlock()
+	if wkr == nil || wkr.Handler == nil {
+		t.Fatal("workspace has no in-process handler")
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	req.Header.Set("Authorization", "Bearer host-secret-token")
+	rec = httptest.NewRecorder()
+	h.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHostStopIdleAgentDoesNotStartWorker(t *testing.T) {
@@ -97,7 +115,7 @@ func TestHostStopIdleAgentDoesNotStartWorker(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"running":false`) {
 		t.Fatalf("idle stop: %d %s", rec.Code, rec.Body.String())
 	}
-	if _, _, ok := h.liveAgentWorker(ada.ID); ok {
+	if _, ok := h.liveAgentWorker(ada.ID); ok {
 		t.Fatal("stop started a worker")
 	}
 	meta, err := readAgentInstanceMeta(ada.ID)
@@ -133,18 +151,17 @@ func TestHostLoginPageWithholdsApp(t *testing.T) {
 func TestRefuseCallLeave(t *testing.T) {
 	open := true
 	var hits int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
 		if r.URL.Path != "/api/health" || r.Header.Get("Authorization") != "Bearer sekrit" {
 			http.Error(w, "no", http.StatusUnauthorized)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "call": open})
-	}))
-	defer srv.Close()
+	})
 	h := &Host{
 		workers: map[string]*hostWorker{
-			"ws:here": {Key: "ws:here", Addr: strings.TrimPrefix(srv.URL, "http://"), Secret: "sekrit"},
+			"ws:here": {Key: "ws:here", Secret: "sekrit", Handler: handler},
 		},
 		attached: "ws:here",
 	}

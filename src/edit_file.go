@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,13 +10,17 @@ import (
 )
 
 func editFile(path, oldString, newString string, replaceAll bool) (string, error) {
+	return editFileIn(context.Background(), path, oldString, newString, replaceAll)
+}
+
+func editFileIn(ctx context.Context, path, oldString, newString string, replaceAll bool) (string, error) {
 	if privatePath(path) {
 		return "", fmt.Errorf("access denied: protected path")
 	}
 	if chatRef(path) || chatRecordPath(path) {
 		return "", fmt.Errorf("a chat journal is read-only")
 	}
-	if !insideWorkingDir(path) {
+	if !pathInWorkspace(ctx, path) {
 		return "", fmt.Errorf("write outside working directory")
 	}
 	if oldString == "" {
@@ -61,13 +66,17 @@ func editFile(path, oldString, newString string, replaceAll bool) (string, error
 }
 
 func writeFile(path, content string) (string, error) {
+	return writeFileIn(context.Background(), path, content)
+}
+
+func writeFileIn(ctx context.Context, path, content string) (string, error) {
 	if privatePath(path) {
 		return "", fmt.Errorf("access denied: protected path")
 	}
 	if chatRef(path) || chatRecordPath(path) {
 		return "", fmt.Errorf("a chat journal is read-only")
 	}
-	if !insideWorkingDir(path) {
+	if !pathInWorkspace(ctx, path) {
 		return "", fmt.Errorf("write outside working directory")
 	}
 	if len(content) > 1<<20 {

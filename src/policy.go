@@ -91,9 +91,14 @@ func softSuspicion(name, args string) (SoftSuspicion, bool) {
 	return SoftSuspicion{}, false
 }
 
-// forceApproval is the non-bypassable floor. Soft regex hits are NOT returned here;
-// they go through the review model instead.
 func forceApproval(name, args string) (bool, string) {
+	return forceApprovalIn(name, args, "", "")
+}
+
+// forceApprovalIn is the non-bypassable floor. root is the workspace directory.
+// cwd is the thread directory a relative path is resolved against. Empty root
+// uses the process working directory.
+func forceApprovalIn(name, args, root, cwd string) (bool, string) {
 	if name == "update_plan" || name == "finish_task" || name == "activate_skill" || name == "read_skill_file" || name == "change_workspace" || name == "list_watches" || name == "cancel_watch" || name == "list_agents" || name == "allow_peer" || name == "message_agent" || name == "stop_agent" || name == "list_credentials" || name == "find_tools" || name == "mcp_tools" || name == "builtin_tools" || defineAgentTool(name) || (name == "create_watch" && watchIsTimeOnly(args)) {
 		return false, ""
 	}
@@ -110,7 +115,7 @@ func forceApproval(name, args string) (bool, string) {
 		if privatePath(a.Path) {
 			return true, "protected path"
 		}
-		if (name == "share_file" || name == "show_artifact") && !insideWorkingDir(a.Path) {
+		if (name == "share_file" || name == "show_artifact") && !inWorkspace(root, cwd, a.Path) {
 			return true, "share outside working directory"
 		}
 		return false, ""
@@ -122,14 +127,10 @@ func forceApproval(name, args string) (bool, string) {
 		if json.Unmarshal([]byte(args), &a) != nil {
 			return true, "invalid arguments"
 		}
-		p, e := filepath.Abs(a.Path)
-		if e != nil {
-			return true, "invalid path"
-		}
 		if privatePath(a.Path) {
 			return true, "protected path"
 		}
-		if !insideWorkingDir(p) {
+		if !inWorkspace(root, cwd, a.Path) {
 			return true, "write outside working directory"
 		}
 		return false, ""
@@ -282,6 +283,10 @@ func destructiveFlag(args []string) bool {
 // working directory. Everything else, including deletions, still goes through
 // the reviewer or the user.
 func autoApproved(name, args string) bool {
+	return autoApprovedIn(name, args, "", "")
+}
+
+func autoApprovedIn(name, args, root, cwd string) bool {
 	switch name {
 	case "activate_skill", "read_skill_file", "list_credentials":
 		return true
@@ -292,7 +297,7 @@ func autoApproved(name, args string) bool {
 		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
 			return false
 		}
-		return insideWorkingDir(a.Path) && !privatePath(a.Path)
+		return inWorkspace(root, cwd, a.Path) && !privatePath(a.Path)
 	case "read_file":
 		var a struct {
 			Path string `json:"path"`
@@ -300,7 +305,7 @@ func autoApproved(name, args string) bool {
 		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
 			return false
 		}
-		return insideWorkingDir(a.Path)
+		return inWorkspace(root, cwd, a.Path)
 	case "edit_file":
 		var a struct {
 			Path string `json:"path"`
@@ -308,10 +313,11 @@ func autoApproved(name, args string) bool {
 		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
 			return false
 		}
-		if !insideWorkingDir(a.Path) || privatePath(a.Path) {
+		abs := locatePath(root, cwd, a.Path)
+		if !inWorkspace(root, cwd, a.Path) || privatePath(abs) {
 			return false
 		}
-		_, err := os.Lstat(a.Path)
+		_, err := os.Lstat(abs)
 		return err == nil
 	case "write_file":
 		var a struct {
@@ -320,7 +326,7 @@ func autoApproved(name, args string) bool {
 		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
 			return false
 		}
-		return insideWorkingDir(a.Path) && !privatePath(a.Path)
+		return inWorkspace(root, cwd, a.Path) && !privatePath(a.Path)
 	case "share_file":
 		var a struct {
 			Path string `json:"path"`
@@ -328,7 +334,7 @@ func autoApproved(name, args string) bool {
 		if json.Unmarshal([]byte(args), &a) != nil || a.Path == "" {
 			return false
 		}
-		return insideWorkingDir(a.Path) && !privatePath(a.Path)
+		return inWorkspace(root, cwd, a.Path) && !privatePath(a.Path)
 	case "exec":
 		var a struct {
 			Command     string `json:"command"`
@@ -471,6 +477,10 @@ func gateToolCall(agent bool, mode, name, args string, whitelisted bool) toolGat
 // A hard floor (a write outside the workspace, a protected path, a destructive
 // command) still asks. Yolo still does not.
 func gateTool(agent bool, mode, name, args string, whitelisted bool, ask map[string]bool) toolGate {
+	return gateToolIn(agent, mode, name, args, whitelisted, ask, "", "")
+}
+
+func gateToolIn(agent bool, mode, name, args string, whitelisted bool, ask map[string]bool, root, cwd string) toolGate {
 	if mode == "yolo" || whitelisted || (name == "create_watch" && watchIsTimeOnly(args)) {
 		return toolGate{Allow: true}
 	}
@@ -481,7 +491,7 @@ func gateTool(agent bool, mode, name, args string, whitelisted bool, ask map[str
 		}
 	}
 	if quiet {
-		if forced, why := forceApproval(name, args); forced && why != "unknown tool" {
+		if forced, why := forceApprovalIn(name, args, root, cwd); forced && why != "unknown tool" {
 			return toolGate{Ask: true, Reason: why}
 		}
 		return toolGate{Allow: true}
@@ -494,20 +504,20 @@ func gateTool(agent bool, mode, name, args string, whitelisted bool, ask map[str
 	}
 	if mode == "auto" {
 		if !agent {
-			if forced, why := forceApproval(name, args); forced {
+			if forced, why := forceApprovalIn(name, args, root, cwd); forced {
 				return toolGate{Ask: true, Reason: why}
 			}
-			if autoApproved(name, args) {
+			if autoApprovedIn(name, args, root, cwd) {
 				return toolGate{Allow: true}
 			}
 			return toolGate{Review: true}
 		}
-		if name != "edit_file" && name != "write_file" && name != "share_file" && autoApproved(name, args) {
+		if name != "edit_file" && name != "write_file" && name != "share_file" && autoApprovedIn(name, args, root, cwd) {
 			return toolGate{Allow: true}
 		}
 		return toolGate{Review: true}
 	}
-	if forced, why := forceApproval(name, args); forced {
+	if forced, why := forceApprovalIn(name, args, root, cwd); forced {
 		return toolGate{Ask: true, Reason: why}
 	}
 	return toolGate{Ask: true, Reason: "approval required"}

@@ -10,10 +10,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
+	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -26,24 +24,21 @@ func isWorkerRole() bool {
 }
 
 type hostWorker struct {
-	Key    string // ws:<id> or agent:<id>
-	Kind   string // workspace | agent
-	Ref    string // bare workspace or instance id
-	Root   string
-	Addr   string // host:port
-	Secret string
-	Cmd    *exec.Cmd
+	Key     string // ws:<id> or agent:<id>
+	Kind    string // workspace | agent
+	Ref     string // bare workspace or instance id
+	Root    string
+	Secret  string
+	Handler http.Handler
+	Agent   *Agent
+	cancel  context.CancelFunc
 }
 
-func (h *Host) workerEnv() []string {
-	env := append(os.Environ(), keimlingRoleEnv+"=worker")
+func (h *Host) publishLoopback() {
 	if base := strings.TrimSpace(h.baseURL); base != "" {
-		env = append(env, "KEIMLING_HOST="+base)
+		_ = os.Setenv("KEIMLING_HOST", base)
+		_ = os.Setenv("KEIMLING_SECRET", h.secret)
 	}
-	if secret := strings.TrimSpace(h.secret); secret != "" {
-		env = append(env, "KEIMLING_SECRET="+secret)
-	}
-	return env
 }
 
 func hostBaseForWorkers(listen string) string {
@@ -67,18 +62,16 @@ func hostBaseForWorkers(listen string) string {
 func workspaceWorkerKey(id string) string { return "ws:" + strings.TrimSpace(id) }
 func agentWorkerKey(id string) string     { return "agent:" + strings.TrimSpace(id) }
 
-// Host supervises workspace worker processes and proxies the UI to the attached one.
+// Host runs every workspace and every agent instance in this process and serves the UI.
 type Host struct {
 	mu             sync.Mutex
 	secret         string
 	config         string
-	exe            string
 	workers        map[string]*hostWorker
 	waking         map[string]bool
 	attached       string
 	focusWorkspace string // sidebar workspace; kept when an agent instance is attached
-	baseURL        string // http://127.0.0.1:port workers call back
-	client         *http.Client
+	baseURL        string // http://127.0.0.1:port this process serves
 }
 
 func newHost(secret, configPath string) (*Host, error) {
@@ -89,16 +82,10 @@ func newHost(secret, configPath string) (*Host, error) {
 		}
 		secret = s
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
 	return &Host{
 		secret:  secret,
 		config:  configPath,
-		exe:     exe,
 		workers: map[string]*hostWorker{},
-		client:  &http.Client{Timeout: 5 * time.Second},
 	}, nil
 }
 
@@ -110,91 +97,27 @@ func (h *Host) Attached() string {
 	return h.attached
 }
 
-func reserveLoopbackAddr() (string, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr, nil
-}
-
 func (h *Host) EnsureWorker(ctx context.Context, workspaceID string) (*hostWorker, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
 		return nil, fmt.Errorf("workspace id required")
 	}
-	meta, err := readWorkspaceMeta(workspaceID)
-	if err != nil {
+	if _, err := readWorkspaceMeta(workspaceID); err != nil {
 		return nil, err
 	}
-	key := workspaceWorkerKey(workspaceID)
-
-	h.mu.Lock()
-	if w := h.workers[key]; w != nil && w.Cmd != nil && w.Cmd.Process != nil {
-		alive := w.Cmd.ProcessState == nil || !w.Cmd.ProcessState.Exited()
-		if alive {
-			addr, secret := w.Addr, w.Secret
-			h.mu.Unlock()
-			if err := h.waitHealthy(ctx, addr, secret); err == nil {
-				h.mu.Lock()
-				w := h.workers[key]
-				h.mu.Unlock()
-				return w, nil
-			}
-			h.mu.Lock()
-			h.dropWorkerLocked(key)
-		}
-	}
-	h.mu.Unlock()
-
-	addr, err := reserveLoopbackAddr()
-	if err != nil {
-		return nil, err
-	}
-	args := []string{
-		"--server",
-		"--listen", addr,
-		"--workspace", workspaceID,
-		"--access-secret", h.secret,
-		"--check-model=false",
-	}
-	if strings.TrimSpace(h.config) != "" {
-		args = append(args, "--config", h.config)
-	}
-	cmd := exec.Command(h.exe, args...)
-	cmd.Env = h.workerEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Dir = meta.Root
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	w := &hostWorker{Key: key, Kind: "workspace", Ref: workspaceID, Root: meta.Root, Addr: addr, Secret: h.secret, Cmd: cmd}
-	h.mu.Lock()
-	h.workers[key] = w
-	h.mu.Unlock()
-
-	if err := h.waitHealthy(ctx, addr, h.secret); err != nil {
-		h.StopWorker(key)
-		return nil, fmt.Errorf("workspace %s worker: %w", workspaceID, err)
-	}
-	go h.reap(key, cmd)
-	return w, nil
+	return h.ensure(workspaceWorkerKey(workspaceID), func() (*hostWorker, error) {
+		return h.startWorkspace(workspaceID)
+	})
 }
 
-func (h *Host) liveAgentWorker(instanceID string) (addr, secret string, ok bool) {
+func (h *Host) liveAgentWorker(instanceID string) (*hostWorker, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	w := h.workers[agentWorkerKey(instanceID)]
-	if w == nil || w.Cmd == nil || w.Cmd.Process == nil {
-		return "", "", false
+	if w == nil || w.Handler == nil {
+		return nil, false
 	}
-	if w.Cmd.ProcessState != nil && w.Cmd.ProcessState.Exited() {
-		return "", "", false
-	}
-	return w.Addr, w.Secret, true
+	return w, true
 }
 
 func (h *Host) EnsureAgentWorker(ctx context.Context, instanceID string) (*hostWorker, error) {
@@ -202,102 +125,139 @@ func (h *Host) EnsureAgentWorker(ctx context.Context, instanceID string) (*hostW
 	if instanceID == "" {
 		return nil, fmt.Errorf("agent instance id required")
 	}
+	if _, err := readAgentInstanceMeta(instanceID); err != nil {
+		return nil, err
+	}
+	return h.ensure(agentWorkerKey(instanceID), func() (*hostWorker, error) {
+		return h.startAgent(instanceID)
+	})
+}
+
+func (h *Host) ensure(key string, start func() (*hostWorker, error)) (*hostWorker, error) {
+	h.mu.Lock()
+	if w := h.workers[key]; w != nil && w.Handler != nil {
+		h.mu.Unlock()
+		return w, nil
+	}
+	h.mu.Unlock()
+	w, err := start()
+	if err != nil {
+		return nil, err
+	}
+	h.mu.Lock()
+	if old := h.workers[key]; old != nil && old.Handler != nil {
+		h.mu.Unlock()
+		closeWorker(w)
+		return old, nil
+	}
+	h.workers[key] = w
+	h.mu.Unlock()
+	return w, nil
+}
+
+func (h *Host) startWorkspace(workspaceID string) (*hostWorker, error) {
+	meta, err := readWorkspaceMeta(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	agent, cancel, err := openRuntimeAgent(h.config, workspaceID, "")
+	if err != nil {
+		return nil, err
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: h.secret, Agent: agent})
+	return &hostWorker{
+		Key: workspaceWorkerKey(workspaceID), Kind: "workspace", Ref: workspaceID, Root: meta.Root,
+		Secret: h.secret, Handler: srv.Handler(), Agent: agent, cancel: cancel,
+	}, nil
+}
+
+func (h *Host) startAgent(instanceID string) (*hostWorker, error) {
 	meta, err := readAgentInstanceMeta(instanceID)
 	if err != nil {
 		return nil, err
 	}
 	ws, err := readWorkspaceMeta(meta.CurrentWorkspace)
 	if err != nil {
-		return nil, fmt.Errorf("agent workspace: %w", err)
+		return nil, err
 	}
-	key := agentWorkerKey(instanceID)
-
-	h.mu.Lock()
-	if w := h.workers[key]; w != nil && w.Cmd != nil && w.Cmd.Process != nil {
-		alive := w.Cmd.ProcessState == nil || !w.Cmd.ProcessState.Exited()
-		if alive {
-			addr, secret := w.Addr, w.Secret
-			h.mu.Unlock()
-			if err := h.waitHealthy(ctx, addr, secret); err == nil {
-				h.mu.Lock()
-				w := h.workers[key]
-				h.mu.Unlock()
-				return w, nil
-			}
-			h.mu.Lock()
-			h.dropWorkerLocked(key)
-		}
-	}
-	h.mu.Unlock()
-
-	addr, err := reserveLoopbackAddr()
+	agent, cancel, err := openRuntimeAgent(h.config, "", instanceID)
 	if err != nil {
 		return nil, err
 	}
-	args := []string{
-		"--server",
-		"--listen", addr,
-		"--agent-instance", instanceID,
-		"--access-secret", h.secret,
-		"--check-model=false",
-	}
-	if strings.TrimSpace(h.config) != "" {
-		args = append(args, "--config", h.config)
-	}
-	cmd := exec.Command(h.exe, args...)
-	cmd.Env = h.workerEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Dir = ws.Root
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	w := &hostWorker{Key: key, Kind: "agent", Ref: instanceID, Root: ws.Root, Addr: addr, Secret: h.secret, Cmd: cmd}
-	h.mu.Lock()
-	h.workers[key] = w
-	h.mu.Unlock()
-
-	if err := h.waitHealthy(ctx, addr, h.secret); err != nil {
-		h.StopWorker(key)
-		return nil, fmt.Errorf("agent %s worker: %w", instanceID, err)
-	}
-	go h.reap(key, cmd)
-	return w, nil
+	srv := newAppServer(appServerOpts{AccessSecret: h.secret, Agent: agent})
+	return &hostWorker{
+		Key: agentWorkerKey(instanceID), Kind: "agent", Ref: instanceID, Root: ws.Root,
+		Secret: h.secret, Handler: srv.Handler(), Agent: agent, cancel: cancel,
+	}, nil
 }
 
-func (h *Host) reap(id string, cmd *exec.Cmd) {
-	_ = cmd.Wait()
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if w := h.workers[id]; w != nil && w.Cmd == cmd {
-		delete(h.workers, id)
-		if h.attached == id {
-			h.attached = ""
+func closeWorker(w *hostWorker) {
+	if w == nil {
+		return
+	}
+	if w.cancel != nil {
+		w.cancel()
+	}
+	if w.Agent != nil {
+		if w.Agent.MCP != nil {
+			w.Agent.MCP.Close()
+		}
+		if w.Agent.Journal != nil {
+			_ = w.Agent.Journal.Close()
 		}
 	}
 }
 
-func (h *Host) dropWorkerLocked(id string) {
-	if w := h.workers[id]; w != nil && w.Cmd != nil && w.Cmd.Process != nil {
-		_ = w.Cmd.Process.Kill()
+func (h *Host) serveWorker(w *hostWorker, rw http.ResponseWriter, req *http.Request) {
+	if w == nil || w.Handler == nil {
+		http.Error(rw, "workspace is not running", http.StatusServiceUnavailable)
+		return
 	}
+	req.Header.Set("Authorization", "Bearer "+w.Secret)
+	w.Handler.ServeHTTP(rw, req)
+}
+
+func (h *Host) callWorker(ctx context.Context, w *hostWorker, method, path string, body string) (*http.Response, error) {
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, path, r)
+	if err != nil {
+		return nil, err
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	rec := httptest.NewRecorder()
+	h.serveWorker(w, rec, req)
+	return rec.Result(), nil
+}
+
+func (h *Host) dropWorkerLocked(id string) *hostWorker {
+	w := h.workers[id]
 	delete(h.workers, id)
 	if h.attached == id {
 		h.attached = ""
 	}
+	return w
 }
 
 func (h *Host) StopWorker(id string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.dropWorkerLocked(id)
+	w := h.dropWorkerLocked(id)
+	h.mu.Unlock()
+	closeWorker(w)
 }
 
 func (h *Host) StopAll() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	for id := range h.workers {
-		h.dropWorkerLocked(id)
+	all := h.workers
+	h.workers = map[string]*hostWorker{}
+	h.attached = ""
+	h.mu.Unlock()
+	for _, w := range all {
+		closeWorker(w)
 	}
 }
 
@@ -307,13 +267,7 @@ func (h *Host) workerCallOpen(ctx context.Context, w *hostWorker) bool {
 	if w == nil {
 		return false
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+w.Addr+"/api/health", nil)
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Authorization", "Bearer "+w.Secret)
-	client := &http.Client{Timeout: 800 * time.Millisecond}
-	res, err := client.Do(req)
+	res, err := h.callWorker(ctx, w, http.MethodGet, "/api/health", "")
 	if err != nil {
 		return false
 	}
@@ -409,14 +363,7 @@ func (h *Host) workerPulse(ctx context.Context, w *hostWorker) workerPulse {
 	if w == nil {
 		return workerPulse{}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+w.Addr+"/api/health", nil)
-	if err != nil {
-		return workerPulse{}
-	}
-	req.Header.Set("Authorization", "Bearer "+w.Secret)
-	// Short client so sidebar polls stay snappy even if a worker is wedged.
-	client := &http.Client{Timeout: 800 * time.Millisecond}
-	res, err := client.Do(req)
+	res, err := h.callWorker(ctx, w, http.MethodGet, "/api/health", "")
 	if err != nil {
 		return workerPulse{}
 	}
@@ -482,55 +429,8 @@ func (h *Host) proxyToWorkspace() http.Handler {
 			http.Error(rw, err.Error(), http.StatusBadGateway)
 			return
 		}
-		target, err := url.Parse("http://" + w.Addr)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.FlushInterval = 50 * time.Millisecond
-		orig := proxy.Director
-		secret := w.Secret
-		proxy.Director = func(r *http.Request) {
-			orig(r)
-			r.Host = target.Host
-			r.Header.Set("Authorization", "Bearer "+secret)
-			r.Header.Del("X-Keimling-Access-Secret")
-		}
-		proxy.ErrorHandler = func(rw http.ResponseWriter, r *http.Request, e error) {
-			http.Error(rw, "worker unavailable: "+e.Error(), http.StatusBadGateway)
-		}
-		proxy.ServeHTTP(rw, req)
+		h.serveWorker(w, rw, req)
 	})
-}
-
-func (h *Host) waitHealthy(ctx context.Context, addr, secret string) error {
-	deadline := time.Now().Add(20 * time.Second)
-	url := "http://" + addr + "/api/health"
-	for time.Now().Before(deadline) {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Authorization", "Bearer "+secret)
-		res, err := h.client.Do(req)
-		if err == nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
-			res.Body.Close()
-			if res.StatusCode == http.StatusOK {
-				return nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	return fmt.Errorf("worker at %s did not become healthy", addr)
 }
 
 func (h *Host) attachedWorker() (*hostWorker, error) {
@@ -553,24 +453,7 @@ func (h *Host) proxy() http.Handler {
 			http.Error(rw, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		target, err := url.Parse("http://" + w.Addr)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.FlushInterval = 50 * time.Millisecond
-		orig := proxy.Director
-		proxy.Director = func(r *http.Request) {
-			orig(r)
-			r.Host = target.Host
-			r.Header.Set("Authorization", "Bearer "+w.Secret)
-			r.Header.Del("X-Keimling-Access-Secret")
-		}
-		proxy.ErrorHandler = func(rw http.ResponseWriter, r *http.Request, e error) {
-			http.Error(rw, "worker unavailable: "+e.Error(), http.StatusBadGateway)
-		}
-		proxy.ServeHTTP(rw, req)
+		h.serveWorker(w, rw, req)
 	})
 }
 
@@ -818,14 +701,7 @@ func (h *Host) handleThreadDeliver(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+worker.Addr+"/api/threads/deliver", strings.NewReader(string(raw)))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+worker.Secret)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := h.client.Do(req)
+	res, err := h.callWorker(ctx, worker, http.MethodPost, "/api/threads/deliver", string(raw))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

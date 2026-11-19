@@ -223,7 +223,7 @@ func (h *Host) handleAgentStop(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(body.ID)
 	_ = setAgentWakesHeld(id, true)
-	addr, secret, ok := h.liveAgentWorker(id)
+	wkr, ok := h.liveAgentWorker(id)
 	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id, "running": false})
@@ -231,14 +231,7 @@ func (h *Host) handleAgentStop(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/api/stop", nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+secret)
-	client := &http.Client{Timeout: 3 * time.Second}
-	res, err := client.Do(req)
+	res, err := h.callWorker(ctx, wkr, http.MethodPost, "/api/stop", "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -267,16 +260,10 @@ func (h *Host) handleAgentReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if addr, secret, ok := h.liveAgentWorker(id); ok {
+	if wkr, ok := h.liveAgentWorker(id); ok {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/api/instance/reset", nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		req.Header.Set("Authorization", "Bearer "+secret)
-		res, err := (&http.Client{Timeout: 8 * time.Second}).Do(req)
+		res, err := h.callWorker(ctx, wkr, http.MethodPost, "/api/instance/reset", "")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -460,9 +447,8 @@ func (h *Host) handleAgentInstanceMessage(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if _, err := h.EnsureAgentWorker(ctx, id); err != nil {
-		// Queued on disk; worker may pick up later.
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "queued": true, "worker": false})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "queued": true, "worker": false, "error": err.Error()})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

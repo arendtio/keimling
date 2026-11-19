@@ -255,15 +255,9 @@ func TestWorkspacePromptIncludesWorkingDirectory(t *testing.T) {
 		}
 	}
 	moved := t.TempDir()
-	if err := os.Chdir(moved); err != nil {
-		t.Fatal(err)
-	}
+	a.resetThreadDir(moved)
 	again := a.workspacePrompt()
-	now, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(again, "Working directory: "+now) || strings.Contains(again, "Working directory: "+cwd) {
+	if !strings.Contains(again, "Working directory: "+moved) || strings.Contains(again, "Working directory: "+cwd) {
 		t.Fatalf("prompt kept the old directory:\n%s", again)
 	}
 }

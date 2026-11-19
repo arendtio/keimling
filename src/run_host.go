@@ -21,13 +21,14 @@ func runHostServer(listen, secret, configPath, initialWorkspace string) error {
 		return err
 	}
 	h.baseURL = hostBaseForWorkers(listen)
+	h.publishLoopback()
 	defer h.StopAll()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if initialWorkspace == "" {
 		cwd, _ := os.Getwd()
-		ws, _, _, e := resolveStartupWorkspace(cwd)
+		ws, _, _, e := lookupStartupWorkspace(cwd)
 		if e != nil {
 			return e
 		}
@@ -83,14 +84,14 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 	defer cancel()
 	if initialWorkspace == "" {
 		cwd, _ := os.Getwd()
-		ws, _, _, e := resolveStartupWorkspace(cwd)
+		ws, _, _, e := lookupStartupWorkspace(cwd)
 		if e != nil {
 			return e
 		}
 		initialWorkspace = ws.ID
 	} else if _, e := readWorkspaceMeta(initialWorkspace); e != nil {
 		cwd, _ := os.Getwd()
-		ws, _, _, e2 := resolveStartupWorkspace(cwd)
+		ws, _, _, e2 := lookupStartupWorkspace(cwd)
 		if e2 != nil {
 			return e2
 		}
@@ -99,7 +100,6 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 
 	stopWake := make(chan struct{})
 	defer close(stopWake)
-	go h.wakeQueuedAgentsLoop(stopWake)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -107,6 +107,8 @@ func runHostGUI(secret, configPath, initialWorkspace string) error {
 	}
 	addr := ln.Addr().String()
 	h.baseURL = "http://" + addr
+	h.publishLoopback()
+	go h.wakeQueuedAgentsLoop(stopWake)
 	srv := &http.Server{
 		Handler:           h.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

@@ -3318,6 +3318,7 @@ func (s *appServer) startForkedRun(threadID, text string) error {
 		Credentials: s.agent.Credentials,
 		SessionCtx:  s.agent.SessionCtx,
 		ApprovalCh:  make(chan bool, 1),
+		dirs:        s.agent.dirTable(),
 	}
 	if err := b.attachThreadJournal(threadID); err != nil {
 		return err

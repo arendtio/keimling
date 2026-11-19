@@ -66,6 +66,10 @@ type Agent struct {
 	// sentByThread keeps the last chat request body per thread.
 	sentMu       sync.Mutex
 	sentByThread map[string][]byte
+	// dirs is the working directory of each thread, shared with a forked run
+	// of the same workspace. A cd in one thread does not move another.
+	dirsMu sync.Mutex
+	dirs   *dirTable
 	// Schemas a chat has loaded. Keyed by thread. A new chat starts empty.
 	// Compaction clears that chat. Another chat does not inherit them.
 	builtinMu       sync.Mutex

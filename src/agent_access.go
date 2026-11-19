@@ -397,7 +397,9 @@ func (a *Agent) workspacePrompt() string {
 			}
 		}
 	}
-	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+	if dir := strings.TrimSpace(a.threadDir()); dir != "" {
+		root = dir
+	} else if cwd, err := os.Getwd(); err == nil && strings.TrimSpace(root) == "" && cwd != "" {
 		root = cwd
 	}
 	if id == "" && root == "" {
@@ -495,11 +497,9 @@ func (a *Agent) syncInstanceWorkspace() {
 	if err != nil {
 		return
 	}
-	if err := os.Chdir(meta.Root); err != nil {
-		return
-	}
 	a.Cfg.WorkspaceID = cur
 	a.Cfg.WorkspaceRoot = meta.Root
+	a.resetThreadDir(meta.Root)
 }
 
 // setAgentInstanceAccess saves workspaces and an optional narrower tool set.

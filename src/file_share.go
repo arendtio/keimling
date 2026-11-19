@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -235,7 +236,15 @@ func (a *Agent) shareFile(argsJSON string) string {
 	if base := strings.TrimSpace(a.Cfg.PublicURL); base != "" {
 		a.Shares.SetPublicBase(base)
 	}
-	token, url, err := a.Shares.Register(x.Path, x.As)
+	abs := resolveToolPath(a.bindDirs(context.Background()), x.Path)
+	if !pathInWorkspace(a.bindDirs(context.Background()), abs) {
+		return "share_file error: path outside working directory"
+	}
+	var extra []string
+	if root := strings.TrimSpace(a.Cfg.WorkspaceRoot); root != "" {
+		extra = []string{root}
+	}
+	token, url, err := a.Shares.register(abs, x.As, extra)
 	if err != nil {
 		return "share_file error: " + err.Error()
 	}

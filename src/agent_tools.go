@@ -102,14 +102,12 @@ func (a *Agent) changeWorkspace(argsJSON string) string {
 	if err != nil {
 		return "change_workspace error: " + err.Error()
 	}
-	if err := os.Chdir(meta.Root); err != nil {
-		return "change_workspace error: " + err.Error()
-	}
 	if err := setAgentInstanceWorkspace(a.Cfg.AgentInstanceID, id); err != nil {
 		return "change_workspace error: " + err.Error()
 	}
 	a.Cfg.WorkspaceID = id
 	a.Cfg.WorkspaceRoot = meta.Root
+	a.resetThreadDir(meta.Root)
 	a.println("\033[36m▣ Workspace\033[0m " + meta.Name + " → " + meta.Root)
 	return fmt.Sprintf("changed workspace to %s (%s)", id, meta.Root)
 }

@@ -7,6 +7,7 @@ import (
 
 // runExecWithCredentials handles exec: placeholders, env inject (+ exfil review), ssh-agent.
 func (a *Agent) runExecWithCredentials(ctx context.Context, argsJSON string) string {
+	ctx = a.bindDirs(ctx)
 	var x struct {
 		Command string `json:"command"`
 	}
