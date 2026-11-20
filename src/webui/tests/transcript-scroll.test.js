@@ -25,8 +25,7 @@ function makeTranscript(options = {}) {
     },
     window: {
       addEventListener(type, listener) {
-        assert.equal(type, "scroll");
-        onScroll = listener;
+        if (type === "scroll") onScroll = listener;
       },
       scrollTo(x, y) {
         calls.push({ x, y });

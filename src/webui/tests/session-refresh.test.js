@@ -88,7 +88,7 @@ function makeSession({ position = 9400, matching = false, rowHeight = 4700, snap
       createDocumentFragment() { return new Container(); },
     },
     window: {
-      addEventListener(type, listener) { assert.equal(type, "scroll"); scrollListener = listener; },
+      addEventListener(type, listener) { if (type === "scroll") scrollListener = listener; },
       scrollTo(x, y) {
         calls.push({ x, y });
         page.scrollTop = Math.max(0, Math.min(y, page.scrollHeight - page.clientHeight));

@@ -5408,11 +5408,23 @@
 
   window.addEventListener("scroll", noteTranscriptStick, { passive: true });
 
+  // Layout changes can also dispatch scroll events. Track actual input separately
+  // so an idle refresh can distinguish a page reset from someone scrolling away.
+  var transcriptInputRevision = 0;
+  function noteTranscriptInput() { transcriptInputRevision++; }
+  window.addEventListener("wheel", noteTranscriptInput, { passive: true, capture: true });
+  window.addEventListener("touchstart", noteTranscriptInput, { passive: true, capture: true });
+  window.addEventListener("pointerdown", noteTranscriptInput, { passive: true, capture: true });
+  window.addEventListener("keydown", function (e) {
+    if (/^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End| |Spacebar)$/.test(e.key)) noteTranscriptInput();
+  }, true);
+
   // force is the reader's own send or a thread change: go to the bottom
   // even when they were reading higher up. Follow skips the jump if they
   // have since scrolled away.
-  function scrollTranscript(force) {
+  function scrollTranscript(force, guard) {
     requestAnimationFrame(function () {
+      if (guard && !guard()) return;
       if (!force && !transcriptStick) return;
       var el = document.scrollingElement || document.documentElement;
       // Request a valid scroll offset instead of overshooting the document height.
@@ -5421,8 +5433,8 @@
     });
   }
 
-  function scrollTranscriptToEnd() {
-    scrollTranscript(true);
+  function scrollTranscriptToEnd(guard) {
+    scrollTranscript(true, guard);
   }
 
   function followTranscript() {
@@ -6128,9 +6140,45 @@
                   if (!currentAgentInstanceID && (!payload.thread_id || payload.thread_id === stoppingThreadID)) stoppingThreadID = "";
                   runningThreadID = "";
                   backgroundBusy = false;
+                  // Capture follow intent before idle hides UI or the session
+                  // replaces nodes: either can make WebView report a scroll to 0.
+                  var idleFollow = transcriptStick;
+                  var idleScrollEl = document.scrollingElement || document.documentElement;
+                  var idleTop = idleScrollEl.scrollTop;
+                  var idleInput = transcriptInputRevision;
+                  var idleView = shownViewKey;
+                  var idleThread = currentThreadID;
+                  var idleWorkspace = currentWorkspaceID;
+                  var idleAgent = currentAgentInstanceID;
                   setState("idle");
-                  loadSession()
+                  var idleLoad = loadSession();
+                  var idleEpoch = sessionEpoch;
+                  var idleGuard = function () {
+                    if (transcriptInputRevision !== idleInput || agentState !== "idle" ||
+                        sessionEpoch !== idleEpoch || shownViewKey !== idleView || currentThreadID !== idleThread ||
+                        currentWorkspaceID !== idleWorkspace || currentAgentInstanceID !== idleAgent) return false;
+                    var el = document.scrollingElement || document.documentElement;
+                    // An away-from-bottom scroll at a nonzero position is also
+                    // respected when assistive scrolling has no input event.
+                    return !idleFollow || transcriptStick || el.scrollTop <= 0;
+                  };
+                  var restoreIdleScroll = function () {
+                    if (idleFollow) {
+                      scrollTranscriptToEnd(idleGuard);
+                    } else if (idleTop > 0) {
+                      requestAnimationFrame(function () {
+                        if (!idleGuard()) return;
+                        var el = document.scrollingElement || document.documentElement;
+                        if (el.scrollTop <= 0) window.scrollTo(0, Math.min(idleTop, Math.max(0, el.scrollHeight - el.clientHeight)));
+                      });
+                    }
+                  };
+                  restoreIdleScroll();
+                  idleLoad
                     .then(function () {
+                      // This is needed even for matching snapshots: closing a
+                      // thinking fold or other idle chrome can reset the page.
+                      restoreIdleScroll();
                       clearLive();
                       return refreshBudget(false);
                     })
