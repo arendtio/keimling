@@ -5482,30 +5482,41 @@
   function renderThread() {
     if (thread.dataset.rebuild === "1") {
       heldOpen = openMapFrom(thread);
-      thread.innerHTML = "";
+      // Build off-screen so the page never collapses to an empty transcript
+      // while a session snapshot is replacing the live messages.
+      var replacement = document.createElement("div");
+      renderThreadContents(replacement);
+      var fragment = document.createDocumentFragment();
+      while (replacement.firstChild) fragment.appendChild(replacement.firstChild);
+      thread.replaceChildren(fragment);
       delete thread.dataset.rebuild;
+      return;
     }
+    renderThreadContents(thread);
+  }
+
+  function renderThreadContents(target) {
     if (!messages.length) {
-      thread.innerHTML = "";
+      target.innerHTML = "";
       var hint = document.createElement("div");
       hint.className = "msg system";
       hint.innerHTML = '<p class="who">Keimling</p><p class="body">Send a message to continue this session.</p>';
-      thread.appendChild(hint);
+      target.appendChild(hint);
       return;
     }
 
     // Single chapter: full transcript for that range.
     if (activeChapter) {
       var prevHeld = heldOpen;
-      var seenOpen = openMapFrom(thread);
+      var seenOpen = openMapFrom(target);
       if (Object.keys(seenOpen).length) heldOpen = seenOpen;
-      thread.innerHTML = "";
+      target.innerHTML = "";
       var head = document.createElement("div");
       head.className = "msg system";
       var sum = activeChapter.summary ? "\n\n" + activeChapter.summary : "";
       head.innerHTML = '<p class="who">Chapter</p><div class="body">' + esc(activeChapter.title + sum) + "</div>";
-      thread.appendChild(head);
-      appendMessageList(thread, messages.filter(inChapter));
+      target.appendChild(head);
+      appendMessageList(target, messages.filter(inChapter));
       heldOpen = prevHeld;
       return;
     }
@@ -5513,23 +5524,23 @@
     // Chapters stay put; only the live tail grows, so an opened fold is not rebuilt.
     if (chapters.length) {
       var sig = chapterBlockSig();
-      var block = thread.querySelector(":scope > .chapter-block");
-      var tail = thread.querySelector(":scope > .thread-tail");
+      var block = target.querySelector(":scope > .chapter-block");
+      var tail = target.querySelector(":scope > .thread-tail");
       if (!block || block.dataset.sig !== sig || !tail) {
-        var chapterOpen = openMapFrom(thread);
+        var chapterOpen = openMapFrom(target);
         var prevOpen = heldOpen;
         if (Object.keys(chapterOpen).length) heldOpen = chapterOpen;
-        thread.innerHTML = "";
+        target.innerHTML = "";
         block = document.createElement("div");
         block.className = "chapter-block";
         block.dataset.sig = sig;
         chapters.forEach(function (ch) {
           block.appendChild(renderChapterOverview(ch));
         });
-        thread.appendChild(block);
+        target.appendChild(block);
         tail = document.createElement("div");
         tail.className = "thread-tail";
-        thread.appendChild(tail);
+        target.appendChild(tail);
         appendMessageList(tail, messagesOutsideChapters());
         heldOpen = prevOpen;
       } else if (!syncMessageList(tail, messagesOutsideChapters())) {
@@ -5538,8 +5549,8 @@
       return;
     }
 
-    if (thread.querySelector(".chapter-block, .thread-tail")) thread.innerHTML = "";
-    if (!syncMessageList(thread, messages)) fillMessageList(thread, messages);
+    if (target.querySelector(".chapter-block, .thread-tail")) target.innerHTML = "";
+    if (!syncMessageList(target, messages)) fillMessageList(target, messages);
   }
 
   function appendLive(text) {

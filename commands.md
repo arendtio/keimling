@@ -68,7 +68,7 @@ cd src && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
 | `make vet` | `go vet -tags nogui` |
 | `make test` | `go test -tags nogui ./...` |
 | `make check` | `fmt` + `vet` + `test` |
-| `node --test src/webui/tests/transcript-scroll.test.js` | Embedded UI transcript-follow regression tests (requires Node.js) |
+| `node --test src/webui/tests/*.test.js` | Embedded UI transcript and session regression tests (requires Node.js) |
 
 ## Run
 
