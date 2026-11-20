@@ -22,6 +22,7 @@ func (s *appServer) handleModelCatalog(w http.ResponseWriter, r *http.Request) {
 		BaseURL    string `json:"base_url"`
 		APIKey     string `json:"api_key"`
 		ProviderID string `json:"provider_id"`
+		Kind       string `json:"kind"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -39,17 +40,19 @@ func (s *appServer) handleModelCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	key := strings.TrimSpace(body.APIKey)
 	providerID := strings.TrimSpace(body.ProviderID)
-	kind := "auto"
+	kind := strings.TrimSpace(body.Kind)
 	if key == "" && providerID != "" {
 		providers, _ := s.loadModelProvidersForSettings()
 		if p := modelProviderByID(providers, providerID); p != nil {
 			key = strings.TrimSpace(p.APIKey)
-			kind = p.Kind
+			if kind == "" {
+				kind = p.Kind
+			}
 		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	models, err := fetchProviderModelCatalog(ctx, resolved, key)
+	models, err := fetchProviderModelCatalog(ctx, resolved, key, kind)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -114,7 +117,7 @@ func (s *appServer) budgetSnapshot(ctx context.Context, refresh bool) map[string
 	if key == "" && s.agent != nil {
 		key = strings.TrimSpace(s.agent.Cfg.Key)
 	}
-	info := fetchProviderBudget(ctx, kind, p.BaseURL, key)
+	info := fetchProviderBudget(ctx, kind, p.BaseURL, key, p.ManagementKey)
 	if info.Supported && info.Error == "" {
 		s.budgetCache.put(cacheKey, info)
 	}

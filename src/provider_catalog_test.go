@@ -26,6 +26,67 @@ func TestParseModelCatalogOpenRouterShape(t *testing.T) {
 	}
 }
 
+func TestParseModelCatalogNumericPrice(t *testing.T) {
+	raw := []byte(`{"data":[{"id":"n","context_length":128000,"pricing":{"prompt":0.000001,"completion":0.000002}}]}`)
+	got, err := parseModelCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "n" || got[0].ContextLimit != 128000 {
+		t.Fatalf("%#v", got)
+	}
+	pin, ok := parseUSDPerToken(got[0].PromptPrice)
+	if !ok || pin != 0.000001 {
+		t.Fatalf("prompt %q", got[0].PromptPrice)
+	}
+}
+
+func TestLiteLLMCatalogUsesModelInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Fatalf("auth %q", r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"vision-model"}]}`))
+		case "/model/info":
+			_, _ = w.Write([]byte(`{"data":[{"model_name":"vision-model","model_info":{"max_input_tokens":128000,"input_cost_per_token":0.000002,"output_cost_per_token":0.000008,"supports_vision":true}}]}`))
+		default:
+			t.Fatalf("path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	got, err := fetchProviderModelCatalog(context.Background(), srv.URL+"/v1", "tok", "litellm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].SeesImages || got[0].ContextLimit != 128000 {
+		t.Fatalf("%#v", got)
+	}
+	pin, ok := parseUSDPerToken(got[0].PromptPrice)
+	if !ok || pin != 0.000002 {
+		t.Fatalf("prompt %q", got[0].PromptPrice)
+	}
+}
+
+func TestLiteLLMCatalogKeepsNamesWhenInfoIsForbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model/info" {
+			http.Error(w, "no", http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"plain"}]}`))
+	}))
+	defer srv.Close()
+	got, err := fetchProviderModelCatalog(context.Background(), srv.URL+"/v1", "tok", "litellm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "plain" || got[0].SeesImages || got[0].ContextLimit != 0 {
+		t.Fatalf("%#v", got)
+	}
+}
+
 func TestFetchProviderModelCatalog(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -37,7 +98,7 @@ func TestFetchProviderModelCatalog(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"m1","context_window":8192}]}`))
 	}))
 	defer srv.Close()
-	models, err := fetchProviderModelCatalog(context.Background(), srv.URL+"/v1", "tok")
+	models, err := fetchProviderModelCatalog(context.Background(), srv.URL+"/v1", "tok", "")
 	if err != nil {
 		t.Fatal(err)
 	}

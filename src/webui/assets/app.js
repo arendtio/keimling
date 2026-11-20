@@ -314,6 +314,9 @@
   var provEditBaseURL = document.getElementById("prov-edit-base-url");
   var provEditKind = document.getElementById("prov-edit-kind");
   var provEditAPIKey = document.getElementById("prov-edit-api-key");
+  var provEditManagement = document.getElementById("prov-edit-management-key");
+  var provEditManagementLabel = document.getElementById("prov-edit-management-label");
+  var provEditManagementHint = document.getElementById("prov-edit-management-hint");
   var provEditCancel = document.getElementById("prov-edit-cancel");
   var provEditSave = document.getElementById("prov-edit-save");
   var provEditDelete = document.getElementById("prov-edit-delete");
@@ -1757,8 +1760,8 @@
     if (provModelName) provModelName.value = m.name || "";
     if (provModelContext) provModelContext.value = m.context_limit ? String(m.context_limit) : "";
     if (provModelReasoning) provModelReasoning.value = m.reasoning || "";
-    if (provModelPromptPrice) provModelPromptPrice.value = m.prompt_price || "";
-    if (provModelCompletionPrice) provModelCompletionPrice.value = m.completion_price || "";
+    if (provModelPromptPrice) provModelPromptPrice.value = usdPerMillionFromToken(m.prompt_price);
+    if (provModelCompletionPrice) provModelCompletionPrice.value = usdPerMillionFromToken(m.completion_price);
     setModelSenses(m);
   }
 
@@ -1861,13 +1864,20 @@
       gateErr.textContent = "Invalid context limit";
       return;
     }
+    var promptPrice = usdPerTokenFromMillion(provModelPromptPrice ? provModelPromptPrice.value : "");
+    var completionPrice = usdPerTokenFromMillion(provModelCompletionPrice ? provModelCompletionPrice.value : "");
+    if (promptPrice == null || completionPrice == null) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Enter the price in USD per million tokens";
+      return;
+    }
     var row = {
       id: id,
       name: provModelName ? provModelName.value.trim() : "",
       context_limit: ctx || 0,
       reasoning: provModelReasoning ? provModelReasoning.value : "",
-      prompt_price: provModelPromptPrice ? provModelPromptPrice.value.trim() : "",
-      completion_price: provModelCompletionPrice ? provModelCompletionPrice.value.trim() : "",
+      prompt_price: promptPrice,
+      completion_price: completionPrice,
     };
     if (provModelImagesLabel && !provModelImagesLabel.hidden) {
       row.sees_images = true;
@@ -1913,8 +1923,8 @@
     if (provModelID) provModelID.value = entry.id || "";
     if (provModelName && entry.name) provModelName.value = entry.name;
     if (provModelContext && entry.context_limit) provModelContext.value = String(entry.context_limit);
-    if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = entry.prompt_price;
-    if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = entry.completion_price;
+    if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = usdPerMillionFromToken(entry.prompt_price);
+    if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = usdPerMillionFromToken(entry.completion_price);
     setModelSenses(entry.sees_images || entry.hears_audio ? {
       sees_images: !!entry.sees_images,
       hears_audio: !!entry.hears_audio,
@@ -1957,7 +1967,7 @@
       if (provCatalogStatus) provCatalogStatus.textContent = "Base URL required";
       return;
     }
-    var body = { base_url: base };
+    var body = { base_url: base, kind: provEditKind ? provEditKind.value : "auto" };
     var key = provEditAPIKey ? provEditAPIKey.value.trim() : "";
     if (key) body.api_key = key;
     if (editingProviderID) body.provider_id = editingProviderID;
@@ -1992,6 +2002,17 @@
           provCatalogStatus.textContent = String(e);
         }
       });
+  }
+
+  function providerWantsManagementKey() {
+    var kind = provEditKind ? provEditKind.value : "auto";
+    var base = ((provEditBaseURL && provEditBaseURL.value) || "").toLowerCase();
+    return kind === "openrouter" || (kind === "auto" && base.indexOf("openrouter") >= 0);
+  }
+  function syncManagementKeyField() {
+    var show = providerWantsManagementKey();
+    if (provEditManagementLabel) provEditManagementLabel.hidden = !show;
+    if (provEditManagementHint) provEditManagementHint.hidden = !show;
   }
 
   function openProviderEditor(p) {
@@ -2032,6 +2053,11 @@
       provEditAPIKey.value = "";
       provEditAPIKey.placeholder = p && p.api_key_set ? "Set — leave blank to keep" : "API key";
     }
+    if (provEditManagement) {
+      provEditManagement.value = "";
+      provEditManagement.placeholder = p && p.management_key_set ? "Set — leave blank to keep" : "Management key";
+    }
+    syncManagementKeyField();
     if (apiKeyHint) {
       apiKeyHint.textContent = p && p.api_key_set
         ? "Key is set. Leave blank to keep it, or paste a new key."
@@ -2059,6 +2085,7 @@
     var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
     var kind = provEditKind ? provEditKind.value : "auto";
     var key = provEditAPIKey ? provEditAPIKey.value.trim() : "";
+    var management = provEditManagement ? provEditManagement.value.trim() : "";
     if (!base) {
       gateErr.hidden = false;
       gateErr.textContent = "Base URL required";
@@ -2089,6 +2116,8 @@
       row.id = "provider-" + Date.now();
       if (key) { row.api_key = key; row.api_key_set = true; }
       else { row.api_key_set = false; }
+      if (management) { row.management_key = management; row.management_key_set = true; }
+      else { row.management_key_set = false; }
       providersCache.push(row);
       activeProviderID = row.id;
     } else {
@@ -2096,8 +2125,11 @@
         if (providersCache[j].id === editingProviderID) {
           row.id = editingProviderID;
           row.api_key_set = providersCache[j].api_key_set;
+          row.management_key_set = providersCache[j].management_key_set;
           if (key) { row.api_key = key; row.api_key_set = true; }
           else if (providersCache[j].api_key) row.api_key = providersCache[j].api_key;
+          if (management) { row.management_key = management; row.management_key_set = true; }
+          else if (providersCache[j].management_key) row.management_key = providersCache[j].management_key;
           providersCache[j] = row;
           break;
         }
@@ -5773,6 +5805,23 @@
     paintTranscript();
   }
 
+  function usdPerMillionFromToken(s) {
+    s = String(s || "").trim();
+    if (!s) return "";
+    var n = Number(s);
+    if (!isFinite(n) || n < 0) return "";
+    var m = Math.round(n * 1e6 * 1e8) / 1e8;
+    return String(m);
+  }
+  function usdPerTokenFromMillion(s) {
+    s = String(s || "").trim();
+    if (!s) return "";
+    var n = Number(s);
+    if (!isFinite(n) || n < 0) return null;
+    var out = (n / 1e6).toFixed(12).replace(/0+$/, "").replace(/\.$/, "");
+    return out === "" ? "0" : out;
+  }
+
   function formatUSD(n) {
     if (n == null || !isFinite(n)) return null;
     if (Math.abs(n) >= 1) return "$" + n.toFixed(2);
@@ -5794,19 +5843,24 @@
     if (prov.supported) {
       if (prov.error) {
         parts.push("key budget ?");
-      } else if (prov.remaining_usd != null) {
-        // OpenRouter: limit_remaining = remaining per-key cap, not account credits.
-        var kind = prov.kind || "";
-        parts.push((kind === "openrouter" ? "key left " : "left ") + formatUSD(prov.remaining_usd));
+      } else {
+        if (prov.account_remaining_usd != null) parts.push("account " + formatUSD(prov.account_remaining_usd));
+        else if (prov.account_error) parts.push("account ?");
+        if (prov.remaining_usd != null) {
+          var kind = prov.kind || "";
+          parts.push((kind === "openrouter" ? "key left " : "left ") + formatUSD(prov.remaining_usd));
+        }
       }
     }
     budgetLineEl.textContent = parts.length ? parts.join(" · ") : "—";
     var tip = [];
     if (sess.priced && sess.estimate_usd != null) tip.push("Session estimate from token usage × model prices");
     if (prov.supported && prov.error) tip.push(prov.error);
+    if (prov.account_remaining_usd != null) tip.push("OpenRouter account credits minus usage");
+    if (prov.account_error) tip.push(prov.account_error);
     if (prov.supported && !prov.error && prov.remaining_usd != null) {
       tip.push(prov.kind === "openrouter"
-        ? "OpenRouter key limit_remaining (per-key cap), not account credit balance"
+        ? "OpenRouter key limit remaining"
         : "Key budget minus spend");
     }
     tip.push("Click to refresh");
@@ -6422,6 +6476,7 @@
         loadThreads();
         loadAgents();
         startAgentsPoll();
+        watchMcpScripts();
         msg.focus();
       })
       .catch(function (e) {
@@ -6496,6 +6551,8 @@
   });
   if (provEditCancel) provEditCancel.addEventListener("click", closeProviderEditor);
   if (provEditSave) provEditSave.addEventListener("click", saveProviderEditor);
+  if (provEditKind) provEditKind.addEventListener("change", syncManagementKeyField);
+  if (provEditBaseURL) provEditBaseURL.addEventListener("input", syncManagementKeyField);
   if (provEditDelete) provEditDelete.addEventListener("click", deleteProviderEditor);
   if (provModelNew) provModelNew.addEventListener("click", openModelFormAdd);
   if (provModelSave) provModelSave.addEventListener("click", saveEditorModel);
@@ -7370,11 +7427,13 @@
     if (!remote && mcpAuth) mcpAuth.value = "none";
     syncMcpAuthUI();
   }
-  function mcpSignIn(name, url) {
+  function mcpSignIn(name, url, before) {
+    var payload = { name: name, url: url, origin: location.origin };
+    if (before) payload.before = before;
     return fetch(apiURL("/api/mcp/sign-in"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ name: name, url: url, origin: location.origin }),
+      body: JSON.stringify(payload),
     }).then(function (r) {
       return r.text().then(function (t) {
         if (!r.ok) throw new Error(t || r.status);
@@ -7513,6 +7572,8 @@
     if (title) title.textContent = s.name || "Details";
     var note = mcpServerNote(s);
     if (meta) meta.textContent = (s.transport || "") + " · " + (s.status || "") + note.from + (note.errText ? " — " + note.errText : "");
+    var before = document.getElementById("mcp-before");
+    if (before && document.activeElement !== before) before.value = s.before || "";
     list.innerHTML = "";
     var names = mcpToolNames(s);
     if (!names.length) {
@@ -7676,6 +7737,63 @@
     }
     box.hidden = false;
   }
+  function saveMcpStart() {
+    var input = document.getElementById("mcp-start");
+    var save = document.getElementById("mcp-start-save");
+    var command = input ? input.value.trim() : "";
+    if (save) save.disabled = true;
+    showMcpErr("");
+    watchMcpScripts();
+    fetch(apiURL("/api/mcp/start"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ command: command }),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+        return j;
+      });
+    }).then(function (j) {
+      renderMcpServers(j.servers || []);
+      if (j.error) showMcpErr(j.error);
+    }).catch(function (e) {
+      showMcpErr(e.message || e);
+    }).finally(function () {
+      if (save) save.disabled = false;
+    });
+  }
+  function saveMcpBefore() {
+    var name = mcpToolName;
+    if (!name) return;
+    var input = document.getElementById("mcp-before");
+    var save = document.getElementById("mcp-before-save");
+    var command = input ? input.value.trim() : "";
+    if (save) save.disabled = true;
+    showMcpErr("");
+    watchMcpScripts();
+    fetch(apiURL("/api/mcp/before"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: name, command: command }),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+        return j;
+      });
+    }).then(function (j) {
+      renderMcpServers(j.servers || []);
+      var fresh = mcpServerByName(name);
+      if (fresh && input && document.activeElement !== input) input.value = fresh.before || "";
+    }).catch(function (e) {
+      showMcpErr(e.message || e);
+    }).finally(function () {
+      if (save) save.disabled = false;
+    });
+  }
   function saveMcpEdit() {
     var name = mcpToolName;
     if (!name) return;
@@ -7702,6 +7820,7 @@
     var save = document.getElementById("mcp-edit-save");
     if (save) save.disabled = true;
     showMcpErr("");
+    watchMcpScripts();
     fetch(apiURL("/api/mcp/add"), {
       method: "POST",
       headers: headers(),
@@ -7820,7 +7939,81 @@
       })
       .then(function (j) {
         mcpServersCache = j.servers || [];
+        var start = document.getElementById("mcp-start");
+        if (start && document.activeElement !== start && j.start != null) start.value = j.start;
         renderMcpServers(mcpServersCache);
+        applyMcpScriptBanner(j);
+      });
+  }
+  function applyMcpScriptBanner(j) {
+    var box = document.getElementById("mcp-script-banner");
+    var text = document.getElementById("mcp-script-banner-text");
+    var retry = document.getElementById("mcp-script-reload");
+    if (!box || !text) return;
+    var script = j && j.script;
+    var message = script && script.message ? String(script.message) : "";
+    var failed = !!(script && script.state === "failed" && message);
+    if (!message) {
+      box.hidden = true;
+      text.textContent = "";
+      if (retry) retry.hidden = true;
+      return;
+    }
+    if (text.textContent !== message) text.textContent = message;
+    box.hidden = false;
+    box.classList.toggle("failed", failed);
+    box.classList.toggle("running", !failed);
+    if (retry) retry.hidden = !failed;
+  }
+  function pullMcpScriptBanner() {
+    return fetch(apiURL("/api/mcp"), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) { applyMcpScriptBanner(j); return j; });
+  }
+  var mcpScriptTimer = 0;
+  function watchMcpScripts() {
+    if (mcpScriptTimer) clearTimeout(mcpScriptTimer);
+    var ticks = 0;
+    function step() {
+      if (!connected) { mcpScriptTimer = 0; return; }
+      pullMcpScriptBanner().then(function () {
+        ticks++;
+        var box = document.getElementById("mcp-script-banner");
+        var running = box && !box.hidden && box.classList.contains("running");
+        var visible = box && !box.hidden;
+        if (running || visible || ticks < 6) mcpScriptTimer = setTimeout(step, running ? 2000 : 5000);
+        else mcpScriptTimer = 0;
+      }).catch(function () {
+        ticks++;
+        if (ticks < 6) mcpScriptTimer = setTimeout(step, 2000);
+        else mcpScriptTimer = 0;
+      });
+    }
+    step();
+  }
+  function reloadAllMcp() {
+    watchMcpScripts();
+    showMcpErr("");
+    if (mcpReloadBtn) mcpReloadBtn.disabled = true;
+    var retry = document.getElementById("mcp-script-reload");
+    if (retry) retry.disabled = true;
+    return fetch(apiURL("/api/mcp/reload"), { method: "POST", headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || r.status);
+          return j;
+        });
+      })
+      .then(function (j) { renderMcpServers(j.servers || []); return pullMcpScriptBanner(); })
+      .catch(function (e) { showMcpErr(e.message || e); })
+      .finally(function () {
+        if (mcpReloadBtn) mcpReloadBtn.disabled = false;
+        if (retry) retry.disabled = false;
       });
   }
   function openMcpSettings() {
@@ -7830,9 +8023,18 @@
   }
   var mcpEditSave = document.getElementById("mcp-edit-save");
   if (mcpEditSave) mcpEditSave.addEventListener("click", saveMcpEdit);
+  var mcpStartSave = document.getElementById("mcp-start-save");
+  if (mcpStartSave) mcpStartSave.addEventListener("click", saveMcpStart);
+  var mcpBeforeSave = document.getElementById("mcp-before-save");
+  if (mcpBeforeSave) mcpBeforeSave.addEventListener("click", saveMcpBefore);
   var mcpToolForm = document.getElementById("mcp-tool-form");
   if (mcpToolForm) mcpToolForm.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" || !e.target || e.target.tagName !== "INPUT") return;
+    if (e.target.id === "mcp-before") {
+      e.preventDefault();
+      saveMcpBefore();
+      return;
+    }
     if (String(e.target.id || "").indexOf("mcp-edit-") !== 0) return;
     e.preventDefault();
     saveMcpEdit();
@@ -8197,22 +8399,9 @@
   if (mcpHeaderAdd) mcpHeaderAdd.addEventListener("click", function () { mcpAddPair(mcpHeaderList, "Header", "value"); });
   mcpAddPair(mcpEnvList, "NAME", "value");
   mcpAddPair(mcpHeaderList, "Header", "value");
-  if (mcpReloadBtn) {
-    mcpReloadBtn.addEventListener("click", function () {
-      showMcpErr("");
-      mcpReloadBtn.disabled = true;
-      fetch(apiURL("/api/mcp/reload"), { method: "POST", headers: headers() })
-        .then(function (r) {
-          return r.json().then(function (j) {
-            if (!r.ok) throw new Error((j && j.error) || r.status);
-            return j;
-          });
-        })
-        .then(function (j) { renderMcpServers(j.servers || []); })
-        .catch(function (e) { showMcpErr(e.message || e); })
-        .finally(function () { mcpReloadBtn.disabled = false; });
-    });
-  }
+  if (mcpReloadBtn) mcpReloadBtn.addEventListener("click", reloadAllMcp);
+  var mcpScriptReload = document.getElementById("mcp-script-reload");
+  if (mcpScriptReload) mcpScriptReload.addEventListener("click", reloadAllMcp);
   if (mcpAddBtn) {
     mcpAddBtn.addEventListener("click", function () {
       showMcpErr("");
@@ -8223,6 +8412,8 @@
       }
       var kind = (mcpKind && mcpKind.value) || "stdio";
       var body = { name: name };
+      var beforeAdd = document.getElementById("mcp-before-add");
+      if (beforeAdd && beforeAdd.value.trim()) body.before = beforeAdd.value.trim();
       if (kind === "stdio") {
         var line = (mcpCommand && mcpCommand.value || "").trim();
         if (!line) {
@@ -8245,10 +8436,11 @@
         body.auth = auth;
         if (auth === "oauth") {
           mcpAddBtn.disabled = true;
-          mcpSignIn(name, url).then(function () {
+          mcpSignIn(name, url, body.before).then(function () {
             if (mcpName) mcpName.value = "";
             if (mcpUrl) mcpUrl.value = "";
             if (mcpToken) mcpToken.value = "";
+            if (beforeAdd) beforeAdd.value = "";
           }).catch(function (e) { showMcpErr(e.message || e); })
             .finally(function () { mcpAddBtn.disabled = false; });
           return;
@@ -8260,6 +8452,7 @@
         if (auth === "headers") body.headers = mcpReadPairs(mcpHeaderList);
       }
       mcpAddBtn.disabled = true;
+      watchMcpScripts();
       fetch(apiURL("/api/mcp/add"), {
         method: "POST",
         headers: headers(),
@@ -8285,6 +8478,7 @@
           if (mcpCwd) mcpCwd.value = "";
           if (mcpUrl) mcpUrl.value = "";
           if (mcpToken) mcpToken.value = "";
+          if (beforeAdd) beforeAdd.value = "";
         })
         .catch(function (e) { showMcpErr(e.message || e); })
         .finally(function () { mcpAddBtn.disabled = false; });

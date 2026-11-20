@@ -421,7 +421,7 @@ func TestKeepUserMCPFieldsLeavesEnv(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	next := keepUserMCPFields("demo", MCPServerConfig{Command: "echo", Args: []string{"x"}, Cwd: "/srv"}, false, false)
+	next := keepUserMCPFields("demo", MCPServerConfig{Command: "echo", Args: []string{"x"}, Cwd: "/srv"}, false, false, false)
 	if next.Env["TOKEN"] != "secret" || next.Cwd != "/srv" || len(next.Args) != 1 {
 		t.Fatalf("%#v", next)
 	}

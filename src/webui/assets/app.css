@@ -1082,6 +1082,34 @@ button.wide { width: 100%; max-width: 100%; }
   align-items: flex-start;
   position: relative;
 }
+.mcp-script-banner[hidden] { display: none; }
+.mcp-script-banner {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 18%, var(--panel));
+  color: var(--danger);
+}
+.mcp-script-banner p {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+.mcp-script-banner button {
+  flex: none;
+  color: inherit;
+  border-color: currentColor;
+  font-weight: 700;
+}
 .chapters-flyout,
 .paper-menu {
   position: absolute;

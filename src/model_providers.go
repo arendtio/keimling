@@ -6,10 +6,12 @@ import (
 
 // modelProvider is a saved LLM endpoint profile in config.json.
 type modelProvider struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	BaseURL       string          `json:"base_url"`
-	APIKey        string          `json:"api_key,omitempty"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+	// ManagementKey reads the account total. It is not sent with chat calls.
+	ManagementKey string          `json:"management_key,omitempty"`
 	Kind          string          `json:"kind,omitempty"` // auto|openai|openrouter|litellm|local
 	Models        []providerModel `json:"models,omitempty"`
 	ActiveModelID string          `json:"active_model_id,omitempty"`
@@ -171,16 +173,17 @@ func publicModelProviders(list []modelProvider) []map[string]any {
 			models = append(models, row)
 		}
 		out = append(out, map[string]any{
-			"id":              p.ID,
-			"name":            p.Name,
-			"base_url":        p.BaseURL,
-			"kind":            p.Kind,
-			"resolved_kind":   detectProviderKind(p.BaseURL, p.Kind),
-			"model":           p.Model,
-			"reasoning":       p.Reasoning,
-			"active_model_id": p.ActiveModelID,
-			"models":          models,
-			"api_key_set":     strings.TrimSpace(p.APIKey) != "",
+			"id":                 p.ID,
+			"name":               p.Name,
+			"base_url":           p.BaseURL,
+			"kind":               p.Kind,
+			"resolved_kind":      detectProviderKind(p.BaseURL, p.Kind),
+			"model":              p.Model,
+			"reasoning":          p.Reasoning,
+			"active_model_id":    p.ActiveModelID,
+			"models":             models,
+			"api_key_set":        strings.TrimSpace(p.APIKey) != "",
+			"management_key_set": strings.TrimSpace(p.ManagementKey) != "",
 		})
 	}
 	return out

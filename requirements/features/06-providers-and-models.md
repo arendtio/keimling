@@ -22,7 +22,11 @@ remote catalogs.
 - Prefill: Settings can request upstream `/models` (OpenRouter returns
   `context_length` + pricing; OpenAI-compatible often only ids) and fill the
   edit form — catalogs are not persisted wholesale. The request uses the URL
-  and key in the open provider form. See REQ-PM-5.
+  and key in the open provider form. See REQ-PM-5. LiteLLM also reads
+  `/model/info` with that same key for context, price, and vision. See
+  REQ-PM-8.
+- The form asks for USD per million tokens and stores USD per token. See
+  REQ-PM-9.
 - Compaction/context uses the **active model’s** `context_limit` when set;
   otherwise the global settings fallback.
 
@@ -31,9 +35,9 @@ remote catalogs.
 - **Session spend:** accumulate billed tokens for the process/thread; estimate
   USD when the active model has pricing.
 - **Provider remaining:** optional capability by `kind`:
-  - OpenRouter: `GET {base}/key` → `limit_remaining` (remaining **per-key
-    spending cap**, not account credit balance). Account credits need
-    Management-Key `GET /credits` and are out of scope for the normal API key.
+  - OpenRouter: `GET {base}/key` with the chat key → `limit_remaining`
+    (that key's cap). `GET {base}/credits` with the provider's management
+    key → account credits minus usage. See REQ-PM-7.
   - LiteLLM: `GET {base}/key/info` with the key as the bearer. The key’s `max_budget` minus its `spend` is the remaining amount. `GET /user/info` is the user, not the key.
   - Others: omit remaining.
 - Fetch sparsely: on session load, when status becomes idle, manual refresh;
@@ -102,5 +106,32 @@ remote catalogs.
 - **Origin:** User, 2026-11-03 (quote: "wenn man beispielsweise OpenAI als Provider bei Voice auswählt, dann bietet er die ganz normalen Modelle an" and "das Transcribe-Modell, was wir vorher hatten, das kann man nicht mehr auswählen" and "warum wir es eigentlich als Dropdown implementieren und nicht als Freitextfeld mit 'n Hinweistext").
 - **Rationale:** A provider's saved models are for chat. Transcription uses a different model id, and Keimling does not know which chat models accept audio.
 - **Fit criterion:** With an OpenAI provider whose only saved model is a chat model, and voice model gpt-transcribe, Settings shows gpt-transcribe in a text field and names gpt-transcribe in the hint. Switching the voice provider leaves that text in place.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-7 The account total and the key limit are both visible
+
+- **Statement:** For an OpenRouter provider, Keimling shall show the account remaining amount and, when the chat key has a limit, that key's remaining amount. The account amount shall use a management key stored for that provider. The chat key shall keep calling the models.
+- **Origin:** User, 2026-11-20 (quote: "bei dem Provider Open Router, dort kann ich im Moment meine Budgets nicht richtig sehen" and "dafür 'n anderer Key-Typ notwendig" and "dass ich das Budget in Summe im Blick behalte"). Same day, the user chose both the account total and the key limit when the key has one.
+- **Rationale:** The chat key's own cap is often empty. The number they watch is the account total, and that read needs a different key.
+- **Fit criterion:** With a management key, the chat line shows account credits minus usage. With a chat key that has a limit, the line also shows that limit's remainder. The management key is not sent on a model call. Leaving the management key field blank keeps the stored key. A provider that is not OpenRouter has no management key field.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-8 Prefill fills context, price, and senses when the catalog reports them
+
+- **Statement:** When a provider catalog reports a context length, a prompt price, a completion price, or image or audio input, prefill shall put those into the model form. A field the catalog does not report shall stay as the form already has it. For a LiteLLM provider, that richer info shall be read with the same key as the model list.
+- **Origin:** User, 2026-11-20 (quote: "Modelle habe, die eigentlich Vision Capability haben … über den Light LLM Proxy mit Keimling aber anscheinend nicht erkannt" and "wenn wir Modelle abrufen … nicht die Kontextlänge und die Kosten unbedingt mit abruft"). Same day, the user said to use the normal key for LiteLLM when that key can read the info.
+- **Rationale:** The model id is only half of the form. Context, price, and seeing are what they otherwise look up by hand, and other clients already get them from the proxy.
+- **Fit criterion:** An OpenRouter catalog entry with context, prices, and image input fills those form fields. A LiteLLM model list that only has ids, plus model info that reports vision, context, and prices, fills those fields from the same key. When model info is refused, the ids still load and vision stays off. A catalog entry without a price leaves the price field unchanged.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-9 Prices are entered per million tokens
+
+- **Statement:** The model form shall ask for USD per million tokens. A price already saved as USD per token shall stay valid and shall appear in the form as USD per million. Saving shall keep storing USD per token. A blank price shall stay blank.
+- **Origin:** User, 2026-11-20 (quote: "ich die immer in Kosten per Token angeben muss. Die meisten haben aber immer Kosten per Million Token ausgewiesen" and "alles, wo ich das jetzt schon mal in irgendwelchen Config-Dateien hinterlegt hab, das auch … weiter valide bleibt" and "im Formular in Zukunft eben … Dollar per Million Token").
+- **Rationale:** Vendors publish a dollar or three per million. Typing six leading zeros is where the number goes wrong.
+- **Fit criterion:** A stored prompt price of 0.000002 is shown as 2. Saving 3 stores 0.000003. Opening the form and leaving it does not rewrite the config. An empty price stays empty.
 - **Priority:** shall
 - **Status:** confirmed

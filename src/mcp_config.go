@@ -23,6 +23,8 @@ type MCPServerConfig struct {
 	AllowTools []string `json:"allow_tools,omitempty"`
 	// Cwd is the stdio working directory. Empty keeps the process working directory.
 	Cwd string `json:"cwd,omitempty"`
+	// Before is a shell command run before this server connects. It must exit.
+	Before string `json:"before,omitempty"`
 }
 
 // MCPOAuth is the browser sign-in result for one remote MCP server.
@@ -228,6 +230,7 @@ func loadMCPServers(configPath string) (map[string]MCPServerConfig, map[string]s
 		put(name, "plugin", labels[name], cfg)
 	}
 	applyPluginAllow(configs, sources)
+	applyMCPBefore(configs, sources)
 	return configs, sources, names
 }
 
@@ -330,7 +333,7 @@ func UpsertUserMCPServer(name string, cfg MCPServerConfig) error {
 
 // keepUserMCPFields copies secrets the edit form does not send. replaceEnv and
 // replaceHeaders mean the request included those maps and they should win.
-func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHeaders bool) MCPServerConfig {
+func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHeaders, replaceBefore bool) MCPServerConfig {
 	path := defaultUserMCPPath()
 	if path == "" {
 		return cfg
@@ -351,6 +354,9 @@ func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHead
 	}
 	if cfg.OAuth == nil {
 		cfg.OAuth = old.OAuth
+	}
+	if !replaceBefore {
+		cfg.Before = old.Before
 	}
 	return cfg
 }

@@ -120,6 +120,7 @@ type fileConfig struct {
 	AccessSecret          string                     `json:"access_secret"`
 	PublicURL             string                     `json:"public_url"`
 	MCPServers            map[string]MCPServerConfig `json:"mcpServers,omitempty"`
+	MCPStart              string                     `json:"mcp_start,omitempty"`
 	ModelProviders        []modelProvider            `json:"model_providers,omitempty"`
 	ActiveModelProviderID string                     `json:"active_model_provider_id,omitempty"`
 	Skills                skillPrefsConfig           `json:"skills,omitempty"`
@@ -607,7 +608,13 @@ func main() {
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	a.SessionCtx = sessionCtx
 	defer sessionCancel()
-	a.reloadMCP(sessionCtx)
+	// A start script can wait on a sign-in. A oneshot needs the servers first.
+	// Every other mode serves the UI while the script is still running.
+	if *oneshot {
+		a.reloadMCP(sessionCtx)
+	} else {
+		go a.reloadMCP(sessionCtx)
+	}
 	defer a.MCP.Close()
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(c.SessionPath)
 	if *disableExternal {

@@ -38,6 +38,7 @@ type MCPServerStatus struct {
 	Disabled   bool     `json:"disabled,omitempty"`
 	Grant      string   `json:"grant,omitempty"`
 	Auth       string   `json:"auth,omitempty"`
+	Before     string   `json:"before,omitempty"`
 	OAuth      string   `json:"oauth,omitempty"`
 	Source     string   `json:"source,omitempty"`      // user, config, project, cursor, plugin
 	SourceName string   `json:"source_name,omitempty"` // plugin name when Source is plugin
@@ -67,6 +68,17 @@ type MCPManager struct {
 	// refresh token is not presented twice.
 	oauthMu    sync.Mutex
 	oauthLocks map[string]*sync.Mutex
+	// startMu guards the process start script. A success is reused until
+	// Reload asks for it again or the command changes.
+	startMu  sync.Mutex
+	startCmd string
+	startRan string
+	startOK  bool
+	// scriptRunning is set while a start or before script is inside its
+	// command, so the UI can say the servers are not connected yet.
+	scriptRunning bool
+	scriptKind    string
+	scriptServer  string
 }
 
 // mcpLogLimit is the newest process output and connection errors kept per server.
@@ -128,7 +140,7 @@ func (m *MCPManager) Close() {
 
 func (m *MCPManager) Reload(ctx context.Context, configs map[string]MCPServerConfig) {
 	m.Close()
-	m.ConnectAll(ctx, configs)
+	m.connectAll(ctx, configs, true)
 }
 
 // ReconnectOne replaces a single server session. The others stay connected.
@@ -144,6 +156,13 @@ func (m *MCPManager) ReconnectOne(ctx context.Context, name string, cfg MCPServe
 	}
 	delete(m.sessions, name)
 	m.mu.Unlock()
+	if !cfg.Disabled {
+		if err := m.runStart(ctx, false); err != nil {
+			m.noteBlocked(name, cfg, err)
+			m.rebuildIndex()
+			return
+		}
+	}
 	m.connectOne(ctx, name, cfg)
 	m.rebuildIndex()
 }
@@ -186,18 +205,39 @@ func (m *MCPManager) Log(name string) string {
 }
 
 func (m *MCPManager) ConnectAll(ctx context.Context, configs map[string]MCPServerConfig) {
+	m.connectAll(ctx, configs, false)
+}
+
+func (m *MCPManager) connectAll(ctx context.Context, configs map[string]MCPServerConfig, forceStart bool) {
 	if m == nil {
 		return
 	}
+	startErr := m.runStart(ctx, forceStart)
 	names := make([]string, 0, len(configs))
 	for name := range configs {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		m.connectOne(ctx, name, configs[name])
+		cfg := configs[name]
+		if !cfg.Disabled && startErr != nil {
+			m.noteBlocked(name, cfg, startErr)
+			continue
+		}
+		m.connectOne(ctx, name, cfg)
 	}
 	m.rebuildIndex()
+}
+
+func (m *MCPManager) noteBlocked(name string, cfg MCPServerConfig, err error) {
+	sess := &mcpSession{name: name, cfg: cfg, status: "error"}
+	if err != nil {
+		sess.err = err.Error()
+		m.logLine(name, sess.err)
+	}
+	m.mu.Lock()
+	m.sessions[name] = sess
+	m.mu.Unlock()
 }
 
 func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerConfig) {
@@ -222,6 +262,17 @@ func (m *MCPManager) connectOne(ctx context.Context, name string, cfg MCPServerC
 	if err := cfg.validate(); err != nil {
 		fail(err)
 		return
+	}
+	if before := strings.TrimSpace(cfg.Before); before != "" {
+		err := func() error {
+			m.beginScript("before", name)
+			defer m.endScript()
+			return runShellCommand(ctx, before)
+		}()
+		if err != nil {
+			fail(fmt.Errorf("before script failed: %w", err))
+			return
+		}
 	}
 	cfg, err := prepareMCPConnection(ctx, name, cfg)
 	if err != nil {
@@ -463,6 +514,7 @@ func (m *MCPManager) Status() []MCPServerStatus {
 			Args:       append([]string(nil), s.cfg.Args...),
 			Cwd:        s.cfg.Cwd,
 			URL:        s.cfg.URL,
+			Before:     s.cfg.Before,
 			Disabled:   s.cfg.Disabled,
 			Grant:      mcpServerGrantID(name),
 			Auth:       s.cfg.authKind(),
@@ -694,6 +746,7 @@ func (a *Agent) reloadMCP(ctx context.Context) {
 	configs, sources, names := loadMCPServers(a.Cfg.ConfigPath)
 	m := a.ensureMCP()
 	m.setServerSources(sources, names)
+	m.setStartScript(readMCPStart(a.Cfg.ConfigPath))
 	m.Reload(ctx, configs)
 }
 
@@ -706,6 +759,7 @@ func (a *Agent) reconnectMCP(ctx context.Context, name string) {
 	configs, sources, names := loadMCPServers(a.Cfg.ConfigPath)
 	m := a.ensureMCP()
 	m.setServerSources(sources, names)
+	m.setStartScript(readMCPStart(a.Cfg.ConfigPath))
 	cfg, ok := configs[name]
 	if !ok {
 		return

@@ -14,14 +14,16 @@ import (
 const providerBudgetTTL = 90 * time.Second
 
 type providerBudgetInfo struct {
-	Kind         string   `json:"kind"`
-	Supported    bool     `json:"supported"`
-	RemainingUSD *float64 `json:"remaining_usd,omitempty"`
-	LimitUSD     *float64 `json:"limit_usd,omitempty"`
-	UsageUSD     *float64 `json:"usage_usd,omitempty"`
-	FetchedAt    string   `json:"fetched_at,omitempty"`
-	Error        string   `json:"error,omitempty"`
-	CacheHit     bool     `json:"cache_hit,omitempty"`
+	Kind                string   `json:"kind"`
+	Supported           bool     `json:"supported"`
+	RemainingUSD        *float64 `json:"remaining_usd,omitempty"`
+	LimitUSD            *float64 `json:"limit_usd,omitempty"`
+	UsageUSD            *float64 `json:"usage_usd,omitempty"`
+	AccountRemainingUSD *float64 `json:"account_remaining_usd,omitempty"`
+	AccountError        string   `json:"account_error,omitempty"`
+	FetchedAt           string   `json:"fetched_at,omitempty"`
+	Error               string   `json:"error,omitempty"`
+	CacheHit            bool     `json:"cache_hit,omitempty"`
 }
 
 type sessionSpendInfo struct {
@@ -87,7 +89,7 @@ func estimateSessionUSD(inputTokens, outputTokens int64, m *providerModel) (*flo
 	return &usd, true
 }
 
-func fetchProviderBudget(ctx context.Context, kind, baseURL, apiKey string) providerBudgetInfo {
+func fetchProviderBudget(ctx context.Context, kind, baseURL, apiKey, managementKey string) providerBudgetInfo {
 	info := providerBudgetInfo{Kind: kind}
 	switch kind {
 	case "openrouter":
@@ -101,6 +103,14 @@ func fetchProviderBudget(ctx context.Context, kind, baseURL, apiKey string) prov
 		info.LimitUSD = lim
 		info.UsageUSD = usage
 		info.FetchedAt = time.Now().UTC().Format(time.RFC3339)
+		if mk := strings.TrimSpace(managementKey); mk != "" {
+			acct, aerr := fetchOpenRouterAccount(ctx, baseURL, mk)
+			if aerr != nil {
+				info.AccountError = aerr.Error()
+			} else {
+				info.AccountRemainingUSD = acct
+			}
+		}
 		return info
 	case "litellm":
 		info.Supported = true
@@ -161,6 +171,49 @@ func fetchOpenRouterKeyBudget(ctx context.Context, baseURL, apiKey string) (rema
 		return nil, nil, nil, fmt.Errorf("openrouter key parse: %w", err)
 	}
 	return doc.Data.LimitRemaining, doc.Data.Limit, doc.Data.Usage, nil
+}
+
+func fetchOpenRouterAccount(ctx context.Context, baseURL, managementKey string) (*float64, error) {
+	root := providerRootURL(baseURL)
+	if root == "" {
+		root = "https://openrouter.ai"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/v1/credits", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+managementKey)
+	client := &http.Client{Timeout: 12 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("openrouter credits HTTP %d: %s", res.StatusCode, truncate(string(b), 200))
+	}
+	var doc struct {
+		Data struct {
+			TotalCredits *float64 `json:"total_credits"`
+			TotalUsage   *float64 `json:"total_usage"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("openrouter credits parse: %w", err)
+	}
+	if doc.Data.TotalCredits == nil {
+		return nil, fmt.Errorf("openrouter credits missing total_credits")
+	}
+	used := 0.0
+	if doc.Data.TotalUsage != nil {
+		used = *doc.Data.TotalUsage
+	}
+	rem := *doc.Data.TotalCredits - used
+	return &rem, nil
 }
 
 func fetchLiteLLMKeyBudget(ctx context.Context, baseURL, apiKey string) (remaining, limit, usage *float64, err error) {

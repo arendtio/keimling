@@ -151,6 +151,10 @@
             <input id="prov-edit-api-key" type="password" autocomplete="off" placeholder="">
           </label>
           <p id="api-key-hint" class="hint">Leave blank to keep the current key.</p>
+          <label id="prov-edit-management-label" hidden>Management key
+            <input id="prov-edit-management-key" type="password" autocomplete="off">
+          </label>
+          <p id="prov-edit-management-hint" class="hint" hidden>Reads the OpenRouter account total. Chat still uses the API key. Leave blank to keep.</p>
 
           <p class="settings-section-title">Models</p>
           <p class="hint">Favorites for this provider. One is the default (used when this provider is active). Prefill fills fields from the upstream catalog — catalogs are not stored.</p>
@@ -178,11 +182,11 @@
                 <option value="max">max</option>
               </select>
             </label>
-            <label>Prompt price (USD / token)
-              <input id="prov-model-prompt-price" type="text" autocomplete="off" placeholder="0.000002">
+            <label>Prompt price (USD / million tokens)
+              <input id="prov-model-prompt-price" type="text" autocomplete="off" placeholder="2" inputmode="decimal">
             </label>
-            <label>Completion price (USD / token)
-              <input id="prov-model-completion-price" type="text" autocomplete="off" placeholder="0.000008">
+            <label>Completion price (USD / million tokens)
+              <input id="prov-model-completion-price" type="text" autocomplete="off" placeholder="8" inputmode="decimal">
             </label>
             <label id="prov-model-images-label" hidden>
               <input id="prov-model-images" type="checkbox">
@@ -432,6 +436,13 @@
 
       <div id="pane-mcp" class="settings-pane" hidden role="tabpanel">
         <p class="settings-lead">MCP servers for this Keimling install. Details on a server shows its tools, its log, and a reload of that server. Reload all reconnects every server. Tools appear as <code>mcp__server__tool</code>.</p>
+        <label>Start script
+          <input id="mcp-start" type="text" autocomplete="off" spellcheck="false" placeholder="Shell command run before any MCP server">
+        </label>
+        <p class="hint">The command should start what the servers need, then exit. It may run for five minutes. Keimling runs it at startup and when you save or reload all. If it fails, no server connects until a later run succeeds.</p>
+        <div class="skills-row">
+          <button type="button" id="mcp-start-save" class="ghost">Save start script</button>
+        </div>
         <ul id="mcp-list" class="skills-list" aria-label="MCP servers"></ul>
         <div class="skills-row">
           <button type="button" id="mcp-reload-btn" class="ghost" title="Reconnect every MCP server">Reload all</button>
@@ -456,6 +467,9 @@
         </div>
         <div class="skills-row" id="mcp-url-row" hidden>
           <input id="mcp-url" type="text" placeholder="https://…" autocomplete="off">
+        </div>
+        <div class="skills-row">
+          <input id="mcp-before-add" type="text" placeholder="Shell command before this server connects (optional)" autocomplete="off" spellcheck="false">
         </div>
         <div class="skills-row" id="mcp-auth-row" hidden>
           <select id="mcp-auth" aria-label="How the server checks you">
@@ -761,6 +775,11 @@
             <button type="submit" class="ghost" value="close" aria-label="Close">Close</button>
           </header>
           <p id="mcp-tool-meta" class="hint"></p>
+          <div class="skills-row">
+            <input id="mcp-before" type="text" placeholder="Shell command before this server connects" autocomplete="off" spellcheck="false">
+            <button type="button" id="mcp-before-save" class="ghost">Save</button>
+          </div>
+          <p class="hint">Runs before this server connects, then must exit. It may run for five minutes. If it fails, only this server stays disconnected. Reload tries again. A plugin server keeps this here, not in the plugin.</p>
           <div id="mcp-edit" hidden>
             <div class="skills-row" id="mcp-edit-stdio">
               <input id="mcp-edit-command" type="text" placeholder="command and args" autocomplete="off" spellcheck="false">
@@ -859,6 +878,10 @@
             <div id="chapters-flyout" class="chapters-flyout" hidden>
               <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
             </div>
+          </div>
+          <div id="mcp-script-banner" class="mcp-script-banner" hidden>
+            <p id="mcp-script-banner-text" role="status" aria-live="assertive"></p>
+            <button type="button" id="mcp-script-reload" class="ghost" hidden>Reload all</button>
           </div>
           <div class="paper-toolbar-right">
             <button type="button" id="sidebar-toggle" class="ghost" aria-pressed="false" aria-controls="artifact-pane">Sidebar</button>

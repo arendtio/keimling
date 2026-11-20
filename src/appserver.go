@@ -183,6 +183,8 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/mcp", s.requireSecret(http.HandlerFunc(s.handleMCP)))
 	s.mux.Handle("/api/artifact-proxy", s.requireSecret(http.HandlerFunc(s.handleArtifactProxy)))
 	s.mux.Handle("/api/mcp/add", s.requireSecret(http.HandlerFunc(s.handleMCPAdd)))
+	s.mux.Handle("/api/mcp/start", s.requireSecret(http.HandlerFunc(s.handleMCPStart)))
+	s.mux.Handle("/api/mcp/before", s.requireSecret(http.HandlerFunc(s.handleMCPBefore)))
 	s.mux.Handle("/api/mcp/remove", s.requireSecret(http.HandlerFunc(s.handleMCPRemove)))
 	s.mux.Handle("/api/mcp/reload", s.requireSecret(http.HandlerFunc(s.handleMCPReload)))
 	s.mux.Handle("/api/mcp/reload-one", s.requireSecret(http.HandlerFunc(s.handleMCPReloadOne)))
@@ -1297,12 +1299,108 @@ func (s *appServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
-	s.agent.refreshMCPTokens(r.Context())
+	m := s.agent.ensureMCP()
+	// A script holds the connect lock for minutes. Token refresh waits on
+	// that lock, so the header poll would not learn that the script is running.
+	if !m.ScriptBusy() {
+		s.agent.refreshMCPTokens(r.Context())
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"servers": s.agent.ensureMCP().Status(),
+	body := map[string]any{
+		"servers": m.Status(),
 		"path":    defaultUserMCPPath(),
+		"start":   readMCPStart(s.agent.Cfg.ConfigPath),
+	}
+	if state, message := m.ScriptNotice(); state != "" {
+		body["script"] = map[string]string{"state": state, "message": message}
+	}
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func (s *appServer) handleMCPStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Command string `json:"command"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	command := strings.TrimSpace(body.Command)
+	if err := updateConfiguration(s.agent.Cfg.ConfigPath, func(fc *fileConfig) {
+		fc.MCPStart = command
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	m := s.agent.ensureMCP()
+	m.setStartScript(command)
+	w.Header().Set("Content-Type", "application/json")
+	if command != "" {
+		if err := m.runStart(r.Context(), true); err != nil {
+			configs, sources, names := loadMCPServers(s.agent.Cfg.ConfigPath)
+			m.setServerSources(sources, names)
+			m.Close()
+			for name, cfg := range configs {
+				if cfg.Disabled {
+					m.connectOne(r.Context(), name, cfg)
+					continue
+				}
+				m.noteBlocked(name, cfg, err)
+			}
+			m.rebuildIndex()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":      false,
+				"error":   err.Error(),
+				"start":   command,
+				"servers": m.Status(),
+			})
+			return
+		}
+	}
+	configs, sources, names := loadMCPServers(s.agent.Cfg.ConfigPath)
+	m.setServerSources(sources, names)
+	m.Close()
+	m.connectAll(r.Context(), configs, false)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":      true,
+		"start":   command,
+		"servers": m.Status(),
 	})
+}
+
+func (s *appServer) handleMCPBefore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.agent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if err := setMCPBefore(name, body.Command, s.agent.Cfg.ConfigPath); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.agent.reconnectMCP(r.Context(), name)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "servers": s.agent.ensureMCP().Status()})
 }
 
 func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
@@ -1325,6 +1423,7 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Type    string             `json:"type"`
 		Auth    string             `json:"auth"`
 		Cwd     string             `json:"cwd"`
+		Before  *string            `json:"before"`
 		Update  bool               `json:"update"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
@@ -1347,13 +1446,16 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Type:    body.Type,
 		Cwd:     strings.TrimSpace(body.Cwd),
 	}
+	if body.Before != nil {
+		cfg.Before = strings.TrimSpace(*body.Before)
+	}
 	cfg.setBearer(body.Bearer)
 	switch body.Auth {
 	case "none", "bearer", "headers":
 		cfg.OAuth = nil
 	}
 	if body.Update {
-		cfg = keepUserMCPFields(body.Name, cfg, body.Env != nil, body.Headers != nil || strings.TrimSpace(body.Bearer) != "")
+		cfg = keepUserMCPFields(body.Name, cfg, body.Env != nil, body.Headers != nil || strings.TrimSpace(body.Bearer) != "", body.Before != nil)
 	}
 	if err := UpsertUserMCPServer(body.Name, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1438,9 +1540,10 @@ func (s *appServer) handleMCPSignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name   string `json:"name"`
-		URL    string `json:"url"`
-		Origin string `json:"origin"`
+		Name   string  `json:"name"`
+		URL    string  `json:"url"`
+		Origin string  `json:"origin"`
+		Before *string `json:"before"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1454,6 +1557,9 @@ func (s *appServer) handleMCPSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := LoadMCPServerConfigs(s.agent.Cfg.ConfigPath)[name]
 	cfg.URL = rawURL
+	if body.Before != nil {
+		cfg.Before = strings.TrimSpace(*body.Before)
+	}
 	if err := UpsertUserMCPServer(name, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -2336,9 +2442,13 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 		}
 		if prev, ok := byID[p.ID]; ok {
 			p.APIKey = prev.APIKey
+			p.ManagementKey = prev.ManagementKey
 		}
 		if k := strings.TrimSpace(in.APIKey); k != "" {
 			p.APIKey = k
+		}
+		if k := strings.TrimSpace(in.ManagementKey); k != "" {
+			p.ManagementKey = k
 		}
 		if p.ID == "" {
 			p.ID = newModelProviderID()

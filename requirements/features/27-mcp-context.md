@@ -35,3 +35,30 @@
 - **Fit criterion:** Two calls to the same stdio server do not overlap. A call to one stdio server and a call to another may overlap. Both still count toward the limit in REQ-MCP-3.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-MCP-5 A start script runs before any server connects
+
+- **Statement:** Keimling shall run one shell command, chosen in settings, before it connects MCP servers. The command shall run when Keimling starts and when every server is reloaded. When the command fails, no MCP server shall be connected. A later reload shall try the command again.
+- **Origin:** User, 2026-11-20 (quote: "manche MCP-Server, für die muss ich vorher so 'n Proxy aufbauen" and "so was wie 'n Startskript … immer, wenn er startet, er dieses Skript ausführt" and "Die betroffenen Server nicht verbinden, bis das Skript durchläuft"). Same day, the user chose both a start script and a script per server.
+- **Rationale:** Some servers are unreachable until a proxy process is up. The proxy is a shell script the user already has.
+- **Fit criterion:** With a start command that exits non-zero, every enabled MCP server stays disconnected and reports that failure. A command that exits zero is followed by the servers connecting. Reload all runs the command again. A disabled server stays disabled. The command is allowed five minutes and then stopped.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-MCP-6 A server can run a command before it connects
+
+- **Statement:** Each MCP server, including one that comes from a plugin, shall be able to run a shell command before that server connects. When that command fails, that server shall stay disconnected and the others shall still connect. Reloading that server shall try the command again. The command for a plugin server shall not change the plugin's files.
+- **Origin:** User, 2026-11-20 (quote: "bevor ein MCP-Server aus diesem Plugin gestartet wird, muss vorher folgendes Skript ausgeführt werden" and "Das ist normalerweise 'n Shell-Skript"). Same day, the user chose a script per server in addition to the start script, and chose not to connect a server whose script fails.
+- **Rationale:** One proxy belongs to one server. A plugin must stay as it was shipped.
+- **Fit criterion:** A server whose command exits non-zero stays disconnected, and another server whose command exits zero still connects. Saving the command on a plugin server leaves the plugin files unchanged. Reload of that server runs the command again. The command is allowed five minutes and then stopped.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-MCP-7 A script that is still running or has failed stays on the chat header
+
+- **Statement:** While the start script or a per-server script is running, the chat header shall show that it has not finished and that the affected servers are not connected. After the script fails, that warning shall stay until a later run succeeds. A finished successful script shall leave the header quiet.
+- **Origin:** User, 2026-11-20 (quote: "irgendwo anzeigt, dass dieses Skript noch nicht beendet ist. Oder eben auch fehlgeschlagen" and "oben in der Mitte 'ne große Warnung sehr deutlich" and "nichts ärgerlicher, als wenn man denkt, alle MCP-Server laufen normal und dann laufen sie aber gar nicht"). Same day, the user set the script limit at five minutes because a script waits on a sign-in.
+- **Rationale:** The script can wait for a confirmation for minutes. A failure that only appears inside MCP settings looks like the servers are up.
+- **Fit criterion:** While a script command is still running, the header between Chapters and Sidebar says it is still running. After a command exits non-zero, the header names the failure and offers reload. After a command exits zero and the servers are not blocked by a script, the header warning is gone.
+- **Priority:** shall
+- **Status:** confirmed
