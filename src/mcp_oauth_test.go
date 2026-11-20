@@ -1,17 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/mark3labs/mcp-go/server/servertest"
 )
 
 func TestMCPOAuthRedirect(t *testing.T) {
@@ -236,5 +244,170 @@ func TestOAuthRefreshTokenStaysSignedIn(t *testing.T) {
 	}}
 	if got := cfg.oauthState(time.Now()); got != "signed_in" {
 		t.Fatalf("oauth %q", got)
+	}
+}
+
+// mcpAuthProxy returns 401 for tools/call until the bearer is the renewed one.
+func mcpAuthProxy(upstream string, accept string, rejected *atomic.Int32) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.Method == http.MethodPost && bytes.Contains(body, []byte(`"tools/call"`)) && r.Header.Get("Authorization") != accept {
+			rejected.Add(1)
+			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, upstream+r.URL.RequestURI(), bytes.NewReader(body))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		req.Header = r.Header.Clone()
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, vals := range resp.Header {
+			for _, v := range vals {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	})
+}
+
+func TestExpiredAccessTokenRefreshesAndRetries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	var refreshes atomic.Int32
+	var gotScope, gotRefresh string
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		refreshes.Add(1)
+		gotScope = r.Form.Get("scope")
+		gotRefresh = r.Form.Get("refresh_token")
+		_ = json.NewEncoder(w).Encode(mcpTokenSet{AccessToken: "fresh", RefreshToken: "rotated", ExpiresIn: 3600})
+	}))
+	defer tokenSrv.Close()
+
+	mcpSrv := server.NewMCPServer("auth", "1.0.0", server.WithToolCapabilities(true))
+	mcpSrv.AddTool(mcp.NewTool("ping"), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("pong"), nil
+	})
+	upstream := servertest.NewTestStreamableHTTPServer(mcpSrv)
+	defer upstream.Close()
+	var rejected atomic.Int32
+	proxy := httptest.NewServer(mcpAuthProxy(upstream.URL, "Bearer fresh", &rejected))
+	defer proxy.Close()
+
+	cfg := MCPServerConfig{
+		URL: proxy.URL,
+		OAuth: &MCPOAuth{
+			ClientID:     "entra-client",
+			TokenURL:     tokenSrv.URL,
+			RefreshToken: "old-refresh",
+			AccessToken:  "stale",
+			Scope:        "User.Read",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
+	if err := UpsertUserMCPServer("demo", cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := NewMCPManager()
+	defer m.Close()
+	m.ConnectAll(context.Background(), map[string]MCPServerConfig{"demo": cfg})
+	if st := m.Status(); len(st) != 1 || st[0].Status != "connected" {
+		t.Fatalf("connect %+v", st)
+	}
+	name := mcpExposedName("demo", "ping")
+	var wg sync.WaitGroup
+	got := make([]string, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			got[i] = m.Call(context.Background(), name, "")
+		}(i)
+	}
+	wg.Wait()
+	for i, g := range got {
+		if g != "pong" {
+			t.Fatalf("call %d: %q", i, g)
+		}
+	}
+	if refreshes.Load() != 1 {
+		t.Fatalf("refreshes %d", refreshes.Load())
+	}
+	if gotScope != "User.Read" || gotRefresh != "old-refresh" {
+		t.Fatalf("scope %q refresh %q", gotScope, gotRefresh)
+	}
+	if rejected.Load() < 1 {
+		t.Fatal("expected the stale token to be rejected once")
+	}
+	saved := LoadMCPServerConfigs("")["demo"]
+	if saved.OAuth == nil || saved.OAuth.AccessToken != "fresh" || saved.OAuth.RefreshToken != "rotated" {
+		t.Fatalf("saved %#v", saved.OAuth)
+	}
+	if saved.Headers["Authorization"] != "" {
+		t.Fatalf("header stored %v", saved.Headers)
+	}
+}
+
+func TestRejectedRefreshTokenAsksForSignInOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	var refreshes atomic.Int32
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshes.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer tokenSrv.Close()
+
+	mcpSrv := server.NewMCPServer("auth", "1.0.0", server.WithToolCapabilities(true))
+	mcpSrv.AddTool(mcp.NewTool("ping"), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("pong"), nil
+	})
+	upstream := servertest.NewTestStreamableHTTPServer(mcpSrv)
+	defer upstream.Close()
+	var rejected atomic.Int32
+	proxy := httptest.NewServer(mcpAuthProxy(upstream.URL, "Bearer fresh", &rejected))
+	defer proxy.Close()
+
+	cfg := MCPServerConfig{
+		URL: proxy.URL,
+		OAuth: &MCPOAuth{
+			ClientID:     "entra-client",
+			TokenURL:     tokenSrv.URL,
+			RefreshToken: "dead-refresh",
+			AccessToken:  "stale",
+			Scope:        "User.Read",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
+	if err := UpsertUserMCPServer("demo", cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := NewMCPManager()
+	defer m.Close()
+	m.ConnectAll(context.Background(), map[string]MCPServerConfig{"demo": cfg})
+	got := m.Call(context.Background(), mcpExposedName("demo", "ping"), "")
+	if !strings.Contains(got, "sign-in expired") || strings.Contains(got, "pong") {
+		t.Fatalf("call %q", got)
+	}
+	if refreshes.Load() != 1 || rejected.Load() != 1 {
+		t.Fatalf("refreshes %d rejected %d", refreshes.Load(), rejected.Load())
+	}
+	st := m.Status()
+	if len(st) != 1 || !strings.Contains(st[0].Error, "sign-in expired") {
+		t.Fatalf("status %+v", st)
 	}
 }

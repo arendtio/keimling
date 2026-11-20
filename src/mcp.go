@@ -63,6 +63,10 @@ type MCPManager struct {
 	sources     map[string]string
 	sourceNames map[string]string
 	logs        map[string]*mcpLogBuf
+	// oauthMu guards oauthLocks. One refresh per server, so a rotated
+	// refresh token is not presented twice.
+	oauthMu    sync.Mutex
+	oauthLocks map[string]*sync.Mutex
 }
 
 // mcpLogLimit is the newest process output and connection errors kept per server.
@@ -485,19 +489,118 @@ func (m *MCPManager) Call(ctx context.Context, exposedName, argumentsJSON string
 	return display
 }
 
+func mcpAuthRejected(err error) bool {
+	return err != nil && errors.Is(err, transport.ErrAuthorizationRequired)
+}
+
+func (m *MCPManager) oauthLock(name string) *sync.Mutex {
+	m.oauthMu.Lock()
+	defer m.oauthMu.Unlock()
+	if m.oauthLocks == nil {
+		m.oauthLocks = map[string]*sync.Mutex{}
+	}
+	if m.oauthLocks[name] == nil {
+		m.oauthLocks[name] = &sync.Mutex{}
+	}
+	return m.oauthLocks[name]
+}
+
+func (m *MCPManager) sessionSnapshot(name string) (MCPServerConfig, *mcpclient.Client, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s := m.sessions[name]
+	if s == nil {
+		return MCPServerConfig{}, nil, false
+	}
+	return s.cfg, s.client, true
+}
+
+// renewOAuth refreshes one server's access token and reconnects it.
+// rejectedAccess is the bearer the failed call used. A refresh that already
+// replaced that bearer is not run again.
+func (m *MCPManager) renewOAuth(ctx context.Context, name, rejectedAccess string, force bool) error {
+	if m == nil {
+		return fmt.Errorf("sign-in expired")
+	}
+	lock := m.oauthLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	sessCfg, _, _ := m.sessionSnapshot(name)
+	cfg := LoadMCPServerConfigs("")[name]
+	if !oauthCanRefresh(cfg.OAuth) {
+		cfg = sessCfg
+	}
+	if !oauthCanRefresh(cfg.OAuth) {
+		err := fmt.Errorf("sign-in expired")
+		m.noteOAuthFailure(name, rejectedAccess, err.Error())
+		return err
+	}
+	now := time.Now()
+	if rejectedAccess != "" && cfg.OAuth.AccessToken != "" && cfg.OAuth.AccessToken != rejectedAccess && !oauthAccessDue(cfg.OAuth, now) {
+		m.reconnectIfStale(ctx, name, rejectedAccess, cfg)
+		return nil
+	}
+	if !force && !oauthAccessDue(cfg.OAuth, now) {
+		return nil
+	}
+	prepared, err := prepareMCPConnectionMode(ctx, name, cfg, true)
+	if err != nil {
+		m.noteOAuthFailure(name, rejectedAccess, err.Error())
+		return err
+	}
+	m.ReconnectOne(ctx, name, prepared)
+	return nil
+}
+
+func (m *MCPManager) reconnectIfStale(ctx context.Context, name, rejectedAccess string, cfg MCPServerConfig) {
+	currentCfg, client, ok := m.sessionSnapshot(name)
+	current := ""
+	if ok && currentCfg.OAuth != nil {
+		current = currentCfg.OAuth.AccessToken
+	}
+	if !ok || client == nil || current == "" || current == rejectedAccess {
+		m.ReconnectOne(ctx, name, cfg)
+	}
+}
+
+func (m *MCPManager) noteOAuthFailure(name, rejectedAccess, msg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.sessions[name]
+	if s == nil {
+		return
+	}
+	if rejectedAccess != "" && s.cfg.OAuth != nil && s.cfg.OAuth.AccessToken != "" && s.cfg.OAuth.AccessToken != rejectedAccess {
+		return
+	}
+	s.status = "error"
+	s.err = msg
+}
+
 func (m *MCPManager) callStored(ctx context.Context, exposedName, argumentsJSON string) (display, kind string, value any, ok bool) {
 	if m == nil {
 		return "mcp: not configured", "", nil, false
 	}
 	m.mu.RLock()
-	route, ok := m.routes[exposedName]
+	route, found := m.routes[exposedName]
 	var sess *mcpSession
-	if ok {
+	if found {
 		sess = m.sessions[route.Server]
 	}
 	m.mu.RUnlock()
-	if !ok || sess == nil || sess.client == nil {
+	if !found || sess == nil || sess.client == nil {
 		return "mcp: unknown tool " + exposedName, "", nil, false
+	}
+	serverName := route.Server
+	if sess.cfg.OAuth != nil && oauthAccessDue(sess.cfg.OAuth, time.Now()) {
+		rejected := sess.cfg.OAuth.AccessToken
+		if err := m.renewOAuth(ctx, serverName, rejected, false); err != nil {
+			return "mcp error: " + err.Error(), "", nil, false
+		}
+		if _, client, okSess := m.sessionSnapshot(serverName); !okSess || client == nil {
+			return "mcp error: sign-in expired", "", nil, false
+		}
 	}
 	var args map[string]any
 	if strings.TrimSpace(argumentsJSON) != "" {
@@ -508,9 +611,26 @@ func (m *MCPManager) callStored(ctx context.Context, exposedName, argumentsJSON 
 	req := mcp.CallToolRequest{}
 	req.Params.Name = route.Tool
 	req.Params.Arguments = args
-	cctx, cancel := context.WithTimeout(ctx, mcpCallTimeout)
-	defer cancel()
-	result, err := sess.client.CallTool(cctx, req)
+	call := func() (*mcp.CallToolResult, error) {
+		_, client, okSess := m.sessionSnapshot(serverName)
+		if !okSess || client == nil {
+			return nil, fmt.Errorf("sign-in expired")
+		}
+		cctx, cancel := context.WithTimeout(ctx, mcpCallTimeout)
+		defer cancel()
+		return client.CallTool(cctx, req)
+	}
+	result, err := call()
+	if mcpAuthRejected(err) {
+		rejected := ""
+		if cfg, _, okSess := m.sessionSnapshot(serverName); okSess && cfg.OAuth != nil {
+			rejected = cfg.OAuth.AccessToken
+		}
+		if rerr := m.renewOAuth(ctx, serverName, rejected, true); rerr != nil {
+			return "mcp error: " + rerr.Error(), "", nil, false
+		}
+		result, err = call()
+	}
 	if err != nil {
 		return "mcp error: " + err.Error(), "", nil, false
 	}

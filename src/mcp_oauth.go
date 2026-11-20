@@ -462,13 +462,17 @@ func mcpExchangeCode(ctx context.Context, client *http.Client, tokenURL, clientI
 	return mcpTokenPOST(ctx, client, tokenURL, form)
 }
 
-func mcpRefreshAccess(ctx context.Context, client *http.Client, tokenURL, clientID, refresh, resource string) (mcpTokenSet, error) {
+func mcpRefreshAccess(ctx context.Context, client *http.Client, tokenURL, clientID, refresh, resource, scope string) (mcpTokenSet, error) {
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refresh)
 	form.Set("client_id", clientID)
 	if resource != "" {
 		form.Set("resource", resource)
+	}
+	// Entra's v2 token endpoint rejects a refresh that omits scope.
+	if scope != "" {
+		form.Set("scope", scope)
 	}
 	return mcpTokenPOST(ctx, client, tokenURL, form)
 }
@@ -523,21 +527,50 @@ func cloneHeaderMap(in map[string]string) map[string]string {
 	return out
 }
 
+// oauthAccessDue reports that the short-lived access token is missing or
+// inside the minute before it expires. A zero expiry means the server did
+// not say, so the token is used until a call is rejected.
+func oauthAccessDue(o *MCPOAuth, now time.Time) bool {
+	if o == nil || o.AccessToken == "" {
+		return true
+	}
+	if o.ExpiresAt.IsZero() {
+		return false
+	}
+	return !now.Before(o.ExpiresAt.Add(-time.Minute))
+}
+
+func oauthCanRefresh(o *MCPOAuth) bool {
+	return o != nil && o.RefreshToken != "" && o.TokenURL != ""
+}
+
 func prepareMCPConnection(ctx context.Context, name string, cfg MCPServerConfig) (MCPServerConfig, error) {
+	return prepareMCPConnectionMode(ctx, name, cfg, false)
+}
+
+// prepareMCPConnectionMode renews the access token when it is due. force
+// renews even when the stored expiry is still in the future, which is how a
+// rejected call is handled.
+func prepareMCPConnectionMode(ctx context.Context, name string, cfg MCPServerConfig, force bool) (MCPServerConfig, error) {
 	if cfg.OAuth == nil || (cfg.OAuth.AccessToken == "" && cfg.OAuth.RefreshToken == "") {
 		return cfg, nil
 	}
 	now := time.Now()
-	need := cfg.OAuth.AccessToken == "" || (!cfg.OAuth.ExpiresAt.IsZero() && !now.Before(cfg.OAuth.ExpiresAt.Add(-time.Minute)))
-	if need && cfg.OAuth.RefreshToken != "" && cfg.OAuth.TokenURL != "" {
-		set, err := mcpRefreshAccess(ctx, http.DefaultClient, cfg.OAuth.TokenURL, cfg.OAuth.ClientID, cfg.OAuth.RefreshToken, cfg.OAuth.Resource)
+	if (force || oauthAccessDue(cfg.OAuth, now)) && oauthCanRefresh(cfg.OAuth) {
+		set, err := mcpRefreshAccess(ctx, http.DefaultClient, cfg.OAuth.TokenURL, cfg.OAuth.ClientID, cfg.OAuth.RefreshToken, cfg.OAuth.Resource, cfg.OAuth.Scope)
 		if err != nil {
 			return cfg, fmt.Errorf("sign-in expired: %w", err)
 		}
 		applyTokenSet(cfg.OAuth, set, now)
-		if err := UpsertUserMCPServer(name, cfg); err != nil {
+		stored := cfg
+		if stored.Headers != nil {
+			stored.Headers = cloneHeaderMap(stored.Headers)
+			delete(stored.Headers, "Authorization")
+		}
+		if err := UpsertUserMCPServer(name, stored); err != nil {
 			return cfg, err
 		}
+		cfg = stored
 	}
 	return dialMCPConfig(cfg), nil
 }

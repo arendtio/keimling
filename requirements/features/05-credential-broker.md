@@ -88,6 +88,16 @@ Vertrauensmodell v1: **ein Operator** (Access Secret). Keine Multi-User-/Mandant
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-CB-10 An expired access token is renewed without a new sign-in
+
+- **Bin:** explicit requirement
+- **Statement:** When an MCP server rejects a call because the short-lived access token no longer works, Keimling shall renew that token with the refresh token stored for that server and retry the call. The renewal request shall include the scope stored for that server. A browser sign-in shall be asked only when the refresh token itself is rejected.
+- **Origin:** User, 2026-11-20 (quote: "der kurzfristige Token abgelaufen ist und der erneuert werden muss. Und das macht er im Moment nicht automatisch" and "wenn ich bei einem Service diesen Login wieder mache, dann sind auf einmal vier Services, alle die sich über Entra authentifizieren, alle wieder authentifiziert").
+- **Rationale:** The access token lasts about an hour. The refresh token is the grant the user already gave. Asking for a password when that grant is still valid blocks every Entra server at once, and signing in to one of them only happens to renew the others as a side effect.
+- **Fit criterion:** A call sent with an expired access token and a valid refresh token completes with the renewed access token and does not open a browser sign-in. The renewal request contains the scope stored for that server. When the refresh token is rejected, the call reports that sign-in expired and is not repeated in a loop.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Nicht-Ziele (v1)
 
 - External vaults for MCP connection tokens. Those tokens stay in `mcp.json` (REQ-CB-4, REQ-CB-5).
