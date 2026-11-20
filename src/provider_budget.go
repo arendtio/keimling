@@ -97,12 +97,12 @@ func fetchProviderBudget(ctx context.Context, kind, baseURL, apiKey, managementK
 		rem, lim, usage, err := fetchOpenRouterKeyBudget(ctx, baseURL, apiKey)
 		if err != nil {
 			info.Error = err.Error()
-			return info
+		} else {
+			info.RemainingUSD = rem
+			info.LimitUSD = lim
+			info.UsageUSD = usage
+			info.FetchedAt = time.Now().UTC().Format(time.RFC3339)
 		}
-		info.RemainingUSD = rem
-		info.LimitUSD = lim
-		info.UsageUSD = usage
-		info.FetchedAt = time.Now().UTC().Format(time.RFC3339)
 		if mk := strings.TrimSpace(managementKey); mk != "" {
 			acct, aerr := fetchOpenRouterAccount(ctx, baseURL, mk)
 			if aerr != nil {

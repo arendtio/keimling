@@ -2057,6 +2057,11 @@
       provEditManagement.value = "";
       provEditManagement.placeholder = p && p.management_key_set ? "Set — leave blank to keep" : "Management key";
     }
+    if (provEditManagementHint) {
+      provEditManagementHint.textContent = p && p.management_key_set
+        ? "Management key is set. Leave blank to keep it. Chat still uses the API key."
+        : "Reads the OpenRouter account total. Chat still uses the API key.";
+    }
     syncManagementKeyField();
     if (apiKeyHint) {
       apiKeyHint.textContent = p && p.api_key_set
@@ -2273,6 +2278,7 @@
         active_model_id: p.active_model_id || p.model || "",
         models: p.models || [],
         api_key_set: !!p.api_key_set,
+        management_key_set: !!p.management_key_set,
       };
     });
     activeProviderID = j.active_model_provider_id || (providersCache[0] && providersCache[0].id) || "";
@@ -2327,6 +2333,10 @@
 
   function saveAgentSettings() {
     gateErr.hidden = true;
+    if (providerEditor && !providerEditor.hidden) {
+      saveProviderEditor();
+      if (!providerEditor.hidden) return;
+    }
     syncHiddenProviderFields();
     if (setWeb && setSearchKind && agentSettingsLoaded) setWeb.checked = setSearchKind.value !== "";
     var body = {
@@ -2376,6 +2386,7 @@
           }),
         };
         if (p.api_key) row.api_key = p.api_key;
+        if (p.management_key) row.management_key = p.management_key;
         return row;
       });
       var searchKey = setSearchKey ? setSearchKey.value.trim() : "";
@@ -2408,7 +2419,10 @@
           try { j = JSON.parse(t); } catch (e) {}
           if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
           // Clear one-shot keys from cache after successful save.
-          providersCache.forEach(function (p) { delete p.api_key; });
+          providersCache.forEach(function (p) {
+            delete p.api_key;
+            delete p.management_key;
+          });
           fillAgentSettings(j);
           applyProviderGate(!!j.needs_provider);
           if (typeof loadSession === "function") loadSession();
@@ -5841,15 +5855,12 @@
     }
     var prov = budget.provider || {};
     if (prov.supported) {
-      if (prov.error) {
-        parts.push("key budget ?");
-      } else {
-        if (prov.account_remaining_usd != null) parts.push("account " + formatUSD(prov.account_remaining_usd));
-        else if (prov.account_error) parts.push("account ?");
-        if (prov.remaining_usd != null) {
-          var kind = prov.kind || "";
-          parts.push((kind === "openrouter" ? "key left " : "left ") + formatUSD(prov.remaining_usd));
-        }
+      if (prov.account_remaining_usd != null) parts.push("account " + formatUSD(prov.account_remaining_usd));
+      else if (prov.account_error) parts.push("account ?");
+      if (prov.error) parts.push("key budget ?");
+      else if (prov.remaining_usd != null) {
+        var kind = prov.kind || "";
+        parts.push((kind === "openrouter" ? "key left " : "left ") + formatUSD(prov.remaining_usd));
       }
     }
     budgetLineEl.textContent = parts.length ? parts.join(" · ") : "—";

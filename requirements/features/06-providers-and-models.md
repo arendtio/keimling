@@ -33,7 +33,8 @@ remote catalogs.
 ## Budget / spend
 
 - **Session spend:** accumulate billed tokens for the process/thread; estimate
-  USD when the active model has pricing.
+  USD from the model this chat is using. Settings is the fallback when the
+  chat has not chosen its own model.
 - **Provider remaining:** optional capability by `kind`:
   - OpenRouter: `GET {base}/key` with the chat key → `limit_remaining`
     (that key's cap). `GET {base}/credits` with the provider's management
@@ -112,9 +113,9 @@ remote catalogs.
 ## REQ-PM-7 The account total and the key limit are both visible
 
 - **Statement:** For an OpenRouter provider, Keimling shall show the account remaining amount and, when the chat key has a limit, that key's remaining amount. The account amount shall use a management key stored for that provider. The chat key shall keep calling the models.
-- **Origin:** User, 2026-11-20 (quote: "bei dem Provider Open Router, dort kann ich im Moment meine Budgets nicht richtig sehen" and "dafür 'n anderer Key-Typ notwendig" and "dass ich das Budget in Summe im Blick behalte"). Same day, the user chose both the account total and the key limit when the key has one.
-- **Rationale:** The chat key's own cap is often empty. The number they watch is the account total, and that read needs a different key.
-- **Fit criterion:** With a management key, the chat line shows account credits minus usage. With a chat key that has a limit, the line also shows that limit's remainder. The management key is not sent on a model call. Leaving the management key field blank keeps the stored key. A provider that is not OpenRouter has no management key field.
+- **Origin:** User, 2026-11-20 (quote: "bei dem Provider Open Router, dort kann ich im Moment meine Budgets nicht richtig sehen" and "dafür 'n anderer Key-Typ notwendig" and "dass ich das Budget in Summe im Blick behalte"). Same day, the user chose both the account total and the key limit when the key has one. Later the same day (quote: "wenn ich dann wieder in die Settings geh, dann steht da auch nicht, dass der Key irgendwie gesetzt ist und ich nicht ihn editieren sollte. Es ist einfach wieder leer" and "also ich sehe nur ein DeepSeek: DeepSeek V4.1 Flash 1017 · yolo · session 11057 tok").
+- **Rationale:** The chat key's own cap is often empty. The number they watch is the account total, and that read needs a different key. The line sits beside the model this chat is using, so a Settings default on another provider must not hide it.
+- **Fit criterion:** Saving a management key stores it. Opening that provider again says the key is set and does not show the value. Leaving the field blank keeps the stored key. The chat line uses the provider of the model this chat is using. With a management key, that line shows account credits minus usage, including when the chat-key budget call fails. With a chat key that has a limit, the line also shows that limit's remainder. The session amount uses that model's prices. The management key is not sent on a model call. A provider that is not OpenRouter has no management key field.
 - **Priority:** shall
 - **Status:** confirmed
 

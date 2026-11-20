@@ -84,19 +84,15 @@ func (s *appServer) handleProviderBudget(w http.ResponseWriter, r *http.Request)
 
 func (s *appServer) budgetSnapshot(ctx context.Context, refresh bool) map[string]any {
 	providers, activeID := s.loadModelProvidersForSettings()
-	p := modelProviderByID(providers, activeID)
+	p, active := s.budgetChatModel(providers, activeID)
 	spend := sessionSpendInfo{}
-	var active *providerModel
 	if s.agent != nil && s.agent.Client != nil {
 		spend.InputTokens = s.agent.Client.InputTokens
 		spend.OutputTokens = s.agent.Client.OutputTokens
 	}
-	if p != nil {
-		active = p.activeModel()
-		if usd, ok := estimateSessionUSD(spend.InputTokens, spend.OutputTokens, active); ok {
-			spend.EstimateUSD = usd
-			spend.Priced = true
-		}
+	if usd, ok := estimateSessionUSD(spend.InputTokens, spend.OutputTokens, active); ok {
+		spend.EstimateUSD = usd
+		spend.Priced = true
 	}
 	out := map[string]any{
 		"session": spend,
@@ -123,4 +119,36 @@ func (s *appServer) budgetSnapshot(ctx context.Context, refresh bool) map[string
 	}
 	out["provider"] = info
 	return out
+}
+
+// budgetChatModel is the provider and model of the chat on screen.
+// Settings stays the fallback when this chat has not chosen its own model.
+func (s *appServer) budgetChatModel(providers []modelProvider, activeID string) (*modelProvider, *providerModel) {
+	if t := s.shownChatTarget(); t.ProviderID != "" && t.Model != "" {
+		if p := modelProviderByID(providers, t.ProviderID); p != nil {
+			p.ensureProviderModels()
+			if m := providerModelByID(p.Models, t.Model); m != nil {
+				return p, m
+			}
+		}
+	}
+	p := modelProviderByID(providers, activeID)
+	if p == nil {
+		return nil, nil
+	}
+	return p, p.activeModel()
+}
+
+// shownChatTarget is the model named on the composer.
+func (s *appServer) shownChatTarget() chatTarget {
+	if s == nil || s.agent == nil {
+		return chatTarget{}
+	}
+	viewID := s.viewedThread()
+	runningID := s.agent.Cfg.ThreadID
+	background := viewID != "" && viewID != runningID && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) == ""
+	if background {
+		return s.agent.effectiveChatTargetFor(viewID)
+	}
+	return s.agent.callChatTarget()
 }
