@@ -362,6 +362,9 @@
   var approvalCmd = document.getElementById("approval-cmd");
   var approvalPreview = document.getElementById("approval-preview");
   var voiceBtn = document.getElementById("voice");
+  var audioDownloadBtn = document.getElementById("audio-download");
+  var audioUploadBtn = document.getElementById("audio-upload");
+  var audioInput = document.getElementById("audio-input");
   var callBtn = document.getElementById("call");
   var callMuteBtn = document.getElementById("call-mute");
   var realtimeReady = false;
@@ -405,6 +408,7 @@
   var mediaRecorder = null;
   var mediaChunks = [];
   var mediaStream = null;
+  var lastRecording = null;
   var recording = false;
   var voiceSendPending = false;
 
@@ -2847,6 +2851,7 @@
     if (modelEl) modelEl.disabled = !connected || needsProvider;
     voiceBtn.disabled = !connected || !voiceOK || callLive;
     voiceBtn.hidden = !voiceOK;
+    updateAudioActions();
     if (callBtn) {
       callBtn.hidden = !realtimeReady;
       callBtn.disabled = !connected || !realtimeReady || recording;
@@ -10783,13 +10788,47 @@
     }
   }
 
-  function uploadRecording(blob) {
-    var sendAfter = voiceSendPending;
-    voiceSendPending = false;
+  function recordingName(blob) {
+    var type = blob.type || "";
+    var ext = type.indexOf("mp4") >= 0 ? "mp4" : type.indexOf("ogg") >= 0 ? "ogg" : "webm";
+    return "voice." + ext;
+  }
+
+  function updateAudioActions() {
+    if (audioDownloadBtn) audioDownloadBtn.disabled = !lastRecording;
+    if (audioUploadBtn) audioUploadBtn.disabled = !connected || !voiceOK || callLive || recording;
+  }
+
+  if (audioDownloadBtn) audioDownloadBtn.addEventListener("click", function () {
+    if (!lastRecording) return;
+    var url = window.URL.createObjectURL(lastRecording);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = recordingName(lastRecording);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { window.URL.revokeObjectURL(url); }, 60000);
+  });
+
+  if (audioUploadBtn && audioInput) audioUploadBtn.addEventListener("click", function () {
+    if (!audioUploadBtn.disabled) audioInput.click();
+  });
+  if (audioInput) audioInput.addEventListener("change", function () {
+    var file = audioInput.files && audioInput.files[0];
+    audioInput.value = "";
+    if (!file || !canUseVoice() || callLive || recording) return;
+    if (file.size < 44 || file.size > 25 * 1024 * 1024) {
+      setVoiceStatus("Voice: audio file size must be between 44 bytes and 25 MiB.");
+      return;
+    }
+    uploadRecording(file, file.name || recordingName(file), false);
+  });
+
+  function uploadRecording(blob, filename, sendAfter) {
     setVoiceStatus("Transcribing…");
     var fd = new FormData();
-    var ext = (blob.type || "").indexOf("mp4") >= 0 ? "mp4" : (blob.type || "").indexOf("ogg") >= 0 ? "ogg" : "webm";
-    fd.append("audio", blob, "voice." + ext);
+    fd.append("audio", blob, filename || recordingName(blob));
     var h = headers();
     delete h["Content-Type"];
     return fetch(apiURL("/api/transcribe"), { method: "POST", headers: h, body: fd })
@@ -10818,7 +10857,6 @@
         msg.focus();
       })
       .catch(function (err) {
-        voiceSendPending = false;
         setVoiceStatus("Voice: " + err);
       });
   }
@@ -10858,18 +10896,21 @@
           if (e.data && e.data.size > 0) mediaChunks.push(e.data);
         };
         mediaRecorder.onstop = function () {
+          var sendAfter = voiceSendPending;
+          voiceSendPending = false;
           recording = false;
           voiceBtn.classList.remove("recording");
-          setState(agentState);
           var type = mime || (mediaChunks[0] && mediaChunks[0].type) || "audio/webm";
           var blob = new Blob(mediaChunks, { type: type });
+          mediaChunks = [];
+          if (blob.size) lastRecording = blob;
+          setState(agentState);
           stopTracks();
           if (blob.size < 64) {
-            voiceSendPending = false;
             setVoiceStatus("Recording too short.");
             return;
           }
-          uploadRecording(blob);
+          uploadRecording(blob, recordingName(blob), sendAfter);
         };
         mediaRecorder.start();
         recording = true;
@@ -10997,6 +11038,7 @@
     if (!a) return;
     var href = a.getAttribute("href");
     if (!href || href.charAt(0) === "#" || href.indexOf("javascript:") === 0) return;
+    if (a.hasAttribute("download") && href.indexOf("blob:") === 0) return;
     e.preventDefault();
     e.stopPropagation();
     try { keimlingOpenExternal(a.href); } catch (err) {}

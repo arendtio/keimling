@@ -136,6 +136,7 @@ func openWebViewPreparedImpl(url, title, configPath, localHome string, beforeRun
   if(!a)return;
   var href=a.getAttribute("href");
   if(!href||href.charAt(0)==="#"||href.indexOf("javascript:")===0)return;
+  if(a.hasAttribute("download")&&href.indexOf("blob:")===0)return;
   e.preventDefault();e.stopPropagation();
   try{keimlingOpenExternal(a.href);}catch(err){}
 },true);`)

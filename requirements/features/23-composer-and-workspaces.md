@@ -61,3 +61,13 @@ The records below are the stakeholder ask for a less crowded surface. Which cont
 - **Fit criterion:** With one line of text and several controls beside it, the text begins directly under the model line and the plus sits on the bottom edge of the composer. Adding lines moves the bottom of the field down. The first line stays under the model line.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-CW-7 Recover and retry a voice recording
+
+- **Bin:** explicit requirement
+- **Statement:** The composer More menu shall offer the latest microphone recording for download and accept an audio file for transcription. The recording is kept in the current UI's memory, without requiring persistence across restarts. Transcribing an uploaded file appends the result to the current draft without sending it.
+- **Origin:** User, 2026-11-20 (paraphrase: inaccurate or failed transcriptions can lose a long dictation, including when the message was sent immediately; downloading the last recording and uploading audio for transcription is more useful than retry alone, and the recording needs to exist only during the current run).
+- **Rationale:** A downloaded copy allows another transcription attempt even after the application is closed. The user can remove a mistaken draft manually.
+- **Fit criterion:** After stopping a recording, including one whose transcription fails or was sent, More can download it. A subsequent recording replaces it. Selecting an audio file through More transcribes it and appends the text to the draft, leaving Send to the user. Uploading a file does not replace the latest microphone recording. The retained recording is not restored on a fresh UI load.
+- **Priority:** shall
+- **Status:** confirmed
