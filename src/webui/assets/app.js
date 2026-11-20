@@ -5410,7 +5410,8 @@
     requestAnimationFrame(function () {
       if (!force && !transcriptStick) return;
       var el = document.scrollingElement || document.documentElement;
-      window.scrollTo(0, el.scrollHeight);
+      // Request a valid scroll offset instead of overshooting the document height.
+      window.scrollTo(0, Math.max(0, el.scrollHeight - el.clientHeight));
       transcriptStick = true;
     });
   }
