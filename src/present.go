@@ -133,3 +133,12 @@ func (a *Agent) presentFinish(status, summary string) {
 	}
 	a.cliWrite(out)
 }
+
+// presentContextGrowth tells the sidebar plant the context fill now, so it
+// can move while tools are still running.
+func (a *Agent) presentContextGrowth() {
+	if a == nil {
+		return
+	}
+	a.emitJSON("growth", map[string]any{"used_pct": a.contextBudget().UsedPct})
+}

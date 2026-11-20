@@ -46,6 +46,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 		if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": "SKIPPED: New user steering arrived. Re-evaluate the plan and this action before retrying."}); err != nil {
 			return toolAdmit{}, err
 		}
+		a.presentContextGrowth()
 		a.println("↻ Action deferred: new steering received")
 		return toolAdmit{Finished: true}, nil
 	}
@@ -60,6 +61,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 		if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": msg, "ok": false}); err != nil {
 			return toolAdmit{}, err
 		}
+		a.presentContextGrowth()
 		a.presentToolResult(item.Name, toolCommandLabel(item.Name, item.Arguments), item.Arguments, msg, "", false, false)
 		return toolAdmit{Finished: true}, nil
 	}
@@ -119,6 +121,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 }
 
 func (a *Agent) runFunctionCalls(ctx context.Context, message string, reader *bufio.Reader, items []Item) error {
+	a.presentContextGrowth()
 	for i := 0; i < len(items); {
 		if isMCPTool(items[i].Name) {
 			j := i + 1
@@ -527,6 +530,7 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 	if err := a.add(outItem); err != nil {
 		return err
 	}
+	a.presentContextGrowth()
 	if allowed {
 		a.retainToolFinding(ctx, item.Name, item.Arguments, result)
 	}

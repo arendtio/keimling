@@ -707,9 +707,9 @@
       ? { rest: 1, p: 0 }
       : { rest: 0, p: growthProgress(usedPct) };
     if (viaSeed) growthPassSeed = true;
-    if (!viaSeed && growthSame(target, growthTarget) && (growthFrame || growthSame(target, growthPose))) {
-      growthTarget = target;
-      return;
+    if (!viaSeed && growthLogoReady) {
+      if (growthFrame && growthSame(target, growthTarget)) return;
+      if (!growthFrame && growthSame(target, growthPose)) return;
     }
     growthTarget = target;
     if (!growthLogoOn || !growthLogoReady) return;
@@ -6120,6 +6120,12 @@
     if (!j.busy) clearLive();
   }
 
+  function handleGrowth(payload) {
+    if (!eventsForThisView()) return;
+    if (!payload || typeof payload.used_pct !== "number") return;
+    syncGrowthLogo(payload.used_pct, false);
+  }
+
   function loadSession() {
     sessionEpoch += 1;
     var epoch = sessionEpoch;
@@ -6166,6 +6172,7 @@
               if (ev === "thinking") handleThinking(payload);
               if (ev === "realtime_inject") speakText(payload && payload.text);
               if (ev === "tool") handleStructuredTool(payload);
+              if (ev === "growth") handleGrowth(payload);
               if (ev === "approval" && eventsForThisView()) showApproval(payload);
               if (ev === "progress") updateProgress(payload);
               if (ev === "artifact") {

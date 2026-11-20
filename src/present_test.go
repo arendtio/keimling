@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -63,5 +65,43 @@ func TestPresentFinish(t *testing.T) {
 	text, _ := payload["text"].(string)
 	if !strings.Contains(text, "Task complete") || !strings.Contains(text, "shipped") {
 		t.Fatalf("%q", text)
+	}
+}
+
+func TestToolResultPublishesContextGrowth(t *testing.T) {
+	j, err := OpenJournal(filepath.Join(t.TempDir(), "session.jsonl"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pcts []float64
+	a := &Agent{
+		Journal: j,
+		History: j.History,
+		Cfg:     Config{ContextLimit: 100000},
+		Emit: func(kind, text string) {
+			if kind != "growth" {
+				return
+			}
+			var m map[string]any
+			if json.Unmarshal([]byte(text), &m) != nil {
+				t.Fatalf("growth %s", text)
+			}
+			pct, ok := m["used_pct"].(float64)
+			if !ok {
+				t.Fatalf("growth %v", m)
+			}
+			pcts = append(pcts, pct)
+		},
+	}
+	before := a.contextBudget().UsedPct
+	body := strings.Repeat("word ", 8000)
+	if err := a.recordToolResult(context.Background(), Item{Type: "function_call", Name: "read_file", CallID: "c1", Arguments: `{"path":"a"}`}, body, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if len(pcts) != 1 {
+		t.Fatalf("growth events %v", pcts)
+	}
+	if pcts[0] <= before {
+		t.Fatalf("before %.2f after %.2f", before, pcts[0])
 	}
 }
