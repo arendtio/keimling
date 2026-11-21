@@ -413,6 +413,9 @@
   var backgroundBusy = false;
   var transcriptSeq = 0;
   var heldOpen = null;
+  // Detail rows that already existed when the running turn began. The idle
+  // transition closes that run's rows and leaves these alone.
+  var runFoldKeys = null;
   var connected = false;
   var agentState = "idle";
   var stoppingThreadID = "";
@@ -3129,11 +3132,56 @@
     document.documentElement.style.setProperty("--composer-h", Math.ceil(form.offsetHeight) + "px");
   }
 
+  // A run ends with its Thinking rows and tool cards closed. The chat lines
+  // the agent wrote stay as they are, the user message stays visible, and every
+  // row can be opened again by hand. Rows that were already there when the run
+  // began keep their state, so reading an older output is not interrupted.
+  function beginRunFolds() {
+    runFoldKeys = {};
+    if (!thread) return;
+    var nodes = thread.querySelectorAll("[data-dom-key]");
+    for (var i = 0; i < nodes.length; i++) {
+      var key = nodes[i].dataset && nodes[i].dataset.domKey;
+      if (key) runFoldKeys[key] = true;
+    }
+  }
+
+  function collapseRunFolds() {
+    var before = runFoldKeys || {};
+    runFoldKeys = null;
+    if (!thread) return;
+    var dropped = [];
+    var folds = thread.querySelectorAll("details");
+    for (var i = 0; i < folds.length; i++) {
+      var fold = folds[i];
+      if (!fold.open || !fold.classList) continue;
+      if (!fold.classList.contains("thinking-fold") &&
+          !fold.classList.contains("tool-line") &&
+          !fold.classList.contains("tool-output-fold")) continue;
+      var owner = fold.closest ? fold.closest("[data-dom-key]") : null;
+      var ownerKey = owner && owner.dataset && owner.dataset.domKey;
+      if (ownerKey && before[ownerKey]) continue;
+      // Clearing the follow marker first keeps the toggle handler from reading
+      // this close as the user dismissing the live row.
+      delete fold.dataset.autoFollow;
+      fold.open = false;
+      if (fold.dataset.domKey) dropped.push(fold.dataset.domKey);
+    }
+    if (heldOpen) {
+      for (var n = 0; n < dropped.length; n++) delete heldOpen[dropped[n]];
+    }
+  }
+
   function setState(s) {
     var prev = agentState;
     agentState = s || "idle";
     var wasRun = prev === "running" || prev === "compacting" || prev === "awaiting_approval";
-    if (wasRun && agentState === "idle") closeSideRun();
+    var isRun = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
+    if (isRun && !wasRun) beginRunFolds();
+    if (wasRun && agentState === "idle") {
+      closeSideRun();
+      collapseRunFolds();
+    }
     stateEl.textContent = agentState;
     stateEl.className = "state " + agentState;
     // Keep the indicator next to new output; hide when idle to free vertical space.

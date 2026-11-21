@@ -78,7 +78,9 @@ When a reply finishes, the transcript on screen shall keep the shape it already 
 
 Origin: User, 2026-11-19 (quote: "wenn er fertig ist, sieht man kurz die seite und kurz darauf verändern sich dann die abstände von text zu checkbox … und noch einen moment später scheint das automatische ein und ausklappen noch dazu zu kommen" and "immer vor eigenen nachrichten so eine trennlinie … Die Überschrift reicht vollkommen").
 
-Fit: While a reply streams, a task line is already a checkbox with the same gap it has when the reply stops. After the run goes idle, that gap does not change and a row that was open or closed stays that way. A chapter shows its heading and no line before the user's message. Inside one turn the rows share one gap. When the speaker changes, the same larger gap sits before the new voice, under a user message and under a Keimling message.
+Fit: While a reply streams, a task line is already a checkbox with the same gap it has when the reply stops. After the run goes idle, that gap does not change. The run's Thinking rows and
+tool cards close once, as REQ-VE-13 says, and a row the user opens after that
+keeps its state. A chapter shows its heading and no line before the user's message. Inside one turn the rows share one gap. When the speaker changes, the same larger gap sits before the new voice, under a user message and under a Keimling message.
 
 ### REQ-VE-11 Stay with the latest lines
 
@@ -95,6 +97,24 @@ The More menu shall offer Follow thinking, off until the user turns it on. While
 Origin: User, 2026-11-19 (quote: "Das thinking feature bitte auch umsetzen"), after the agreed shape: a control in the chat More menu, off by default, that follows only the row currently receiving tokens and closes it when that row finishes, while a row opened by hand stays open.
 
 Fit: With Follow thinking off, a thinking row stays closed while its text arrives. Turning it on opens the row that is receiving text. When the reply or a tool call starts, that row closes. The next thinking row opens. A row the user opened before that stays open. Turning the control off closes nothing the user opened, and the next thinking row stays closed. Reloading the page keeps the control as the user left it.
+
+### REQ-VE-13 Idle closes the run's detail rows
+
+When a run goes idle, the Thinking rows and tool cards of that run shall be
+closed. The lines the agent wrote to the user, and the user's own messages,
+keep the shape they have. A row the user opened before the run started keeps
+its state, and a chapter fold is not a run row. Closing happens once: after
+that the user opens and closes single rows by hand, and a row that was closed
+stays closed.
+
+Origin: User, 2026-11-21 (paraphrase: at the end of a run only the messages the
+assistant wrote to the user should stay open; Thinking blocks and tool cards
+collapse).
+
+Fit: After a run with a tool card and a Thinking row opened by Follow thinking,
+the idle transcript shows both closed and the reply unchanged. A tool card the
+user opens then stays open across the session refresh that follows idle.
+Reloading the thread still shows every run row closed.
 
 ### REQ-VE-5 Tool name once
 
