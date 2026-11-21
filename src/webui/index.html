@@ -45,6 +45,7 @@
         <button type="button" class="settings-tab" data-tab="skills" role="tab" aria-selected="false">Skills</button>
         <button type="button" class="settings-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
         <button type="button" class="settings-tab" data-tab="plugins" role="tab" aria-selected="false">Plugins</button>
+        <button type="button" class="settings-tab" data-tab="spend" role="tab" aria-selected="false">Spend</button>
         <button type="button" class="settings-tab" data-tab="themes" role="tab" aria-selected="false">Themes</button>
       </div>
 
@@ -504,6 +505,23 @@
         <p id="plugin-port-hint" class="hint">Leave empty for port 22. The address stays as you typed it, for example git@git.example:skills.git.</p>
         <button type="button" id="plugin-add" class="ghost wide">Add</button>
         <p id="plugin-err" class="gate-err" hidden></p>
+      </div>
+
+      <div id="pane-spend" class="settings-pane" hidden role="tabpanel">
+        <p class="settings-lead">What this machine spent on model calls. Records live in the Keimling config directory (<code>spend/</code>), never in the workspace, and stay raw as JSONL. This view only shows hourly or daily totals.</p>
+        <p class="settings-section-title">Cost over time</p>
+        <div class="skills-row">
+          <button type="button" id="spend-range-days" class="ghost" aria-pressed="true">Daily · 30 days</button>
+          <button type="button" id="spend-range-hours" class="ghost" aria-pressed="false">Hourly · 3 days</button>
+          <button type="button" id="spend-refresh" class="ghost">Refresh</button>
+        </div>
+        <p id="spend-summary" class="hint">—</p>
+        <div id="spend-chart" class="spend-chart" role="img" aria-label="Cost over time"></div>
+        <p class="settings-section-title">By model</p>
+        <div id="spend-models" class="spend-models"></div>
+        <p class="settings-section-title">Account and key balance</p>
+        <div id="spend-budget" class="spend-budget"></div>
+        <p class="hint">Delete <code>spend/spend-*.jsonl</code> and <code>spend/budget-*.jsonl</code> to reset the history.</p>
       </div>
 
       <div class="gate-actions" id="gate-actions">

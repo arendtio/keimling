@@ -3266,3 +3266,19 @@ button.wide { width: 100%; max-width: 100%; }
   background: rgba(0, 0, 0, 0.45);
 }
 .provider-dialog[hidden] { display: none; }
+
+/* Settings → Spend: inline SVG chart and compact cost tables. */
+.spend-chart { margin: 4px 0 12px; }
+.spend-svg { width: 100%; height: 170px; display: block; }
+.spend-axis { stroke: var(--line); stroke-width: 1; opacity: 0.6; }
+.spend-bar { fill: var(--accent); opacity: 0.85; }
+.spend-max, .spend-tick { fill: var(--fg); font-size: 10px; opacity: 0.65; }
+.spend-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.spend-table th, .spend-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.spend-table th { font-weight: 600; opacity: 0.7; }
+.spend-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.spend-bar-cell { min-width: 110px; }
+.spend-bar-track { background: var(--line); height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 2px; }
+.spend-bar-fill { background: var(--accent); height: 100%; }
+.spend-amount { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.spend-row-unpriced { opacity: 0.6; }

@@ -116,6 +116,7 @@
   var paneMcp = document.getElementById("pane-mcp");
   var panePlugins = document.getElementById("pane-plugins");
   var paneThemes = document.getElementById("pane-themes");
+  var paneSpend = document.getElementById("pane-spend");
   var vaultStatusEl = document.getElementById("vault-status");
   var vaultUnlockEl = document.getElementById("vault-unlock");
   var vaultBodyEl = document.getElementById("vault-body");
@@ -1500,6 +1501,7 @@
     if (paneMcp) paneMcp.hidden = tab !== "mcp";
     if (panePlugins) panePlugins.hidden = tab !== "plugins";
     if (paneThemes) paneThemes.hidden = tab !== "themes";
+    if (paneSpend) paneSpend.hidden = tab !== "spend";
     saveSettingsBtn.hidden = tab !== "models";
     connectBtn.hidden = tab !== "connection";
     if (tab === "secrets" && connected) loadCredentialsUI();
@@ -6211,6 +6213,179 @@
       .catch(function () {});
   }
 
+  // Settings → Spend: aggregated model cost, per-model table and the balance
+  // history. The server sends hourly/daily buckets; single calls stay in the
+  // JSONL ledger only.
+  var spendState = { granularity: "day", days: 30 };
+
+  function spendRangeLabel(data) {
+    var since = new Date((data && data.since) || "");
+    var until = new Date((data && data.until) || "");
+    if (isNaN(since.getTime()) || isNaN(until.getTime())) return "";
+    return since.toLocaleDateString() + " – " + until.toLocaleDateString();
+  }
+
+  function spendBucketLabel(start, granularity) {
+    var d = new Date(start);
+    if (isNaN(d.getTime())) return String(start || "");
+    if (granularity === "hour") {
+      return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function loadSpend() {
+    if (!connected) return Promise.resolve();
+    var summary = document.getElementById("spend-summary");
+    if (summary) summary.textContent = "Loading spend…";
+    var q = "?granularity=" + encodeURIComponent(spendState.granularity) + "&days=" + spendState.days;
+    return fetch(apiURL("/api/spend" + q), { headers: headers() })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          renderSpend(j);
+        });
+      })
+      .catch(function (e) {
+        if (summary) summary.textContent = "Could not load spend: " + String((e && e.message) || e);
+      });
+  }
+
+  function renderSpend(data) {
+    data = data || {};
+    renderSpendSummary(data);
+    renderSpendChart(data);
+    renderSpendModels(data);
+    renderSpendBudget(data);
+  }
+
+  function renderSpendSummary(data) {
+    var el = document.getElementById("spend-summary");
+    if (!el) return;
+    var t = data.totals || {};
+    var parts = [];
+    parts.push(formatUSD(t.usd || 0) + " priced");
+    parts.push(((t.input_tokens || 0) + (t.output_tokens || 0)) + " tokens");
+    parts.push((t.calls || 0) + ((t.calls || 0) === 1 ? " call" : " calls"));
+    if (t.unpriced_calls) parts.push(t.unpriced_calls + " without a known price");
+    var range = spendRangeLabel(data);
+    el.textContent = parts.join(" · ") + (range ? " · " + range : "");
+  }
+
+  function renderSpendChart(data) {
+    var host = document.getElementById("spend-chart");
+    if (!host) return;
+    var buckets = data.buckets || [];
+    var max = 0;
+    buckets.forEach(function (b) {
+      var v = b.usd || 0;
+      if (v > max) max = v;
+    });
+    if (!buckets.length || max <= 0) {
+      host.textContent = "No priced spend in this window.";
+      return;
+    }
+    var W = 720;
+    var H = 170;
+    var base = H - 22;
+    var top = 8;
+    var n = buckets.length;
+    var gap = n > 60 ? 0 : 1;
+    var slot = (W - gap * (n - 1)) / n;
+    var svg = ['<svg viewBox="0 0 ' + W + ' ' + H + '" class="spend-svg" role="img" aria-label="Cost per ' + esc(data.granularity || "day") + '">'];
+    svg.push('<line x1="0" y1="' + base + '" x2="' + W + '" y2="' + base + '" class="spend-axis"></line>');
+    svg.push('<text x="0" y="10" class="spend-max">' + esc(formatUSD(max)) + '</text>');
+    buckets.forEach(function (b, i) {
+      var v = b.usd || 0;
+      if (v <= 0) return;
+      var h = Math.round((base - top) * (v / max));
+      if (h < 1) h = 1;
+      var x = i * (slot + gap);
+      svg.push('<rect x="' + x.toFixed(1) + '" y="' + (base - h) + '" width="' + Math.max(1, slot).toFixed(1) + '" height="' + h + '" class="spend-bar"><title>' + esc(spendBucketLabel(b.start, data.granularity)) + ": " + esc(formatUSD(v)) + '</title></rect>');
+    });
+    var marks = [];
+    [0, Math.floor((n - 1) / 2), n - 1].forEach(function (i) {
+      if (marks.indexOf(i) < 0) marks.push(i);
+    });
+    marks.forEach(function (i, k) {
+      var x = i * (slot + gap) + slot / 2;
+      var anchor = k === 0 ? "start" : k === marks.length - 1 ? "end" : "middle";
+      svg.push('<text x="' + x.toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + anchor + '" class="spend-tick">' + esc(spendBucketLabel(buckets[i].start, data.granularity)) + '</text>');
+    });
+    svg.push("</svg>");
+    host.innerHTML = svg.join("");
+  }
+
+  function renderSpendModels(data) {
+    var host = document.getElementById("spend-models");
+    if (!host) return;
+    var rows = data.by_model || [];
+    if (!rows.length) {
+      host.textContent = "No model calls recorded yet.";
+      return;
+    }
+    var max = 0;
+    rows.forEach(function (r) {
+      if ((r.usd || 0) > max) max = r.usd || 0;
+    });
+    var html = ['<table class="spend-table"><thead><tr><th>Model</th><th>Provider</th><th>Calls</th><th>Tokens</th><th>USD</th></tr></thead><tbody>'];
+    rows.forEach(function (r) {
+      var usd = r.usd || 0;
+      var unpriced = r.unpriced_calls || 0;
+      var pct = max > 0 ? Math.round((usd / max) * 100) : 0;
+      html.push("<tr" + (usd === 0 && unpriced > 0 ? ' class="spend-row-unpriced"' : "") + ">");
+      html.push("<td>" + esc(r.model || "unknown") + (unpriced ? ' <span class="hint">(' + unpriced + " unpriced)</span>" : "") + "</td>");
+      html.push("<td>" + esc(r.provider || "unknown") + "</td>");
+      html.push('<td class="num">' + (r.calls || 0) + "</td>");
+      html.push('<td class="num">' + ((r.input_tokens || 0) + (r.output_tokens || 0)) + "</td>");
+      html.push('<td class="spend-bar-cell"><div class="spend-bar-track"><div class="spend-bar-fill" style="width:' + pct + '%"></div></div><span class="spend-amount">' + (usd > 0 ? esc(formatUSD(usd)) : "—") + "</span></td>");
+      html.push("</tr>");
+    });
+    html.push("</tbody></table>");
+    host.innerHTML = html.join("");
+  }
+
+  function renderSpendBudget(data) {
+    var host = document.getElementById("spend-budget");
+    if (!host) return;
+    var rows = data.budget || [];
+    if (!rows.length) {
+      host.textContent = "No balance snapshots yet. OpenRouter and LiteLLM record one on each real budget fetch.";
+      return;
+    }
+    var html = ['<table class="spend-table"><thead><tr><th>When</th><th>Provider</th><th>Key left</th><th>Account left</th></tr></thead><tbody>'];
+    rows.slice(-20).reverse().forEach(function (r) {
+      var when = new Date(r.time);
+      html.push("<tr>");
+      html.push("<td>" + esc(isNaN(when.getTime()) ? (r.time || "") : when.toLocaleString()) + "</td>");
+      html.push("<td>" + esc(r.provider || "unknown") + (r.kind ? ' <span class="hint">(' + esc(r.kind) + ")</span>" : "") + "</td>");
+      html.push('<td class="num">' + (r.remaining_usd != null ? esc(formatUSD(r.remaining_usd)) : "—") + "</td>");
+      html.push('<td class="num">' + (r.account_remaining_usd != null ? esc(formatUSD(r.account_remaining_usd)) : "—") + "</td>");
+      html.push("</tr>");
+    });
+    html.push("</tbody></table>");
+    host.innerHTML = html.join("");
+  }
+
+  function setSpendRange(granularity) {
+    spendState.granularity = granularity === "hour" ? "hour" : "day";
+    spendState.days = spendState.granularity === "hour" ? 3 : 30;
+    var dayBtn = document.getElementById("spend-range-days");
+    var hourBtn = document.getElementById("spend-range-hours");
+    if (dayBtn) dayBtn.setAttribute("aria-pressed", spendState.granularity === "day" ? "true" : "false");
+    if (hourBtn) hourBtn.setAttribute("aria-pressed", spendState.granularity === "hour" ? "true" : "false");
+    return loadSpend();
+  }
+
+  (function bindSpendControls() {
+    var dayBtn = document.getElementById("spend-range-days");
+    var hourBtn = document.getElementById("spend-range-hours");
+    var refreshBtn = document.getElementById("spend-refresh");
+    if (dayBtn) dayBtn.addEventListener("click", function () { setSpendRange("day"); });
+    if (hourBtn) hourBtn.addEventListener("click", function () { setSpendRange("hour"); });
+    if (refreshBtn) refreshBtn.addEventListener("click", function () { loadSpend(); });
+  })();
+
   function closeModelMenu() {
     if (!modelMenu) return;
     modelMenu.hidden = true;
@@ -9597,6 +9772,7 @@
       if ((btn.getAttribute("data-tab") === "models" || btn.getAttribute("data-tab") === "agent") && connected) loadAgentSettings();
       if (btn.getAttribute("data-tab") === "secrets" && connected) loadCredentialsUI();
       if (btn.getAttribute("data-tab") === "plugins" && connected) loadPlugins();
+      if (btn.getAttribute("data-tab") === "spend" && connected) loadSpend();
     });
   });
   function renderToolAsk(rows) {
