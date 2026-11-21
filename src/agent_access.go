@@ -434,6 +434,9 @@ func (a *Agent) modelInstructions() string {
 		if cat := strings.TrimSpace(a.skillsCatalogBlock()); cat != "" {
 			base += "\n\n" + cat
 		}
+		if cred := strings.TrimSpace(credentialStatusPrompt(a.Credentials)); cred != "" {
+			base += "\n\n" + cred
+		}
 		return a.withBuiltinList(a.withMCPCatalog(base))
 	}
 	return a.withBuiltinList(a.withMCPCatalog(a.agentInstanceInstructions()))
@@ -461,6 +464,9 @@ func (a *Agent) agentInstanceInstructions() string {
 	}
 	if cat := strings.TrimSpace(a.enabledSkillsCatalog()); cat != "" {
 		parts = append(parts, cat)
+	}
+	if cred := strings.TrimSpace(credentialStatusPrompt(a.Credentials)); cred != "" {
+		parts = append(parts, cred)
 	}
 	work := strings.TrimSuffix(sharedWorkInstructions(), "The user controls the PTY directly. ")
 	parts = append(parts, "How to use tools:\n"+strings.TrimSpace(work))

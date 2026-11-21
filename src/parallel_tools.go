@@ -39,17 +39,11 @@ type toolAdmit struct {
 	Reason   string
 }
 
-// beginToolCall applies steering, the grant, and approval. Finished means the
+// beginToolCall applies the grant and approval. Finished means the
 // tool result is already recorded.
 func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item Item) (toolAdmit, error) {
-	if a.PendingSteering {
-		if err := a.add(map[string]any{"type": "function_call_output", "call_id": item.CallID, "output": "SKIPPED: New user steering arrived. Re-evaluate the plan and this action before retrying."}); err != nil {
-			return toolAdmit{}, err
-		}
-		a.presentContextGrowth()
-		a.println("↻ Action deferred: new steering received")
-		return toolAdmit{Finished: true}, nil
-	}
+	// New steering does not cancel a call that already started: the result arrives,
+	// then the next model round re-plans with the new instruction.
 	if item.CallID == "" {
 		return toolAdmit{}, fmt.Errorf("function call without call_id")
 	}

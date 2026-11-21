@@ -210,7 +210,7 @@ func (a *Agent) realtimeInstructions() string {
 	if a != nil {
 		base = a.modelInstructions()
 	}
-	extra := "You are in a live voice call. The user hears your speech, and the same words are written into the chat. A typed line is the same person. Use tools the same way as in chat. A name that starts with mcp__ is a function. Call that function. Never pass that name to exec. Tool calls, especially mcp__ calls, run in the background. If the function output is the result, use it and comment on it. If the output says the call is still running, keep the conversation going and do not invent the result. When a later message says background tools finished, comment on those results before you treat the topic as done. When a user message includes an image, that image is the screen or window the user is sharing at that moment. Answer from that picture. When that message says keyboard and mouse are shared, screen_click, screen_scroll, screen_key, and screen_type act on the picture. x and y are fractions of the picture from 0 to 1. Click, then look at the next picture. screen_click, screen_scroll, screen_key, and screen_type finish before you continue."
+	extra := "You are in a live voice call. The user hears your speech, and the same words are written into the chat. A typed line is the same person. Use tools the same way as in chat. A name that starts with mcp__ is a function. Call that function. Never pass that name to exec. Do not investigate alongside the user: hand such a question to an agent (spawn_agent) or to delegate, and let it run in the background while you keep talking. A hand-off states three things: the exact question, the context it needs, and the answer shape you expect (yes/no, a list of path:line citations, a short summary). While the work runs, call stay_silent instead of narrating progress, waiting, or partial findings; speak again when the result is there or the user asks something new. If the output says the call is still running, wait for the result and do not invent it. When a later message says background tools finished, comment on those results before you treat the topic as done. When a user message includes an image, that image is the screen or window the user is sharing at that moment. Answer from that picture. When that message says keyboard and mouse are shared, screen_click, screen_scroll, screen_key, and screen_type act on the picture. x and y are fractions of the picture from 0 to 1. Click, then look at the next picture. screen_click, screen_scroll, screen_key, and screen_type finish before you continue."
 	return strings.TrimSpace(base + "\n\n" + extra)
 }
 
@@ -233,7 +233,7 @@ func realtimeToolList(a *Agent) []map[string]any {
 		}
 		out = append(out, copy)
 	}
-	return realtimeSafeTools(out)
+	return realtimeSilenceTool(realtimeSafeTools(out))
 }
 
 func realtimeSafeTools(tools []map[string]any) []map[string]any {
@@ -246,6 +246,22 @@ func realtimeSafeTools(tools []map[string]any) []map[string]any {
 		out = append(out, safe)
 	}
 	return realtimeMCPFirst(out)
+}
+
+// realtimeSilenceTool adds the one tool that exists only in a live call: it ends
+// a turn without speech, so the model can wait for a background result in quiet.
+func realtimeSilenceTool(tools []map[string]any) []map[string]any {
+	for _, tool := range tools {
+		if name, _ := tool["name"].(string); name == "stay_silent" {
+			return tools
+		}
+	}
+	return append(tools, map[string]any{
+		"type":        "function",
+		"name":        "stay_silent",
+		"description": "Stay quiet for this turn instead of speaking. Call it after you dispatched a background or delegated task and have nothing to add yet, or when the user is better served by silence. It ends the turn without audio and without a chat message.",
+		"parameters":  map[string]any{"type": "object", "properties": map[string]any{"reason": map[string]any{"type": "string", "description": "Why silence is right now"}}, "required": []string{"reason"}, "additionalProperties": false},
+	})
 }
 
 // realtimeSafeTool makes one function definition acceptable to a realtime session.
@@ -712,6 +728,15 @@ func (a *Agent) runRealtimeTool(ctx context.Context, name, callID, args string) 
 	}
 	if strings.TrimSpace(args) == "" {
 		args = "{}"
+	}
+	if name == "stay_silent" {
+		if err := a.add(map[string]any{"type": "function_call", "name": name, "call_id": callID, "arguments": args}); err != nil {
+			return "", err
+		}
+		if err := a.add(map[string]any{"type": "function_call_output", "call_id": callID, "output": "silent: stay quiet this turn. Say nothing until a background result arrives."}); err != nil {
+			return "", err
+		}
+		return "silent", nil
 	}
 	item := Item{Type: "function_call", Name: name, CallID: callID, Arguments: args}
 	if err := a.add(map[string]any{"type": "function_call", "name": name, "call_id": callID, "arguments": args}); err != nil {

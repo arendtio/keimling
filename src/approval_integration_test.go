@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestApprovalEditorHandoffPTY(t *testing.T) {
@@ -22,8 +24,8 @@ func TestApprovalEditorHandoffPTY(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = syscall.Dup2(original, 0); _ = syscall.Close(original); activeControl = nil }()
-	if err := syscall.Dup2(int(slave.Fd()), 0); err != nil {
+	defer func() { _ = unix.Dup2(original, 0); _ = syscall.Close(original); activeControl = nil }()
+	if err := unix.Dup2(int(slave.Fd()), 0); err != nil {
 		t.Fatal(err)
 	}
 	control := newTaskControl(func() {})

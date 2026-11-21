@@ -70,6 +70,18 @@ cd src && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
 | `make check` | `fmt` + `vet` + `test` |
 | `node --test src/webui/tests/*.test.js` | Embedded UI transcript and session regression tests (requires Node.js) |
 
+## Vault and git
+
+The process holds the credential vault in memory; the prompt carries the current state (`none`, `locked`, `unlocked`) with the ids allowed for `exec`. When the vault is locked, git over SSH and stored secrets fail: ask the user to unlock it once, then wait instead of probing `~/.ssh`.
+
+| Pattern | Purpose |
+| --- | --- |
+| `git pull {{keimling:<id>}}` | SSH key from the vault: placeholders resolve inline, an ephemeral ssh-agent supplies the key, plain `git pull`/`git push` then work |
+| `list_credentials` (tool `exec`) | Ids and types, when the prompt has none |
+| `git -c core.sshCommand=… pull` | Only when no vault key exists; never in place of the placeholder |
+
+Do not set `GIT_SSH_COMMAND`, pass `-i`, or edit ssh config while a vault key is available.
+
 ## Run
 
 | Command | Purpose |

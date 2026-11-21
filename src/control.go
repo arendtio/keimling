@@ -45,7 +45,7 @@ func (a *Agent) handleControls(ctx context.Context) error {
 		case ev := <-a.Control.events:
 			switch ev.kind {
 			case "steer":
-				a.PendingSteering = true
+
 				if strings.TrimSpace(ev.text) != "" {
 					if err := a.add(map[string]any{"role": "user", "content": "[User steering during ongoing task] " + ev.text}); err != nil {
 						return err

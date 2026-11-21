@@ -27,7 +27,6 @@ type Agent struct {
 	TaskBlocked          bool
 	PilotReport          string
 	Control              *taskControl
-	PendingSteering      bool
 	Plan                 []PlanStep
 	Compaction           *compactionJob
 	SessionCtx           context.Context
@@ -507,7 +506,7 @@ func (a *Agent) Run(ctx context.Context, message string, reader *bufio.Reader) (
 				continue
 			}
 		}
-		a.PendingSteering = false
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
