@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -241,5 +242,61 @@ func TestHostRequireSecret(t *testing.T) {
 	h.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("got %d", rec.Code)
+	}
+}
+
+// The host forwards /api/branch to the attached agent instance worker, so a fork
+// in an agent chat lands in that instance's own session and branch files.
+func TestHostForwardsBranchToTheAgentInstance(t *testing.T) {
+	withTempAgentHomes(t)
+	id := newAgentInstanceID()
+	if err := os.MkdirAll(agentInstanceThreadDir(id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := agentInstanceSessionPath(id)
+	j, err := OpenJournal(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Journal: j,
+		History: j.History,
+		Cfg:     Config{Mode: "ask", SessionPath: path, AgentInstanceID: id},
+	}
+	if err := a.addBranchableUser("FIRST-MSG"); err != nil {
+		t.Fatal(err)
+	}
+	source := branchSourceLine(t, path, "FIRST-MSG")
+
+	srv := newAppServer(appServerOpts{AccessSecret: "worker-secret", Agent: a})
+	h, err := newHost("host-secret-token", filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.StopAll()
+	h.mu.Lock()
+	h.workers[agentWorkerKey(id)] = &hostWorker{
+		Key: agentWorkerKey(id), Kind: "agent", Ref: id, Secret: "worker-secret", Handler: srv.Handler(),
+	}
+	h.attached = agentWorkerKey(id)
+	h.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/branch", strings.NewReader(`{"line":`+strconv.Itoa(source)+`,"text":"SECOND-MSG"}`))
+	req.Header.Set("Authorization", "Bearer host-secret-token")
+	rec := httptest.NewRecorder()
+	h.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("branch through the host: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(branchIndexPath(path)); err != nil {
+		t.Fatalf("branch file beside the instance session: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for srv.isBusy() {
+		if time.Now().After(deadline) {
+			t.Fatal("forked run did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
