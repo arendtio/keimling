@@ -59,3 +59,9 @@
 **As** a user on a narrow window, **I want** the workspaces column and the side area to open over the chat, **so that** the conversation stays the page and I can still reach Chapters.
 
 **Acceptance:** traces REQ-SB-12. The header menu opens and closes the workspaces column over the chat. That column and the side area are each about 80 percent of the screen width and the full screen height, and each scrolls inside. The header starts at the top of the screen. Chapters is a tab in the side area. The Sidebar control is an icon, and Focus, Fullscreen, and Close are icons. Sidebar opens and closes the side area over the chat. With both open, the workspaces column is in front. On a wide window both stay beside the chat, and Chapters and Sidebar are words in the header.
+
+## US-82 — See the context and the active agents while watching the run
+
+**As** a user, **I want** the context fill and the agents that are working on the Now view, **so that** I do not have to change tabs while I wait for the run.
+
+**Acceptance:** traces REQ-SB-13 and REQ-SB-14. The Now view shows the context figures and bar above the plan, with the same wording as the Context tab and the warning colour past the limit, from one context answer. Below the plan it lists the running, calling, and waiting agents with name, definition, and state; an idle agent is not listed, and with nothing active it says so in one short line. Choosing a row opens that agent.

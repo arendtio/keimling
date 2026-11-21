@@ -15,6 +15,9 @@
   `data_processing`, and `delegate` read that journal. They do not write it.
   The Now tab shows the open chat's workspace and thread and copies that
   address with the two ids.
+- The Now tab repeats the context fill that the Context tab shows at its top
+  (used, limit, percentage, remaining, source, and the bar), from the same
+  answer, so the meter stays visible beside the performance and the plan.
 
 ## Switching models and providers
 
