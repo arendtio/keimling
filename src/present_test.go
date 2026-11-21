@@ -49,6 +49,29 @@ func TestPresentToolStartAndResult(t *testing.T) {
 	}
 }
 
+func TestPresentToolEventsCarryThreadID(t *testing.T) {
+	var payloads []map[string]any
+	a := &Agent{
+		Cfg: Config{ThreadID: "th-2"},
+		Emit: func(kind, text string) {
+			var m map[string]any
+			if kind == "tool" && json.Unmarshal([]byte(text), &m) == nil {
+				payloads = append(payloads, m)
+			}
+		},
+	}
+	a.presentToolStart("exec", `{"command":"echo hi"}`)
+	a.presentToolResult("exec", "echo hi", `{"command":"echo hi"}`, "hi", "", true, false)
+	if len(payloads) != 2 {
+		t.Fatalf("payloads=%d", len(payloads))
+	}
+	for _, p := range payloads {
+		if p["thread_id"] != "th-2" {
+			t.Fatalf("missing thread id: %v", p)
+		}
+	}
+}
+
 func TestPresentFinish(t *testing.T) {
 	var payload map[string]any
 	a := &Agent{

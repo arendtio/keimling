@@ -6031,6 +6031,7 @@
   }
 
   function handleStructuredTool(payload) {
+    if (payload && payload.thread_id && payload.thread_id !== currentThreadID) return;
     if (!eventsForThisView()) return;
     finishLiveThinking();
     if (payload.phase === "start") {

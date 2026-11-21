@@ -53,10 +53,11 @@ func (a *Agent) presentAssistant(text string, delta, replace bool) {
 func (a *Agent) presentToolStart(name, args string) {
 	cmd := toolCommandLabel(name, args)
 	a.emitJSON("tool", map[string]any{
-		"phase":   "start",
-		"name":    name,
-		"command": cmd,
-		"input":   args,
+		"phase":     "start",
+		"name":      name,
+		"command":   cmd,
+		"input":     args,
+		"thread_id": a.Cfg.ThreadID,
 	})
 	banner := renderToolCall(name, args)
 	if banner != "" && !strings.HasSuffix(banner, "\n") {
@@ -70,13 +71,14 @@ func (a *Agent) presentToolStart(name, args string) {
 // When filtered is false, result is the single display output and raw should be empty.
 func (a *Agent) presentToolResult(name, command, input, result, raw string, ok, filtered bool) {
 	payload := map[string]any{
-		"phase":    "result",
-		"name":     name,
-		"command":  command,
-		"input":    input,
-		"result":   result,
-		"ok":       ok,
-		"filtered": filtered,
+		"phase":     "result",
+		"name":      name,
+		"command":   command,
+		"input":     input,
+		"result":    result,
+		"ok":        ok,
+		"filtered":  filtered,
+		"thread_id": a.Cfg.ThreadID,
 	}
 	if filtered && strings.TrimSpace(raw) != "" {
 		payload["raw"] = raw
