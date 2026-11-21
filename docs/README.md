@@ -16,6 +16,7 @@ was previously called *tinyagent*.
 | [spend-ledger.md](spend-ledger.md) | Cost and provider balance history: where the ledger lives and how to delete it |
 | [security-and-quality.md](security-and-quality.md) | Safety rules, deferred work, acceptance criteria |
 | [camera-share.md](camera-share.md) | Live camera share beside the chat and the `camera_snapshot` tool |
+| [cli-parity.md](cli-parity.md) | Web-UI vs CLI feature parity: per-feature matrix, gaps, ambiguities |
 
 ## Related documents
 
