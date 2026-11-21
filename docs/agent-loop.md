@@ -133,3 +133,14 @@ with that path and the user's question in the user's words, plus earlier
 conversation that question depends on. The picture is sent only on that call,
 and the conversation keeps the text answer. Another question uses the same path
 again.
+
+## Starting an agent in the background
+
+`spawn_agent` and `spawn_team` start instances without taking the view. The host
+creates the instance and leaves its attached target as it was, so the user stays
+in the chat they were reading. The new instance shows up in the sidebar and
+opens on a click. The tool result says so as well, because the calling model
+would otherwise describe a switch that did not happen. A task passed to the
+start is queued on the new instance, and the host wake loop starts the worker
+for it, so nothing waits for a click. Messaging the instance works the same
+way: `message_agent` starts its worker when a line is waiting.
