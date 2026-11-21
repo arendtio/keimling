@@ -82,6 +82,7 @@
   var STORAGE_ARTIFACT_MODE = "keimling.artifact_mode";
   var STORAGE_SIDEBAR_TAB = "keimling.sidebar_tab";
   var STORAGE_SIDEBAR_OPEN = "keimling.sidebar_open";
+  var STORAGE_COMPOSER_PAGE = "keimling.composer_page";
   var sideTab = "now";
   var sidePhase = "idle";
   var sideRate = 0;
@@ -378,6 +379,7 @@
   var composerNarrow = window.matchMedia("(max-width: 840px)");
   var composerMobile = composerNarrow.matches;
   var composerPageId = "text";
+  var composerPageThread = "";
   var realtimeReady = false;
   var callLive = false;
   var callMuted = false;
@@ -2936,9 +2938,28 @@
     if (!shift) fitComposer();
   }
 
-  function showComposerPage(id) {
+  function saveComposerPage() {
+    if (!currentThreadID) return;
+    try {
+      localStorage.setItem(STORAGE_COMPOSER_PAGE + "." + currentThreadID, composerPageId);
+    } catch (e) { /* private mode */ }
+  }
+
+  // Per-thread input mode: only text/dictate/call, never recording or call state.
+  function restoreComposerPage() {
+    var saved = "";
+    if (currentThreadID) {
+      try { saved = localStorage.getItem(STORAGE_COMPOSER_PAGE + "." + currentThreadID) || ""; } catch (e) { saved = ""; }
+    }
+    if (composerPageList().indexOf(saved) < 0) saved = "text";
+    if (saved === composerPageId) return;
+    showComposerPage(saved, true);
+  }
+
+  function showComposerPage(id, restoring) {
     var list = composerPageList();
     composerPageId = list.indexOf(id) < 0 ? "text" : id;
+    if (!restoring) saveComposerPage();
     setComposerMore(false);
     placeComposerControls();
   }
@@ -6384,6 +6405,10 @@
         if (epoch !== sessionEpoch) return;
         if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
         applySession(j);
+        if (currentThreadID !== composerPageThread) {
+          composerPageThread = currentThreadID;
+          restoreComposerPage();
+        }
       });
     });
   }
@@ -11443,7 +11468,8 @@
           sendMessage(el.value, el === dictateDraft ? { dictate: true } : undefined);
           return;
         }
-        el.focus();
+        // Keep the focus where it was: focusing the draft would open the
+        // on-screen keyboard and shift the whole mobile layout.
       })
       .catch(function (err) {
         voiceWorking = false;
