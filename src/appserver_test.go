@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -862,7 +863,6 @@ func TestPeerDeliveryWakesTheAttachedThreadOnce(t *testing.T) {
 	if err != nil || len(foreign) != 1 || !strings.Contains(string(foreign[0]), "elsewhere") {
 		t.Fatalf("foreign thread record: %v %v", foreign, err)
 	}
-}
 }
 
 // branchSourceLine returns the journal line of the last user message that
