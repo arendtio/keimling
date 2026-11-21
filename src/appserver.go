@@ -57,6 +57,14 @@ type appServer struct {
 	speakerMu             sync.Mutex
 	speaker               *speakerPipe
 	speakerDrop           bool
+
+	// peerWoken records that the last run started here came from a peer
+	// message. A further peer message does not wake the thread until the
+	// human writes, so two agents cannot answer each other forever.
+	peerWoken bool
+	// startPeerRun starts the run for a peer message. Tests replace it to
+	// observe the wake without a model call.
+	startPeerRun func(text, ws, threadID string, item AgentQueueItem) bool
 }
 
 func newAppServer(opts appServerOpts) *appServer {
@@ -2935,6 +2943,7 @@ func (s *appServer) handleBranch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.noteUserTurn()
 	if !s.startAgentRun(strings.TrimSpace(body.Text)) {
 		s.agent.branchUserReady = false
 		http.Error(w, "The agent is still working.", http.StatusConflict)
@@ -3267,7 +3276,8 @@ func (s *appServer) handleThreadDeliver(w http.ResponseWriter, r *http.Request) 
 	s.mu.Lock()
 	busy := s.busy
 	s.mu.Unlock()
-	if threadID == running && s.agent.Journal != nil {
+	attached := threadID == running && s.agent.Journal != nil
+	if attached {
 		raw, err := json.Marshal(item)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -3292,6 +3302,12 @@ func (s *appServer) handleThreadDeliver(w http.ResponseWriter, r *http.Request) 
 		"text":      text,
 		"thread_id": threadID,
 	})
+	if attached {
+		// A peer message wakes the attached thread when it is idle. The item is
+		// stored already, so a wake that does not start stays silent for the
+		// sender: no 5xx and no retry loop.
+		s.wakeAttachedThreadForPeer(name, text, wsID, threadID)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
@@ -3301,6 +3317,7 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 	if text == "" {
 		return false, fmt.Errorf("text required")
 	}
+	s.noteUserTurn()
 	inst := ""
 	if s.agent != nil {
 		inst = strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
@@ -3359,6 +3376,45 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 
 func (s *appServer) startAgentRun(text string) bool {
 	return s.startAgentRunWake(text, "", "", AgentQueueItem{})
+}
+
+// wakeAttachedThreadForPeer starts a run for a peer message that was just
+// appended to the attached thread. The text carries the peer name in the form
+// parsePeerUserText reads, so the run shows it as a peer message and not as
+// user text. A busy agent keeps the message for the run in flight, and one peer
+// message wakes the thread at most once until the human writes (noteUserTurn),
+// which bounds a chain of agents answering each other to one step. It reports
+// whether a run started.
+func (s *appServer) wakeAttachedThreadForPeer(name, text, ws, threadID string) bool {
+	s.mu.Lock()
+	if s.busy || s.peerWoken || s.agent == nil {
+		s.mu.Unlock()
+		return false
+	}
+	s.peerWoken = true
+	wake := s.startPeerRun
+	s.mu.Unlock()
+	if wake == nil {
+		wake = s.startAgentRunWake
+	}
+	if wake(formatPeerUserText(name, text), ws, threadID, AgentQueueItem{}) {
+		return true
+	}
+	// Nothing started (a race with another run or a closed realtime call). Allow
+	// the next peer message to wake the thread again instead of swallowing it.
+	s.mu.Lock()
+	s.peerWoken = false
+	s.mu.Unlock()
+	fmt.Fprintf(os.Stderr, "keimling: peer message for thread %s stored, no run started\n", threadID)
+	return false
+}
+
+// noteUserTurn ends a peer chain: once the human writes, a peer message may
+// wake the attached thread again.
+func (s *appServer) noteUserTurn() {
+	s.mu.Lock()
+	s.peerWoken = false
+	s.mu.Unlock()
 }
 
 // startAgentRunWake starts a run of the shell agent for a queued wake. It

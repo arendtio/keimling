@@ -122,6 +122,21 @@ choice. Compaction, autopilot, text delegates, and review stay on their Settings
 models. A delegate call that looks at an attached image uses the chat model
 that can see, and that call does not include the conversation.
 
+## Peer messages
+
+An agent talks to another agent or to a workspace thread with `message_agent`.
+The text lands as a `keimling_peer` item in the target's journal. When the
+target is the thread this process runs and no run is in flight, the stored peer
+message starts a run with the text `[From <name>] <body>`, so the run and the
+transcript show a peer message and not user text. A busy thread stores the
+message for the run already in flight and starts nothing. A message for another
+thread is stored only; the process neither switches to that thread nor starts
+it. A peer message does not wake the attached thread a second time until the
+user writes in it, so two agents cannot answer each other forever; the user's
+next message re-arms the wake. A wake that cannot start leaves the stored
+message in place and does not report an error to the sender, so the sender does
+not retry.
+
 ## Delegation
 
 `delegate` solves one bounded, self-contained reasoning task with an independent
