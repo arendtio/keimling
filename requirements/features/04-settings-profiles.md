@@ -67,3 +67,13 @@ Save on Models applies providers + behaviour to the attached agent process.
 - **Fit criterion:** The first settings section is labeled Backend and still lists the current connection, this machine's connections, and the server bookmarks. The dialog is wider than before and stays within the window. A plugin row whose command is a very long path wraps or scrolls inside the dialog, and the dialog's box does not grow past its width.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SET-3 Settings covers the page
+
+- **Bin:** explicit requirement
+- **Statement:** The settings dialog shall cover the whole page, including the header.
+- **Origin:** User, 2026-11-21 (paraphrase: the settings dialog should lie over the entire page, because it currently sits behind the header).
+- **Rationale:** A dialog that leaves the header in front looks like part of the page is still the chat, and the header controls stay reachable while settings is open.
+- **Fit criterion:** With Settings open on a narrow window, the dialog's backdrop covers the header. A point on the header hits the dialog, not the header button underneath. Closing Settings shows the header again.
+- **Priority:** shall
+- **Status:** confirmed

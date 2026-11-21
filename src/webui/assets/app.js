@@ -370,6 +370,14 @@
   var audioInput = document.getElementById("audio-input");
   var callBtn = document.getElementById("call");
   var callMuteBtn = document.getElementById("call-mute");
+  var callShareBtn = document.getElementById("call-share");
+  var dictateDraft = document.getElementById("dictate-draft");
+  var dictateMuteBtn = document.getElementById("dictate-mute");
+  var dictateCancelBtn = document.getElementById("dictate-cancel");
+  var dictateSendBtn = document.getElementById("dictate-send");
+  var composerNarrow = window.matchMedia("(max-width: 840px)");
+  var composerMobile = composerNarrow.matches;
+  var composerPageId = "text";
   var realtimeReady = false;
   var callLive = false;
   var callMuted = false;
@@ -414,6 +422,10 @@
   var lastRecording = null;
   var recording = false;
   var voiceSendPending = false;
+  var voiceTarget = "msg";
+  var voiceDiscard = false;
+  var voiceWorking = false;
+  var dictateMuted = false;
 
   function sameOriginLocal() {
     var h = location.hostname;
@@ -2768,7 +2780,13 @@
       mic: ["M9 4.5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M6.5 11a5.5 5.5 0 0 0 11 0", "M12 16.5V20"],
       "mic-off": ["M9 4.5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M6.5 11a5.5 5.5 0 0 0 11 0", "M12 16.5V20", "M5 5l14 14"],
       cassette: ["M4 8h16v9H4z", "M8 12.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0", "M12.8 12.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0"],
-      phone: ["M8 4h2.8l1.2 3.6-2 1.1a11 11 0 0 0 5.3 5.3l1.1-2 3.6 1.2V16a2 2 0 0 1-2 2A13 13 0 0 1 6 6a2 2 0 0 1 2-2z"]
+      phone: ["M8 4h2.8l1.2 3.6-2 1.1a11 11 0 0 0 5.3 5.3l1.1-2 3.6 1.2V16a2 2 0 0 1-2 2A13 13 0 0 1 6 6a2 2 0 0 1 2-2z"],
+      menu: ["M4 7h16", "M4 12h16", "M4 17h16"],
+      sidebar: ["M4 5h16v14H4z", "M15 5v14"],
+      dock: ["M4 5h16v14H4z", "M15 5v14"],
+      focus: ["M9 5H5v4", "M15 5h4v4", "M19 15v4h-4", "M5 15v4h4"],
+      fullscreen: ["M14 4h6v6", "M20 4l-5 5", "M4 10V4h6", "M4 4l5 5", "M4 14v6h6", "M4 20l5-5", "M14 20h6v-6", "M20 20l-5-5"],
+      close: ["M6 6l12 12", "M18 6L6 18"]
     };
     var turn = name === "hangup" ? 135 : 0;
     strokes = strokes[turn ? "phone" : name] || ["M12 5v14", "M5 12h14"];
@@ -2823,14 +2841,175 @@
     btn.classList.remove("show-label");
   }
 
+  function moreMenuHome() {
+    return document.querySelector("#composer .composer-more");
+  }
+  function clearMoreMenuStyle() {
+    if (!composerMoreMenu) return;
+    composerMoreMenu.classList.remove("is-portaled");
+    composerMoreMenu.style.position = "";
+    composerMoreMenu.style.left = "";
+    composerMoreMenu.style.right = "";
+    composerMoreMenu.style.top = "";
+    composerMoreMenu.style.bottom = "";
+    composerMoreMenu.style.zIndex = "";
+    composerMoreMenu.style.maxHeight = "";
+    composerMoreMenu.style.overflowY = "";
+  }
   function setComposerMore(open) {
     if (!composerMoreMenu || !composerMoreBtn) return;
-    composerMoreMenu.hidden = !open;
+    var home = moreMenuHome();
     composerMoreBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!(open && composerMobile)) {
+      if (home && composerMoreMenu.parentElement !== home) home.appendChild(composerMoreMenu);
+      clearMoreMenuStyle();
+      composerMoreMenu.hidden = !open;
+      return;
+    }
+    document.body.appendChild(composerMoreMenu);
+    composerMoreMenu.classList.add("is-portaled");
+    composerMoreMenu.hidden = false;
+    composerMoreMenu.style.position = "fixed";
+    composerMoreMenu.style.right = "auto";
+    composerMoreMenu.style.zIndex = "70";
+    composerMoreMenu.style.maxHeight = "";
+    composerMoreMenu.style.overflowY = "auto";
+    var r = composerMoreBtn.getBoundingClientRect();
+    var menuW = composerMoreMenu.offsetWidth || 220;
+    var space = Math.max(96, r.top - 12);
+    composerMoreMenu.style.maxHeight = space + "px";
+    composerMoreMenu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8)) + "px";
+    composerMoreMenu.style.top = "auto";
+    composerMoreMenu.style.bottom = (window.innerHeight - r.top + 6) + "px";
   }
 
-  function placeComposerControls() {
+  function composerPageList() {
+    var list = ["text"];
+    if (voiceOK) list.push("dictate");
+    if (realtimeReady) list.push("call");
+    return list;
+  }
+
+  function paintComposerTrack(shift) {
+    var list = composerPageList();
+    var track = document.getElementById("composer-track");
+    var dots = document.querySelector(".composer-dots");
+    var n = list.length;
+    if (list.indexOf(composerPageId) < 0) composerPageId = "text";
+    if (dots) dots.hidden = !composerMobile || n < 2;
+    document.querySelectorAll(".composer-dot").forEach(function (dot) {
+      var id = dot.getAttribute("data-page");
+      dot.hidden = list.indexOf(id) < 0;
+      if (id === composerPageId) dot.setAttribute("aria-current", "true");
+      else dot.removeAttribute("aria-current");
+    });
+    document.querySelectorAll(".composer-page").forEach(function (page) {
+      page.hidden = list.indexOf(page.getAttribute("data-page")) < 0;
+    });
+    if (!track) return;
+    document.querySelectorAll(".composer-page").forEach(function (page) {
+      if (!composerMobile) {
+        page.style.width = "";
+        page.style.flex = "";
+        page.style.maxWidth = "";
+      }
+    });
+    if (!composerMobile) {
+      track.style.transform = "";
+      track.style.width = "";
+      track.style.height = "";
+      return;
+    }
+    var index = Math.max(0, list.indexOf(composerPageId));
+    var stage = track.parentElement;
+    var pageW = stage ? stage.clientWidth : 0;
+    if (pageW < 1) pageW = track.getBoundingClientRect().width || 0;
+    track.style.width = (n * pageW) + "px";
+    list.forEach(function (id) {
+      var page = document.getElementById("composer-page-" + id);
+      if (!page) return;
+      page.style.flex = "0 0 " + pageW + "px";
+      page.style.width = pageW + "px";
+      page.style.maxWidth = pageW + "px";
+    });
+    track.style.transform = "translateX(" + ((-index * pageW) + (shift || 0)) + "px)";
+    if (!shift) fitComposer();
+  }
+
+  function showComposerPage(id) {
+    var list = composerPageList();
+    composerPageId = list.indexOf(id) < 0 ? "text" : id;
+    setComposerMore(false);
+    placeComposerControls();
+  }
+
+  function composerRubber(dx) {
+    var list = composerPageList();
+    var index = list.indexOf(composerPageId);
+    if ((index <= 0 && dx > 0) || (index >= list.length - 1 && dx < 0)) return dx * 0.28;
+    return dx;
+  }
+
+  function syncDictateChrome() {
+    if (dictateDraft) dictateDraft.hidden = !(voiceWorking || (dictateDraft.value && dictateDraft.value.trim()));
+    if (dictateMuteBtn) {
+      dictateMuteBtn.hidden = !recording;
+      setControlLabel(dictateMuteBtn, dictateMuted ? "Unmute" : "Mute", dictateMuted ? "Turn the microphone back on" : "Pause the microphone");
+      setGlyph(dictateMuteBtn, dictateMuted ? "mic-off" : "mic");
+    }
+    if (dictateSendBtn && send) {
+      var cap = send.querySelector(".btn-caption");
+      dictateSendBtn.textContent = cap ? cap.textContent : "Send";
+      dictateSendBtn.disabled = !!send.disabled || voiceWorking || (!recording && !(dictateDraft && dictateDraft.value.trim()));
+    }
+    if (dictateCancelBtn) dictateCancelBtn.disabled = voiceWorking || (!recording && !(dictateDraft && dictateDraft.value.trim()));
+    var fab = document.getElementById("dictate-fab");
+    if (fab) fab.classList.toggle("is-working", !!voiceWorking);
+    if (dictateDraft && dictateDraft.hidden) dictateDraft.style.height = "";
+    fitComposer();
+  }
+
+  function placeMobileControls() {
+    var textPage = document.getElementById("composer-page-text");
+    var textBar = document.getElementById("composer-text-bar");
+    var field = document.querySelector(".composer-field");
+    var actions = document.querySelector(".composer-actions");
+    var dictateFab = document.getElementById("dictate-fab");
+    var callFab = document.getElementById("call-fab");
+    var muteSlot = document.getElementById("call-mute-slot");
+    var stopSlot = document.getElementById("call-stop-slot");
+    if (textPage && field && textBar && field.parentElement !== textPage) textPage.insertBefore(field, textBar);
+    if (textBar && actions && textBar.firstElementChild !== actions) textBar.insertBefore(actions, textBar.firstChild);
+    if (textBar && send && send.parentElement !== textBar) textBar.appendChild(send);
+    if (dictateFab && voiceBtn && voiceBtn.parentElement !== dictateFab) dictateFab.appendChild(voiceBtn);
+    if (callFab && callBtn && callBtn.parentElement !== callFab) callFab.appendChild(callBtn);
+    if (muteSlot && callMuteBtn && callMuteBtn.parentElement !== muteSlot) muteSlot.appendChild(callMuteBtn);
+    if (stopBtn && textBar && stopSlot) {
+      var stopHome = composerPageId === "text" && !stopBtn.hidden ? textBar : stopSlot;
+      if (stopBtn.parentElement !== stopHome) {
+        if (stopHome === textBar) textBar.insertBefore(stopBtn, send);
+        else stopSlot.appendChild(stopBtn);
+      }
+      if (composerPageId === "call") stopBtn.hidden = false;
+    }
+    if (callShareBtn) callShareBtn.hidden = !callLive;
+    syncDictateChrome();
+    paintComposerTrack(0);
+  }
+
+  function placeDesktopControls() {
     var col = document.querySelector(".composer-send-col");
+    var field = document.querySelector(".composer-field");
+    var main = document.querySelector(".composer-main");
+    var stage = document.querySelector(".composer-stage");
+    var actions = document.querySelector(".composer-actions");
+    if (field && main && field.parentElement !== main) {
+      if (stage && stage.parentElement === main) main.insertBefore(field, stage);
+      else main.appendChild(field);
+    }
+    if (field && actions && actions.parentElement !== field) field.appendChild(actions);
+    if (col && send && send.parentElement !== col) col.appendChild(send);
+    paintComposerTrack(0);
     if (!composerMoreMenu || !col || !send) return;
     function parked(btn, where) {
       if (!btn) return true;
@@ -2853,20 +3032,78 @@
     if (stopBtn) park(stopBtn, "col");
   }
 
-  function fitComposer() {
-    if (!msg) return;
-    var style = window.getComputedStyle(msg);
+  function placeComposerControls() {
+    var form = document.getElementById("composer");
+    if (form) form.classList.toggle("is-mobile", composerMobile);
+    if (composerMobile) placeMobileControls();
+    else placeDesktopControls();
+    pinComposer();
+  }
+
+  function fieldMin(el) {
+    var style = window.getComputedStyle(el);
     var line = parseFloat(style.lineHeight);
     if (!isFinite(line) || line <= 0) line = (parseFloat(style.fontSize) || 16) * 1.35;
     var pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-    var max = Math.ceil(line * 7.5 + pad);
-    msg.style.height = "auto";
-    var need = msg.scrollHeight;
-    var next = need > max ? max : need;
-    var min = Math.ceil(line + pad);
-    if (next < min) next = min;
-    msg.style.height = next + "px";
-    msg.style.overflowY = need > max + 1 ? "auto" : "hidden";
+    return Math.ceil(line + pad);
+  }
+  // Resting height of a dictation or call page, without a grown transcript.
+  function composerRestHeight(page) {
+    if (!page || page.hidden) return 0;
+    var extra = 0;
+    var draft = page.querySelector("#dictate-draft");
+    if (draft && !draft.hidden) extra = draft.offsetHeight;
+    return Math.max(0, page.offsetHeight - extra);
+  }
+  function fitComposer() {
+    var form = document.getElementById("composer");
+    if (!form) return;
+    var fields = [];
+    if (msg) fields.push(msg);
+    if (dictateDraft && !dictateDraft.hidden) fields.push(dictateDraft);
+    if (!fields.length) { pinComposer(); return; }
+    fields = fields.filter(function (el) { return !!el.offsetParent; });
+    if (!fields.length) { pinComposer(); return; }
+    var track = document.getElementById("composer-track");
+    var cap = Math.floor(window.innerHeight * (composerMobile ? 0.7 : 0.5));
+    var allPages = composerMobile ? Array.prototype.slice.call(document.querySelectorAll("#composer .composer-page")) : [];
+    allPages.forEach(function (page) { page.style.alignSelf = "flex-start"; });
+    fields.forEach(function (el) { el.style.height = fieldMin(el) + "px"; });
+    var outside = composerMobile && track ? Math.max(0, form.offsetHeight - track.offsetHeight) : 0;
+    fields.forEach(function (el) {
+      var page = el.closest(".composer-page");
+      var min = fieldMin(el);
+      var chrome = page ? (page.offsetHeight - el.offsetHeight) + outside : form.offsetHeight - el.offsetHeight;
+      var max = Math.max(min, cap - chrome);
+      var need = el.scrollHeight;
+      var next = Math.min(Math.max(need, min), max);
+      el.style.height = next + "px";
+      el.style.overflowY = need > next + 1 ? "auto" : "hidden";
+    });
+    var floor = 0;
+    if (composerMobile) {
+      floor = Math.max(
+        composerRestHeight(document.getElementById("composer-page-call")),
+        composerRestHeight(document.getElementById("composer-page-dictate"))
+      );
+      var textPage = document.getElementById("composer-page-text");
+      var textField = textPage ? textPage.querySelector("textarea") : null;
+      if (textPage && textField && floor > textPage.offsetHeight) {
+        textField.style.height = (textField.offsetHeight + floor - textPage.offsetHeight) + "px";
+      }
+    }
+    var visible = document.getElementById("composer-page-" + composerPageId);
+    var trackH = visible ? visible.offsetHeight : 0;
+    if (composerMobile && floor > trackH) trackH = floor;
+    allPages.forEach(function (page) { page.style.alignSelf = ""; });
+    if (!track) return;
+    track.style.height = composerMobile && trackH ? trackH + "px" : "";
+    pinComposer();
+  }
+  function pinComposer() {
+    var form = document.getElementById("composer");
+    if (!form || !composerMobile) return;
+    document.documentElement.style.setProperty("--composer-h", Math.ceil(form.offsetHeight) + "px");
   }
 
   function setState(s) {
@@ -3035,11 +3272,12 @@
     all.type = "button";
     all.className = "chapter" + (!activeChapter ? " active" : "");
     all.textContent = "All activity";
-    all.addEventListener("click", function () {
+      all.addEventListener("click", function () {
       activeChapter = null;
       renderChapters();
       renderThread();
       closeChaptersFlyout();
+      if (composerNarrow.matches) closeArtifactPane();
     });
     chaptersEl.appendChild(all);
     chapters.forEach(function (ch) {
@@ -3059,6 +3297,7 @@
         renderChapters();
         renderThread();
         closeChaptersFlyout();
+        if (composerNarrow.matches) closeArtifactPane();
       });
       chaptersEl.appendChild(btn);
     });
@@ -8142,7 +8381,7 @@
     if (typeof p.sidebar_width === "number" && p.sidebar_width > 0) {
       saveArtifactWidth(applyArtifactWidth(p.sidebar_width));
     }
-    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
+    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
     if (known[p.sidebar_tab]) sideTab = p.sidebar_tab;
     if (p.sidebar_open === true) {
       selectSidebar(sideTab);
@@ -8157,13 +8396,14 @@
   function syncArtifactModeUI() {
     if (!artifactPane) return;
     var overlay = artifactViewMode === "overlay";
+    var narrow = composerNarrow.matches;
     artifactPane.classList.toggle("mode-overlay", overlay);
     artifactPane.classList.toggle("mode-dock", !overlay);
     if (shellEl) {
       shellEl.classList.toggle("artifact-overlay", overlay && !artifactPane.hidden);
-      shellEl.classList.toggle("artifact-open", !artifactPane.hidden && !overlay);
+      shellEl.classList.toggle("artifact-open", !artifactPane.hidden && !overlay && !narrow);
     }
-    if (artifactBackdrop) artifactBackdrop.hidden = !overlay || artifactPane.hidden;
+    if (artifactBackdrop) artifactBackdrop.hidden = artifactPane.hidden || (!overlay && !narrow);
     if (artifactModeDock) artifactModeDock.hidden = !overlay;
     if (artifactModeOverlay) artifactModeOverlay.hidden = overlay;
   }
@@ -8176,6 +8416,7 @@
     if (!artifactPane) return;
     artifactPane.hidden = false;
     syncArtifactModeUI();
+    syncMobileBar();
     if (sidebarToggle) sidebarToggle.setAttribute("aria-pressed", "true");
   }
   function syncSidebarOpen() {
@@ -8184,7 +8425,8 @@
   }
   function selectSidebar(tab, opts) {
     opts = opts || {};
-    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1 };
+    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
+    if (tab === "chapters" && !composerNarrow.matches) tab = "now";
     if (!known[tab]) tab = "now";
     sideTab = tab;
     try { localStorage.setItem(STORAGE_SIDEBAR_TAB, tab); } catch (e) {}
@@ -8213,7 +8455,47 @@
     }
     if (tab === "connections") loadMcpList().catch(function () {});
     if (tab === "instructions") loadThreadAutopilot();
+    if (tab === "chapters") renderChapters();
     syncSidePoll();
+  }
+  function syncMobileBar() {
+    var bar = document.querySelector(".paper-toolbar");
+    if (!bar) return;
+    var bottom = Math.ceil(bar.getBoundingClientRect().bottom);
+    if (bottom <= 0) return;
+    document.documentElement.style.setProperty("--mobile-bar", bottom + "px");
+  }
+  function setNavOpen(open) {
+    var side = document.getElementById("app-sidebar");
+    var bd = document.getElementById("nav-backdrop");
+    var btn = document.getElementById("nav-toggle");
+    open = !!open && composerNarrow.matches;
+    if (shellEl) shellEl.classList.toggle("nav-open", open);
+    if (bd) bd.hidden = !open;
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (side) side.setAttribute("aria-hidden", composerNarrow.matches && !open ? "true" : "false");
+    if (open) {
+      syncMobileBar();
+      setComposerMore(false);
+    }
+  }
+  function placeChapters() {
+    var mount = document.getElementById("chapters-mount");
+    var flyout = document.getElementById("chapters-flyout");
+    if (!chaptersEl || !mount || !flyout) return;
+    var narrow = composerNarrow.matches;
+    var dest = narrow ? mount : flyout;
+    if (chaptersEl.parentElement !== dest) dest.appendChild(chaptersEl);
+    if (narrow && chaptersFlyout) {
+      chaptersFlyout.hidden = true;
+      if (chaptersToggle) chaptersToggle.setAttribute("aria-expanded", "false");
+    }
+    syncMobileBar();
+    if (!narrow) setNavOpen(false);
+    if (!narrow && sideTab === "chapters") selectSidebar("now", { keepClosed: true });
+    var side = document.getElementById("app-sidebar");
+    if (side) side.setAttribute("aria-hidden", narrow && !(shellEl && shellEl.classList.contains("nav-open")) ? "true" : "false");
+    requestAnimationFrame(syncMobileBar);
   }
   var sidePollTimer = null;
   function syncSidePoll() {
@@ -8403,8 +8685,13 @@
   }
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Escape") return;
+    if (shellEl && shellEl.classList.contains("nav-open")) {
+      e.preventDefault();
+      setNavOpen(false);
+      return;
+    }
     if (!artifactPane || artifactPane.hidden) return;
-    if (artifactViewMode === "overlay") {
+    if (artifactViewMode === "overlay" || composerNarrow.matches) {
       e.preventDefault();
       closeArtifactPane();
     }
@@ -8977,7 +9264,7 @@
   }
   document.addEventListener("click", function (e) {
     if (!composerMoreMenu || composerMoreMenu.hidden) return;
-    if (e.target.closest && e.target.closest(".composer-more")) return;
+    if (e.target.closest && (e.target.closest(".composer-more") || e.target.closest("#composer-more-menu"))) return;
     setComposerMore(false);
   });
   document.addEventListener("keydown", function (e) {
@@ -9018,6 +9305,22 @@
       if (open) renderChapters();
     });
   }
+  var navToggle = document.getElementById("nav-toggle");
+  if (navToggle) {
+    navToggle.addEventListener("click", function () {
+      setNavOpen(!(shellEl && shellEl.classList.contains("nav-open")));
+    });
+  }
+  var navBackdrop = document.getElementById("nav-backdrop");
+  if (navBackdrop) navBackdrop.addEventListener("click", function () { setNavOpen(false); });
+  var appSidebar = document.getElementById("app-sidebar");
+  if (appSidebar) {
+    appSidebar.addEventListener("click", function (e) {
+      if (!composerNarrow.matches) return;
+      if (e.target.closest("#thread-list button, #agent-list button, #new-chat, #open-connection")) setNavOpen(false);
+    });
+  }
+  placeChapters();
   if (sidebarToggle) {
     sidebarToggle.addEventListener("click", function () {
       closeChaptersFlyout();
@@ -9805,15 +10108,26 @@
     return false;
   }
 
-  function sendMessage(text) {
+  function clearSentDraft(opts) {
+    if (opts && opts.dictate) {
+      if (dictateDraft) dictateDraft.value = "";
+      syncDictateChrome();
+      return;
+    }
+    msg.value = "";
+    fitComposer();
+  }
+
+  function sendMessage(text, opts) {
+    opts = opts || {};
     text = String(text || "").trim();
-    var files = pendingFiles.slice();
+    var files = opts.dictate ? [] : pendingFiles.slice();
     if (!text && !files.length) return;
     if (!sendMessage.releasing) {
       send.disabled = true;
       Promise.resolve(modelSave).then(function () {
         sendMessage.releasing = true;
-        try { sendMessage(text); } finally { sendMessage.releasing = false; }
+        try { sendMessage(text, opts); } finally { sendMessage.releasing = false; }
       }, function () {
         send.disabled = false;
       });
@@ -9850,10 +10164,11 @@
       })
       .then(function (j) {
         if (j && j.delivered && j.delivered.length) {
-          msg.value = "";
-          fitComposer();
-          mentionPicks = [];
-          pendingFiles = [];
+          clearSentDraft(opts);
+          if (!opts.dictate) {
+            mentionPicks = [];
+            pendingFiles = [];
+          }
           renderAttachRow();
           var bodyText = j.text != null ? String(j.text) : text;
           var sentFiles = (j && j.files) || files.map(function (f) { return f.name; });
@@ -9901,10 +10216,11 @@
             });
           });
         }
-        msg.value = "";
-        fitComposer();
-        mentionPicks = [];
-        pendingFiles = [];
+        clearSentDraft(opts);
+        if (!opts.dictate) {
+          mentionPicks = [];
+          pendingFiles = [];
+        }
         renderAttachRow();
         messages.push({ role: "user", text: text, files: files.map(function (f) { return f.name; }) });
         noteGrowthMessage({ role: "user" });
@@ -11015,6 +11331,9 @@
     }
     shareScreen();
   });
+  if (callShareBtn) callShareBtn.addEventListener("click", function () {
+    if (screenBtn) screenBtn.click();
+  });
   var screenInputBtn = document.getElementById("screen-input");
   if (screenInputBtn) screenInputBtn.addEventListener("click", function () {
     shareScreen({ input: !screenInput, target: screenTarget, picked: true });
@@ -11085,7 +11404,13 @@
     uploadRecording(file, file.name || recordingName(file), false);
   });
 
+  function voiceDraftEl() {
+    return voiceTarget === "dictate" && dictateDraft ? dictateDraft : msg;
+  }
+
   function uploadRecording(blob, filename, sendAfter) {
+    voiceWorking = true;
+    syncDictateChrome();
     setVoiceStatus("Transcribing…");
     var fd = new FormData();
     fd.append("audio", blob, filename || recordingName(blob));
@@ -11101,22 +11426,28 @@
         });
       })
       .then(function (text) {
+        voiceWorking = false;
         text = String(text || "").trim();
+        var el = voiceDraftEl();
         if (!text) {
           setVoiceStatus("No speech detected.");
+          syncDictateChrome();
           return;
         }
-        if (msg.value && !/\s$/.test(msg.value)) msg.value += " ";
-        msg.value += text;
-        fitComposer();
+        if (el.value && !/\s$/.test(el.value)) el.value += " ";
+        el.value += text;
+        if (el === msg) fitComposer();
         setVoiceStatus("");
+        syncDictateChrome();
         if (sendAfter) {
-          sendMessage(msg.value);
+          sendMessage(el.value, el === dictateDraft ? { dictate: true } : undefined);
           return;
         }
-        msg.focus();
+        el.focus();
       })
       .catch(function (err) {
+        voiceWorking = false;
+        syncDictateChrome();
         setVoiceStatus("Voice: " + err);
       });
   }
@@ -11140,7 +11471,12 @@
   }
 
   function startRecording() {
-    if (!canUseVoice() || recording) return;
+    if (!canUseVoice() || recording || voiceWorking) return;
+    if (composerMobile) {
+      voiceTarget = "dictate";
+      showComposerPage("dictate");
+    } else voiceTarget = "msg";
+    dictateMuted = false;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setVoiceStatus("Microphone API unavailable in this WebView.");
       return;
@@ -11157,15 +11493,23 @@
         };
         mediaRecorder.onstop = function () {
           var sendAfter = voiceSendPending;
+          var discard = voiceDiscard;
           voiceSendPending = false;
+          voiceDiscard = false;
           recording = false;
+          dictateMuted = false;
           voiceBtn.classList.remove("recording");
           var type = mime || (mediaChunks[0] && mediaChunks[0].type) || "audio/webm";
           var blob = new Blob(mediaChunks, { type: type });
           mediaChunks = [];
-          if (blob.size) lastRecording = blob;
+          if (blob.size && !discard) lastRecording = blob;
           setState(agentState);
           stopTracks();
+          if (discard) {
+            setVoiceStatus("");
+            syncDictateChrome();
+            return;
+          }
           if (blob.size < 64) {
             setVoiceStatus("Recording too short.");
             return;
@@ -11178,7 +11522,7 @@
         voiceBtn.classList.add("recording");
         setVoiceStatus("Recording… Space = draft · Enter = send");
         setState(agentState);
-        msg.focus();
+        if (voiceTarget !== "dictate") msg.focus();
       })
       .catch(function (err) {
         setVoiceStatus("Mic permission: " + err);
@@ -11186,9 +11530,108 @@
   }
 
   voiceBtn.addEventListener("click", function () {
+    if (voiceWorking) return;
     if (recording) stopRecording(false);
     else startRecording();
   });
+
+  function sendDictate() {
+    if (voiceWorking) return;
+    if (recording) {
+      voiceTarget = "dictate";
+      stopRecording(true);
+      return;
+    }
+    if (!dictateDraft || !dictateDraft.value.trim()) return;
+    sendMessage(dictateDraft.value, { dictate: true });
+  }
+
+  function cancelDictate() {
+    dictateMuted = false;
+    if (recording) {
+      voiceDiscard = true;
+      stopRecording(false);
+    }
+    if (dictateDraft) dictateDraft.value = "";
+    setVoiceStatus("");
+    syncDictateChrome();
+  }
+
+  if (dictateCancelBtn) dictateCancelBtn.addEventListener("click", cancelDictate);
+  if (dictateSendBtn) dictateSendBtn.addEventListener("click", sendDictate);
+  if (dictateDraft) {
+    dictateDraft.addEventListener("input", syncDictateChrome);
+    dictateDraft.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendDictate();
+      }
+    });
+  }
+  if (dictateMuteBtn) dictateMuteBtn.addEventListener("click", function () {
+    if (!recording || !mediaStream) return;
+    dictateMuted = !dictateMuted;
+    mediaStream.getAudioTracks().forEach(function (t) { t.enabled = !dictateMuted; });
+    syncDictateChrome();
+  });
+  document.querySelectorAll(".composer-dot").forEach(function (dot) {
+    dot.addEventListener("click", function () { showComposerPage(dot.getAttribute("data-page")); });
+  });
+  (function bindComposerSwipe() {
+    var row = document.querySelector(".composer-row");
+    if (!row) return;
+    var drag = null;
+    row.addEventListener("pointerdown", function (e) {
+      if (!composerMobile || composerPageList().length < 2) return;
+      if (e.target.closest && e.target.closest("button, a, input, label")) return;
+      drag = { x: e.clientX, y: e.clientY, dx: 0, locked: false };
+    });
+    row.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      var dx = e.clientX - drag.x;
+      var dy = e.clientY - drag.y;
+      if (!drag.locked) {
+        if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          drag = null;
+          return;
+        }
+        drag.locked = true;
+        var track = document.getElementById("composer-track");
+        if (track) track.classList.add("is-dragging");
+        try { row.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+      drag.dx = dx;
+      paintComposerTrack(composerRubber(dx));
+    });
+    function endDrag() {
+      var g = drag;
+      drag = null;
+      var track = document.getElementById("composer-track");
+      if (track) track.classList.remove("is-dragging");
+      if (!g || !g.locked) {
+        paintComposerTrack(0);
+        return;
+      }
+      var list = composerPageList();
+      var index = list.indexOf(composerPageId);
+      if (g.dx > 48 && index > 0) showComposerPage(list[index - 1]);
+      else if (g.dx < -48 && index < list.length - 1) showComposerPage(list[index + 1]);
+      else paintComposerTrack(0);
+    }
+    row.addEventListener("pointerup", endDrag);
+    row.addEventListener("pointercancel", endDrag);
+  })();
+  if (composerNarrow.addEventListener) {
+    composerNarrow.addEventListener("change", function () {
+      composerMobile = composerNarrow.matches;
+      setComposerMore(false);
+      placeComposerControls();
+      placeChapters();
+      fitComposer();
+      if (artifactPane && !artifactPane.hidden) syncArtifactModeUI();
+    });
+  }
 
   // Voice/send hotkeys only while the chat composer is focused, so dialogs
   // (Skills search, settings, …) can use Space/Enter normally.
@@ -11279,9 +11722,13 @@
     } catch (e) {}
   }
   var geometryTimer = null;
+  window.addEventListener("scroll", syncMobileBar, true);
   window.addEventListener("resize", function () {
     if (geometryTimer) clearTimeout(geometryTimer);
     geometryTimer = setTimeout(persistWindowGeometry, 400);
+    syncMobileBar();
+    if (composerMobile) paintComposerTrack(0);
+    else fitComposer();
     if (!shellEl || !artifactPane || artifactPane.hidden || artifactViewMode === "overlay") return;
     var saved = 0;
     try { saved = parseInt(localStorage.getItem(STORAGE_ARTIFACT_WIDTH) || "", 10); } catch (e) {}
@@ -11305,6 +11752,8 @@
   }
   document.addEventListener("click", openLinkExternally, true);
   document.addEventListener("auxclick", openLinkExternally, true);
+
+  placeComposerControls();
 
   (function boot() {
     var qSecret = "";

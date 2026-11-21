@@ -517,7 +517,7 @@
 
   <div id="app" class="app" hidden>
     <div class="shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="app-sidebar">
         <div class="sidebar-top">
           <p class="brand brand-sidebar">
             <img id="brand-mark" class="brand-mark" src="/assets/keimling.svg" alt="Keimling">
@@ -874,6 +874,7 @@
       <main class="main">
         <header class="paper-toolbar">
           <div class="paper-toolbar-left">
+            <button type="button" id="nav-toggle" class="ghost nav-toggle" data-icon="menu" aria-label="Workspaces" aria-expanded="false" aria-controls="app-sidebar"></button>
             <button type="button" id="chapters-toggle" class="ghost" aria-expanded="false" aria-controls="chapters-flyout">Chapters</button>
             <div id="chapters-flyout" class="chapters-flyout" hidden>
               <nav id="chapters" class="chapters" aria-label="Session chapters"></nav>
@@ -884,7 +885,7 @@
             <button type="button" id="mcp-script-reload" class="ghost" hidden>Reload all</button>
           </div>
           <div class="paper-toolbar-right">
-            <button type="button" id="sidebar-toggle" class="ghost" aria-pressed="false" aria-controls="artifact-pane">Sidebar</button>
+            <button type="button" id="sidebar-toggle" class="ghost" data-icon="sidebar" aria-pressed="false" aria-controls="artifact-pane" aria-label="Sidebar"><span class="btn-caption">Sidebar</span></button>
           </div>
         </header>
 
@@ -914,6 +915,11 @@
 
           <datalist id="agent-model-suggestions"></datalist>
           <form id="composer" class="composer">
+            <div class="composer-dots" role="tablist" aria-label="Composer" hidden>
+              <button type="button" class="composer-dot" data-page="text" aria-label="Text"></button>
+              <button type="button" class="composer-dot" data-page="dictate" aria-label="Dictate"></button>
+              <button type="button" class="composer-dot" data-page="call" aria-label="Call"></button>
+            </div>
             <div class="composer-row">
               <div class="composer-main">
                 <p class="composer-meta">
@@ -953,6 +959,37 @@
                     <button id="send" type="submit" class="icon-btn" data-icon="up" disabled title="Send message"><span class="btn-caption">Send</span></button>
                   </div>
                 </div>
+                <div class="composer-stage">
+                  <div class="composer-track" id="composer-track">
+                    <section class="composer-page" id="composer-page-text" data-page="text">
+                      <div class="composer-text-bar" id="composer-text-bar"></div>
+                    </section>
+                    <section class="composer-page" id="composer-page-dictate" data-page="dictate">
+                      <textarea id="dictate-draft" rows="3" placeholder="Transcript" hidden aria-label="Transcript"></textarea>
+                      <div class="composer-dock">
+                        <span class="dock-side"></span>
+                        <div class="composer-fab" id="dictate-fab"></div>
+                        <span class="dock-side" id="dictate-mute-slot">
+                          <button type="button" id="dictate-mute" class="ghost icon-btn" data-icon="mic" hidden aria-label="Mute"><span class="btn-caption">Mute</span></button>
+                        </span>
+                      </div>
+                      <div class="composer-pair">
+                        <button type="button" id="dictate-cancel" class="ghost">Cancel</button>
+                        <button type="button" id="dictate-send">Send</button>
+                      </div>
+                    </section>
+                    <section class="composer-page" id="composer-page-call" data-page="call">
+                      <div class="composer-dock">
+                        <span class="dock-side" id="call-share-slot">
+                          <button type="button" id="call-share" class="ghost icon-btn" data-icon="screen" hidden aria-label="Share screen"><span class="btn-caption">Share</span></button>
+                        </span>
+                        <div class="composer-fab" id="call-fab"></div>
+                        <span class="dock-side" id="call-mute-slot"></span>
+                      </div>
+                      <div class="composer-pair" id="call-stop-slot"></div>
+                    </section>
+                  </div>
+                </div>
               </div>
             </div>
             <p id="voice-status" class="hint" hidden></p>
@@ -960,18 +997,20 @@
         </div>
       </main>
 
+      <div id="nav-backdrop" class="nav-backdrop" hidden></div>
       <div id="artifact-backdrop" class="artifact-backdrop" hidden></div>
       <aside id="artifact-pane" class="artifact-pane mode-dock" hidden>
         <div id="artifact-resize" class="artifact-resize" role="separator" aria-orientation="vertical" aria-label="Resize artifact panel" tabindex="0"></div>
         <header class="artifact-head">
           <div class="artifact-actions">
-            <button type="button" id="artifact-mode-dock" class="ghost" title="Dock beside chat" hidden>Dock</button>
-            <button type="button" id="artifact-mode-overlay" class="ghost" title="Focus overlay">Focus</button>
-            <button type="button" id="artifact-fullscreen" class="ghost" title="Fullscreen">Fullscreen</button>
+            <button type="button" id="artifact-mode-dock" class="ghost icon-btn" data-icon="dock" title="Dock beside chat" aria-label="Dock beside chat" hidden><span class="btn-caption">Dock</span></button>
+            <button type="button" id="artifact-mode-overlay" class="ghost icon-btn" data-icon="focus" title="Focus overlay" aria-label="Focus overlay"><span class="btn-caption">Focus</span></button>
+            <button type="button" id="artifact-fullscreen" class="ghost icon-btn" data-icon="fullscreen" title="Fullscreen" aria-label="Fullscreen"><span class="btn-caption">Fullscreen</span></button>
             <button type="button" id="artifact-open-ext" class="ghost" title="Open in new tab" hidden>Open</button>
-            <button type="button" id="artifact-close" class="ghost" aria-label="Close sidebar">Close</button>
+            <button type="button" id="artifact-close" class="ghost icon-btn" data-icon="close" aria-label="Close sidebar" title="Close"><span class="btn-caption">Close</span></button>
           </div>
           <nav id="sidebar-tabs" class="sidebar-tabs" aria-label="Sidebar">
+            <button type="button" data-side="chapters" aria-selected="false">Chapters</button>
             <button type="button" data-side="now" aria-selected="true">Now</button>
             <button type="button" data-side="agents" aria-selected="false">Agents</button>
             <button type="button" data-side="artifacts" aria-selected="false">Artifacts</button>
@@ -980,6 +1019,12 @@
             <button type="button" data-side="instructions" aria-selected="false">Instructions</button>
           </nav>
         </header>
+        <div id="side-chapters" class="side-panel" data-side="chapters" hidden>
+          <section class="side-block">
+            <h2>Chapters</h2>
+            <div id="chapters-mount"></div>
+          </section>
+        </div>
         <div id="side-now" class="side-panel" data-side="now">
           <div class="side-now-scroll">
           <section id="side-perf" class="side-block" aria-label="Performance">

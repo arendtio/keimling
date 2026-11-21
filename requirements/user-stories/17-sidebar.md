@@ -53,3 +53,9 @@
 **As** a user, **I want** Focus, Fullscreen, and Close above the sidebar tabs, **so that** the controls for the whole side area sit with the frame and the tabs sit with the page.
 
 **Acceptance:** traces REQ-SB-11. With the side area open, those three controls are above the Now tab. The tabs still change the page.
+
+## US-81 — Open the columns over a narrow chat
+
+**As** a user on a narrow window, **I want** the workspaces column and the side area to open over the chat, **so that** the conversation stays the page and I can still reach Chapters.
+
+**Acceptance:** traces REQ-SB-12. The header menu opens and closes the workspaces column over the chat. That column and the side area are each about 80 percent of the screen width and the full screen height, and each scrolls inside. The header starts at the top of the screen. Chapters is a tab in the side area. The Sidebar control is an icon, and Focus, Fullscreen, and Close are icons. Sidebar opens and closes the side area over the chat. With both open, the workspaces column is in front. On a wide window both stay beside the chat, and Chapters and Sidebar are words in the header.

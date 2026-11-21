@@ -64,6 +64,14 @@ Origin: User, 2026-11-19 (quote: "Beim ausblenden/zusammenklappen von Nachrichte
 
 Fit: In a chapter overview, the text of a user message is visible while the fold is closed. Opening the fold is not required to read it. The chapter heading is the only division above that message; there is no horizontal line before it.
 
+### REQ-VE-12 A narrow window uses one side margin
+
+On a narrow window the page shall meet both screen edges. The transcript and the composer shall share one margin, the same on the left and the right. A user's bubble, a heading, and Keimling's own text all sit inside that margin.
+
+Origin: User, 2026-11-21 (paraphrase: Keimling's own text sticks to the left edge). Same day (paraphrase: the composer has unequal side margins and something gray shows on the right; the chat does not reach the right edge while it does reach the left; headings are still against the edge, and the user's own bubble touches the edge even though the words inside it do not).
+
+Fit: On a narrow window the paper reaches both screen edges, with no strip of the page background on one side. The composer is the same distance from the left edge as from the right, and that distance matches the transcript. A user bubble, a chapter heading, and a line from Keimling each start and end inside that margin. On a wide window the paper keeps its gap beside the sidebar.
+
 ### REQ-VE-10 The settled transcript stays put
 
 When a reply finishes, the transcript on screen shall keep the shape it already has. Lists and checkboxes shall keep their spacing. The page shall not draw that reply again in another arrangement, and it shall not open or close a row on its own after the reply is already visible.

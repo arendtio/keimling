@@ -146,7 +146,7 @@ body {
 .gate {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 60;
   display: block;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1074,6 +1074,43 @@ button.wide { width: 100%; max-width: 100%; }
   backdrop-filter: blur(8px);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
 }
+#sidebar-toggle svg { display: none; }
+.nav-toggle { display: none; }
+.nav-toggle svg { width: 1.25rem; height: 1.25rem; }
+.artifact-actions .icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+}
+.artifact-actions .icon-btn svg { width: 1.15rem; height: 1.15rem; }
+.artifact-actions .icon-btn .btn-caption,
+#sidebar-toggle .btn-caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+#sidebar-toggle .btn-caption {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: nowrap;
+}
+.nav-backdrop { display: none; }
+#sidebar-tabs button[data-side="chapters"] { display: none; }
 .paper-toolbar-left,
 .paper-toolbar-right {
   display: flex;
@@ -2134,6 +2171,192 @@ button.wide { width: 100%; max-width: 100%; }
   border-color: var(--danger);
   color: var(--danger);
 }
+
+.composer-dots,
+.composer-stage { display: none; }
+.composer.is-mobile,
+:root[data-scheme="dark"] .composer.is-mobile,
+:root[data-scheme="light"] .composer.is-mobile,
+:root[data-scheme="auto"] .composer.is-mobile {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: none;
+  padding: 0;
+  gap: 0;
+}
+.composer.is-mobile .composer-dots:not([hidden]) {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 0 2px;
+  background: transparent;
+}
+.composer-dot {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.composer-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--muted);
+  opacity: 0.45;
+}
+.composer-dot[aria-current="true"]::before {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  opacity: 1;
+}
+.composer.is-mobile .composer-row {
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in srgb, var(--chrome) 88%, var(--panel));
+  padding: 0.55rem 0.65rem 0.7rem;
+}
+:root[data-scheme="dark"] .composer.is-mobile .composer-row { background: var(--user); }
+@media (prefers-color-scheme: dark) {
+  :root[data-scheme="auto"] .composer.is-mobile .composer-row { background: var(--user); }
+}
+.composer.is-mobile .composer-stage { display: block; overflow: hidden; touch-action: pan-y; }
+.composer-track { display: flex; align-items: stretch; transition: transform 160ms ease; }
+.composer-track.is-dragging { transition: none; }
+.composer.is-mobile .composer-page {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.composer.is-mobile .composer-field,
+.composer.is-mobile .composer-input,
+.composer.is-mobile .composer-field textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.composer.is-mobile .composer-field {
+  display: flex;
+  flex-direction: column;
+}
+.composer.is-mobile .composer-send-col { display: none; }
+.composer.is-mobile .composer-text-bar,
+.composer.is-mobile .composer-pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.composer.is-mobile #composer-page-call .composer-dock {
+  flex: 1 1 auto;
+  align-content: center;
+}
+.composer.is-mobile #composer-page-call .composer-pair { margin-top: 0; }
+.composer.is-mobile .composer-actions { margin: 0; }
+.composer.is-mobile #composer-more,
+.composer.is-mobile #dictate-mute,
+.composer.is-mobile #call-share,
+.composer.is-mobile #call-mute {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+}
+.composer.is-mobile .composer-dock .icon-btn svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.composer.is-mobile #send,
+.composer.is-mobile #stop,
+.composer.is-mobile #dictate-cancel,
+.composer.is-mobile #dictate-send {
+  width: auto;
+  min-width: 0;
+  min-height: 48px;
+  height: auto;
+  flex: 1 1 0;
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.composer.is-mobile #call-stop-slot #stop { flex: 1 1 auto; width: 100%; }
+.composer.is-mobile #send .btn-caption,
+.composer.is-mobile #stop .btn-caption {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+.composer.is-mobile #send svg,
+.composer.is-mobile #stop svg { display: none; }
+.composer.is-mobile #dictate-draft {
+  min-height: 4.5rem;
+  height: auto;
+  max-height: none;
+  overflow: auto;
+  margin-bottom: 4px;
+}
+.composer-dock {
+  display: grid;
+  grid-template-columns: 64px 1fr 64px;
+  align-items: center;
+  justify-items: center;
+  min-height: 96px;
+}
+.composer-fab {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.composer.is-mobile #voice,
+.composer.is-mobile #call {
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+}
+.composer.is-mobile #voice svg,
+.composer.is-mobile #call svg { width: 34px; height: 34px; flex: none; }
+.composer.is-mobile #voice.recording,
+.composer.is-mobile #call.live {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.composer-fab.is-working::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: composer-spin 0.9s linear infinite;
+}
+@keyframes composer-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .composer-track { transition: none; }
+  .composer-fab.is-working::before { animation: none; }
+}
 .screen-preview {
   display: block;
   margin: 0 0 0.45rem;
@@ -2608,30 +2831,147 @@ button.wide { width: 100%; max-width: 100%; }
   pointer-events: none;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 840px) {
   .shell { grid-template-columns: 1fr; }
   .shell.artifact-open:not(.artifact-overlay) { grid-template-columns: 1fr; }
-  .sidebar {
-    position: static;
-    max-width: none;
-    min-height: 0;
+  .main {
+    margin: 0;
+    min-height: 100dvh;
+    border-top: 0;
+    border-left: 0;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
-    overflow-x: visible;
+  }
+  .paper-toolbar { z-index: 50; background: var(--panel); }
+  #sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+  }
+  #sidebar-toggle svg { display: block; width: 1.25rem; height: 1.25rem; }
+  #sidebar-toggle .btn-caption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .artifact-actions .icon-btn {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+  }
+  .artifact-actions .icon-btn svg { width: 1.25rem; height: 1.25rem; }
+  .column {
+    max-width: none;
+    width: 100%;
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+  .thread { padding-bottom: calc(var(--composer-h, 9rem) + 0.75rem); }
+  .composer.is-mobile,
+  :root[data-scheme="dark"] .composer.is-mobile,
+  :root[data-scheme="light"] .composer.is-mobile,
+  :root[data-scheme="auto"] .composer.is-mobile {
+    position: fixed;
+    left: 0.85rem;
+    right: 0.85rem;
+    bottom: calc(0.85rem + env(safe-area-inset-bottom, 0px));
+    z-index: 15;
+    width: auto;
+    margin: 0;
+    padding: 0.35rem 0 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--panel);
+    box-shadow: none;
+  }
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  #chapters-toggle { display: none; }
+  #sidebar-tabs button[data-side="chapters"] { display: inline-block; }
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 36;
+    background: color-mix(in srgb, var(--fg) 28%, transparent);
+  }
+  .nav-backdrop[hidden] { display: none !important; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 80vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0;
+    max-width: none;
+    box-sizing: border-box;
+    z-index: 40;
+    padding-top: var(--mobile-bar, 3.4rem);
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    visibility: hidden;
+    pointer-events: none;
+    box-shadow: 8px 0 32px color-mix(in srgb, var(--fg) 12%, transparent);
+  }
+  .shell.nav-open .sidebar {
+    visibility: visible;
+    pointer-events: auto;
   }
   .artifact-pane.mode-dock {
-    position: static;
-    min-height: 50vh;
-    max-height: none;
+    position: fixed;
+    inset: auto;
+    top: 0;
+    right: 0;
+    width: 80vw;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+    box-sizing: border-box;
+    z-index: 32;
+    padding-top: var(--mobile-bar, 3.4rem);
+    border: 0;
+    border-left: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: -8px 0 32px color-mix(in srgb, var(--fg) 12%, transparent);
+    overflow: hidden;
   }
-  .artifact-pane.mode-dock .artifact-paper {
-    margin-top: 0.35rem;
-    min-height: 40vh;
+  .artifact-pane.mode-overlay {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+    box-sizing: border-box;
+    z-index: 60;
+    padding: 0.75rem 0.75rem 1rem;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: hidden;
+  }
+  .artifact-backdrop { z-index: 30; }
+  .artifact-pane.mode-dock .artifact-paper,
+  .artifact-pane.mode-overlay .artifact-paper {
+    margin: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    border: 0;
   }
   .artifact-resize { display: none; }
-  .artifact-pane.mode-overlay {
-    inset: 2vh 2vw;
-  }
 }
 
 .sidebar-tabs {

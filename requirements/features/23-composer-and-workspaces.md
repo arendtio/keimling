@@ -45,10 +45,10 @@ The records below are the stakeholder ask for a less crowded surface. Which cont
 ## REQ-CW-5 The composer field grows with the draft
 
 - **Bin:** explicit requirement
-- **Statement:** The composer field shall grow with the draft until about seven lines, and shall scroll after that. At that cap, the last visible line shall be cut so it is clear the draft continues.
-- **Origin:** User, 2026-11-08 (paraphrase: a long draft only shows about two lines; the field should grow until about seven lines and then scroll inside the field; the height should not land on a whole number of lines, so about seven and a half lines stay visible and the scroll is obvious).
-- **Rationale:** A two-line box hides the draft the user is still writing. A clean cut on a whole line hides that there is more above or below.
-- **Fit criterion:** One line of text is one line tall. Seven lines are fully visible without a scrollbar. Text beyond that scrolls inside the field, and the field stays about seven and a half lines tall.
+- **Statement:** The composer shall grow with the draft and then scroll inside the field. On a narrow window the whole composer may reach about 70 percent of the screen height. On a wide window it may reach about 50 percent. Past that cap, the field scrolls and the last visible line is cut so it is clear the draft continues.
+- **Origin:** User, 2026-11-08 (paraphrase: a long draft only shows about two lines; the field should grow and then scroll inside the field; the height should not land on a whole number of lines, so the scroll is obvious). User, 2026-11-21 (paraphrase: the transcription field is only about three and a half lines and should be able to grow much taller; the whole composer may reach about 70 percent of the screen height on a phone and about 50 percent on the desktop).
+- **Rationale:** A short box hides the draft the user is still writing. A phone can give that draft more of the screen than a desktop, where the conversation above should stay in view. A clean cut on a whole line hides that there is more above or below.
+- **Fit criterion:** One line of text is one line tall. On a narrow window the composer, including its controls, stays within about 70 percent of the screen height. On a wide window it stays within about 50 percent. Text beyond that scrolls inside the field, and the field does not end on a whole line. The dictation transcript uses the same cap.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -69,5 +69,25 @@ The records below are the stakeholder ask for a less crowded surface. Which cont
 - **Origin:** User, 2026-11-20 (paraphrase: inaccurate or failed transcriptions can lose a long dictation, including when the message was sent immediately; downloading the last recording and uploading audio for transcription is more useful than retry alone, and the recording needs to exist only during the current run).
 - **Rationale:** A downloaded copy allows another transcription attempt even after the application is closed. The user can remove a mistaken draft manually.
 - **Fit criterion:** After stopping a recording, including one whose transcription fails or was sent, More can download it. A subsequent recording replaces it. Selecting an audio file through More transcribes it and appends the text to the draft, leaving Send to the user. Uploading a file does not replace the latest microphone recording. The retained recording is not restored on a fresh UI load.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-CW-8 A narrow window swipes between writing, dictation, and a call
+
+- **Bin:** explicit requirement
+- **Statement:** On a narrow window, the user shall move between writing, dictation, and a live call by dragging the composer sideways. The writing page shall be at least as tall as the dictation and call pages, so the move does not change the composer height. The current page shall be marked without naming the pages in the chrome. The model line shall stay inside the composer. Writing shall keep More at the bottom left and Send along the bottom edge. Dictation shall use the cassette control, show mute only while a recording is open, and offer Cancel and Send as labeled controls. Cancel shall drop the dictation draft and an open recording, and shall leave the typed message on the writing page. A call shall use the phone control to start and to hang up, show screen share and mute beside it only while the call is open, and keep Interrupt across the full bottom edge, inactive until it can stop something. Dragging the composer shall not send or discard. A wide window shall keep the icon stack from REQ-CW-1. While a run can be stopped, Interrupt shall also be on the writing page.
+- **Origin:** User, 2026-11-21 (paraphrase of the mobile composer they approved: three dots, swipe on the input box, model line inside the opaque box, cassette in the center, mute only after recording starts, Cancel and Send as matching text buttons, Plus at the bottom left, Send on the bottom edge, Stop full width and grayed until it can act, larger targets on the narrow view, small icons remaining on the desktop). Same day (quote: „Bitte integriere das in unsere bestehende App“). Same day (paraphrase: the writing box should use the height of the call and transcription pages as its minimum, so it does not jump when swiping).
+- **Rationale:** A thumb cannot use the desktop icon stack. The actions stay the ones the composer already has. The typed draft and the dictation draft are different pieces of work, so discarding a take must not wipe the message.
+- **Fit criterion:** At a wide width the composer still matches REQ-CW-1. At a narrow width, dots sit above the composer with no fill of their own, and a horizontal drag on the composer changes page. With no extra draft, the writing page is at least as tall as the dictation page and the call page, and moving between the three leaves the composer height unchanged. A longer draft may still grow the page that holds it. The composer stays along the bottom of the screen, including when the thread is empty, and it is the same distance from the left edge, the right edge, and the bottom edge. Send sits on the bottom edge of the writing page, with More on its left. The writing field spans the width of the composer. Dictation shows the cassette, mute only during recording, and labeled Cancel and Send. Cancel clears the transcript and drops the open recording; text already in the writing field remains. The call page starts and hangs up from the center control. Share and mute appear only while the call is open. Interrupt fills the bottom of the call page and is inactive until a run or the spoken reply can be stopped. The same Interrupt is on the writing page while a run can be stopped. A drag does not send and does not clear either draft. Screen share still starts from the call page and from More. No camera control is offered.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-CW-9 More opens over the chat
+
+- **Bin:** explicit requirement
+- **Statement:** On a narrow window, More shall open over the composer and the chat, anchored to the Plus control, so every entry can be reached. The composer shall not clip it.
+- **Origin:** User, 2026-11-21 (paraphrase: the Plus menu opens in the wrong place and is cut off at the edge of the chat box, so the entries cannot be selected).
+- **Rationale:** More is the way to attach a file, share a screen, and recover a recording. A menu that ends at the composer box hides those actions.
+- **Fit criterion:** With the writing page at the bottom of a narrow window, opening More shows File, Screen, Download last recording, Transcribe audio file, Reduce context, and Follow thinking, each clickable. The menu sits by the Plus control and paints over the chat. On a wide window, More still opens from the plus under the field.
 - **Priority:** shall
 - **Status:** confirmed

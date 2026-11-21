@@ -23,3 +23,15 @@
 **As** a user, **I want** to name a chat in another workspace, **so that** this workspace can review that chat without copying it and without changing it.
 
 **Acceptance:** traces REQ-WS-4 and REQ-WS-5. A read of `chat:<workspace>/<thread>` returns text that exists only in that other journal. Editing that journal through the reference leaves the file unchanged. Now shows the open chat's workspace and thread at the bottom and copies `chat:` plus the two ids. An agent chat does not show that footer.
+
+## US-58 — Compose with a thumb
+
+**As** a user on a narrow window, **I want** to swipe the composer between writing, dictation, and a call, **so that** each job has large controls and I do not lose the desktop composer on a wide window.
+
+**Acceptance:** traces REQ-CW-8. A wide window keeps the icon stack. A narrow window shows dots and three pages, and the composer stays at the bottom edge of the screen. With no extra draft, the writing page is at least as tall as dictation and the call, and swiping does not change the composer height. More and Send sit on the bottom of the writing page. The writing field spans the composer. Dictation uses the cassette, mute only while recording, and labeled Cancel and Send. Cancel drops the take and leaves the typed message. The call starts and hangs up from the center, with share and mute only while live. Interrupt is full width and inactive until it can stop something, and it is also on the writing page while a run can be stopped. Swiping does not send or discard.
+
+## US-59 — Keep a long draft in reach
+
+**As** a user, **I want** the composer to grow with what I am writing, **so that** a transcription or a long message stays readable until the screen needs the conversation back.
+
+**Acceptance:** traces REQ-CW-5 and REQ-CW-9. On a narrow window the composer stays within about 70 percent of the screen height, and on a wide window within about 50 percent. Beyond that, the field scrolls. More on a narrow window opens over the chat, by the Plus control, with every entry clickable.
