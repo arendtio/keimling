@@ -3597,7 +3597,7 @@
       }).catch(function () {}),
       loadMcpList().catch(function () {})
     ];
-    if (sideTab === "agents") jobs.push(loadAgentBoard());
+    if (sideTab === "agents" || sideTab === "now") jobs.push(loadAgentBoard());
     return Promise.all(jobs);
   }
 
@@ -4124,7 +4124,7 @@
     agentsPollTimer = setInterval(function () {
       if (!connected) return;
       loadAgents({ poll: true });
-      if (sideTab === "agents") loadAgentBoard();
+      if (sideTab === "agents" || sideTab === "now") loadAgentBoard();
     }, 2000);
   }
 
@@ -6981,6 +6981,28 @@
     if (!items || !items.length) return "—";
     return items.map(function (x) { return "• " + x; }).join("\n");
   }
+  function budgetLabelText(b) {
+    b = b || {};
+    var pct = typeof b.used_pct === "number" ? b.used_pct : 0;
+    return "used " + (b.used || 0) + " / " + (b.limit || 0) +
+      " (" + pct.toFixed(1) + "%) · remaining " + (b.remaining || 0) +
+      " · " + (b.source || "estimate");
+  }
+  // One meter for both views; each view keeps its own element ids.
+  function applyBudgetMeter(labelID, fillID, b) {
+    b = b || {};
+    var pct = typeof b.used_pct === "number" ? b.used_pct : 0;
+    var label = document.getElementById(labelID);
+    if (label) label.textContent = budgetLabelText(b);
+    var fill = document.getElementById(fillID);
+    if (!fill) return;
+    fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
+    fill.classList.toggle("warn", !!b.warn);
+  }
+  // The Now view repeats the Context tab's meter from the same /api/context payload.
+  function renderNowBudget(b) {
+    applyBudgetMeter("now-budget-label", "now-budget-fill", b);
+  }
   function renderContextDialog(data) {
     var c = (data && data.charter) || {};
     var b = (data && data.budget) || {};
@@ -7009,14 +7031,8 @@
       });
       rawEl.textContent = chunks.length ? chunks.join("\n\n") : "—";
     }
-    var pct = typeof b.used_pct === "number" ? b.used_pct : 0;
-    var label = "used " + (b.used || 0) + " / " + (b.limit || 0) +
-      " (" + pct.toFixed(1) + "%) · remaining " + (b.remaining || 0) +
-      " · " + (b.source || "estimate");
-    document.getElementById("budget-label").textContent = label;
-    var fill = document.getElementById("budget-fill");
-    fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
-    fill.classList.toggle("warn", !!b.warn);
+    applyBudgetMeter("budget-label", "budget-fill", b);
+    renderNowBudget(b);
     renderSidePlan(c);
   }
   function planStatusLabel(status) {
@@ -8573,7 +8589,10 @@
     persistSidebarLayout();
     if (opts.skipFetch || !connected) return;
     if (tab === "agents") loadAgentBoard();
-    if (tab === "now") renderSidePerf();
+    if (tab === "now") {
+      renderSidePerf();
+      loadAgentBoard();
+    }
     if (tab === "now" || tab === "context") refreshSideContext({ report: tab === "context" });
     if (tab === "artifacts") {
       loadArtifactsList().then(function (items) {
@@ -9184,8 +9203,12 @@
     if (!connected) return Promise.resolve();
     return fetch(apiURL("/api/agents/instances?all=1"), { headers: headers() })
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || r.status); return j; }); })
-      .then(function (j) { renderAgentBoard((j && j.instances) || []); })
-      .catch(function () { renderAgentBoard([]); });
+      .then(function (j) {
+        var list = (j && j.instances) || [];
+        renderAgentBoard(list);
+        renderNowAgents(list);
+      })
+      .catch(function () { renderAgentBoard([]); renderNowAgents([]); });
   }
 
   function agentPhaseLabel(ag) {
@@ -9199,6 +9222,53 @@
       return "Waiting for a message";
     }
     return "Idle";
+  }
+
+  // The same fields the board reads decide whether an agent is doing something.
+  function agentIsActive(ag) {
+    if (!ag) return false;
+    if (ag.call) return true;
+    return ag.phase === "running" || ag.phase === "waiting";
+  }
+
+  var nowAgentsDrawn = null;
+
+  // Slim list for the Now tab: only running, on-a-call, or waiting agents.
+  function renderNowAgents(list) {
+    var holder = document.getElementById("now-agents");
+    if (!holder) return;
+    if (sideTab !== "now") return;
+    var active = (list || []).filter(agentIsActive);
+    var sig = active.map(function (ag) {
+      return [ag.id, ag.name || "", ag.recipe_name || ag.recipe_id || "", ag.phase || "", ag.call ? 1 : 0, ag.waiting || ""].join("\t");
+    }).join("\n");
+    if (sig === nowAgentsDrawn) return;
+    nowAgentsDrawn = sig;
+    holder.innerHTML = "";
+    var empty = document.getElementById("now-agents-empty");
+    if (empty) empty.hidden = active.length > 0;
+    active.forEach(function (ag) {
+      var row = document.createElement("li");
+      row.className = "now-agent";
+      var open = document.createElement("button");
+      open.type = "button";
+      open.className = "now-agent-open";
+      var name = document.createElement("span");
+      name.className = "agent-board-name";
+      name.textContent = ag.name || ag.id;
+      var meta = document.createElement("span");
+      meta.className = "agent-board-meta";
+      meta.textContent = ag.recipe_name || ag.recipe_id || "Definition";
+      open.appendChild(name);
+      open.appendChild(meta);
+      open.addEventListener("click", function () { attachAgent(ag.id); });
+      var phase = document.createElement("span");
+      phase.className = "agent-phase" + (ag.phase ? " " + ag.phase : "");
+      phase.textContent = agentPhaseLabel(ag);
+      row.appendChild(open);
+      row.appendChild(phase);
+      holder.appendChild(row);
+    });
   }
 
   var agentBoardDrawn = "";
