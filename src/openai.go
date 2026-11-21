@@ -38,6 +38,23 @@ type Client struct {
 	// 0 picks the default: one for a loopback model, unlimited otherwise.
 	// A negative value is unlimited even on loopback.
 	Parallel int
+	// Spend, when set, receives one record per completed model response for
+	// the spend ledger. A nil hook keeps helper clients silent.
+	Spend func(spendRecord)
+}
+
+// spendUsage reports the usage of one completed response to the ledger hook.
+func (c *Client) spendUsage(call, model string, inputTokens, outputTokens int64) {
+	if c == nil || c.Spend == nil || (inputTokens <= 0 && outputTokens <= 0) {
+		return
+	}
+	c.Spend(spendRecord{
+		Provider:     detectProviderKind(c.BaseURL, ""),
+		Model:        model,
+		Call:         call,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+	})
 }
 
 func NewClient(key string) *Client {
@@ -248,6 +265,7 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 				// Account every successful HTTP response once, including failed generations.
 				c.InputTokens += out.Usage.InputTokens
 				c.OutputTokens += out.Usage.OutputTokens
+				c.spendUsage("chat", model, out.Usage.InputTokens, out.Usage.OutputTokens)
 				if out.Usage.InputTokens > 0 || out.Usage.OutputTokens > 0 {
 					c.LastMainUsage = MainUsage{Available: true, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, CachedTokens: out.Usage.InputDetails.CachedTokens, ReasoningTokens: out.Usage.OutputDetails.ReasoningTokens, EstimatedBefore: estimatedBefore}
 				}
@@ -514,6 +532,7 @@ func (c *Client) Summarize(ctx context.Context, model, source string, targetToke
 				}
 				c.InputTokens += parsed.Usage.InputTokens
 				c.OutputTokens += parsed.Usage.OutputTokens
+				c.spendUsage("compaction", model, parsed.Usage.InputTokens, parsed.Usage.OutputTokens)
 				return summary, nil
 			}
 		}
@@ -601,5 +620,6 @@ func (c *Client) FilterOutput(ctx context.Context, model, task, command, focus, 
 	}
 	c.InputTokens += parsed.Usage.InputTokens
 	c.OutputTokens += parsed.Usage.OutputTokens
+	c.spendUsage("filter", model, parsed.Usage.InputTokens, parsed.Usage.OutputTokens)
 	return text, nil
 }

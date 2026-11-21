@@ -117,6 +117,18 @@ func (s *appServer) budgetSnapshot(ctx context.Context, refresh bool) map[string
 	if info.Supported && info.Error == "" {
 		s.budgetCache.put(cacheKey, info)
 	}
+	if info.Supported {
+		// One snapshot per real fetch; cache hits never reach this point.
+		recordBudgetSnapshot(spendBudgetRecord{
+			Time:                info.FetchedAt,
+			Provider:            p.ID,
+			Kind:                kind,
+			RemainingUSD:        info.RemainingUSD,
+			LimitUSD:            info.LimitUSD,
+			UsageUSD:            info.UsageUSD,
+			AccountRemainingUSD: info.AccountRemainingUSD,
+		})
+	}
 	out["provider"] = info
 	return out
 }

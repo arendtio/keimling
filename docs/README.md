@@ -13,6 +13,7 @@ was previously called *tinyagent*.
 | [agent-loop.md](agent-loop.md) | Terminal REPL, slash commands, approval modes, autopilot |
 | [tools-and-editing.md](tools-and-editing.md) | Tool surface, file reading, `edit_file`, `write_file` |
 | [context-and-history.md](context-and-history.md) | JSONL journal, model switching, semantic compaction, context estimation |
+| [spend-ledger.md](spend-ledger.md) | Cost and provider balance history: where the ledger lives and how to delete it |
 | [security-and-quality.md](security-and-quality.md) | Safety rules, deferred work, acceptance criteria |
 | [camera-share.md](camera-share.md) | Live camera share beside the chat and the `camera_snapshot` tool |
 
