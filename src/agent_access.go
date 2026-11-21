@@ -54,6 +54,7 @@ func agentToolCatalog() []agentTool {
 		{Name: "screen_scroll", Label: "Scroll the shared screen"},
 		{Name: "screen_key", Label: "Press a key on the shared screen"},
 		{Name: "screen_type", Label: "Type on the shared screen"},
+		{Name: "camera_snapshot", Label: "See the camera"},
 	}
 }
 
@@ -74,7 +75,7 @@ func agentToolGroups() []agentToolGroup {
 		{ID: "agents", Label: "Agents", Read: []string{"list_agents"}, Write: []string{"message_agent"}},
 		{ID: "define", Label: "Define agents", Read: []string{"agent_instructions"}, Write: []string{"save_agent", "spawn_agent", "save_team", "spawn_team"}},
 		{ID: "models", Label: "Models", Read: []string{}, Write: []string{"delegate"}},
-		{ID: "desktop", Label: "Desktop", Read: []string{}, Write: []string{"screen_click", "screen_scroll", "screen_key", "screen_type"}},
+		{ID: "desktop", Label: "Desktop", Read: []string{"camera_snapshot"}, Write: []string{"screen_click", "screen_scroll", "screen_key", "screen_type"}},
 	}
 }
 

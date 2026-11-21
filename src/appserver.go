@@ -231,6 +231,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/transcribe", s.requireSecret(http.HandlerFunc(s.handleTranscribe)))
 	s.mux.Handle("/api/screen/targets", s.requireSecret(http.HandlerFunc(s.handleScreenTargets)))
 	s.mux.Handle("/api/screen/share", s.requireSecret(http.HandlerFunc(s.handleScreenShare)))
+	s.mux.Handle("/api/camera/share", s.requireSecret(http.HandlerFunc(s.handleCameraShare)))
 	s.mux.Handle("/api/realtime/session", s.requireSecret(http.HandlerFunc(s.handleRealtimeSession)))
 	s.mux.Handle("/api/realtime/sdp", s.requireSecret(http.HandlerFunc(s.handleRealtimeSDP)))
 	s.mux.Handle("/api/realtime/ws", s.requireSecret(http.HandlerFunc(s.handleRealtimeWS)))
@@ -3003,6 +3004,7 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		uploads = append(uploads, f)
 	}
 	uploads = withScreenShare(uploads)
+	uploads = withCameraShare(uploads)
 	text = joinChatFiles(text, uploads)
 	if s.agent != nil {
 		text = s.agent.bindChatFiles(text)

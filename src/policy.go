@@ -138,6 +138,9 @@ func forceApprovalIn(name, args, root, cwd string) (bool, string) {
 	if screenTool(name) {
 		return false, ""
 	}
+	if cameraTool(name) {
+		return false, ""
+	}
 	if name == "exec" {
 		var a struct {
 			Command     string `json:"command"`
@@ -425,7 +428,7 @@ func builtinToolNames() []string {
 		"create_watch", "list_watches", "cancel_watch", "change_workspace",
 		"list_credentials", "data_processing", "data_processing_help",
 		"find_tools", "mcp_tools", "builtin_tools",
-		"screen_click", "screen_scroll", "screen_key", "screen_type",
+		"screen_click", "screen_scroll", "screen_key", "screen_type", "camera_snapshot",
 	}
 }
 
@@ -445,7 +448,7 @@ func builtinToolChoices(saved map[string]bool) []map[string]any {
 
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "search_history", "read_history", "activate_skill", "read_skill_file", "screen_click", "screen_scroll", "screen_key", "screen_type":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "search_history", "read_history", "activate_skill", "read_skill_file", "screen_click", "screen_scroll", "screen_key", "screen_type", "camera_snapshot":
 		return true
 	default:
 		return false
