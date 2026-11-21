@@ -32,6 +32,9 @@ type appServer struct {
 	agent  *Agent
 	hub    *eventHub
 	mux    *http.ServeMux
+	// startedAt identifies this process. A client compares it after a lost
+	// event stream, so a replaced backend turns into a page reload.
+	startedAt time.Time
 
 	mu                    sync.Mutex
 	busy                  bool
@@ -64,6 +67,7 @@ func newAppServer(opts appServerOpts) *appServer {
 		mux:           http.NewServeMux(),
 		skillPreviews: newSkillPreviewHub(),
 		runs:          map[string]*liveThread{},
+		startedAt:     time.Now().UTC(),
 	}
 	if s.agent != nil {
 		if s.agent.Shares == nil {
@@ -124,6 +128,11 @@ func newAppServer(opts appServerOpts) *appServer {
 			s.agent.ApprovalCh = make(chan bool, 1)
 		}
 		if strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" {
+			go s.agentWakeLoop()
+		} else if strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
+			// A workspace chat keeps watches too; the loop replays what it missed
+			// while the process was gone.
+			s.agent.Cfg.WatchesLive = true
 			go s.agentWakeLoop()
 		}
 	}
@@ -271,10 +280,11 @@ func (s *appServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":    true,
-		"state": state,
-		"voice": s.voiceAvailable(),
-		"call":  s.realtimeCallOpen(),
+		"ok":         true,
+		"state":      state,
+		"voice":      s.voiceAvailable(),
+		"started_at": s.startedAt.Format(time.RFC3339Nano),
+		"call":       s.realtimeCallOpen(),
 	})
 }
 
@@ -451,16 +461,25 @@ func (s *appServer) drainThreadQueue() {
 	}
 	if view != s.agent.Cfg.ThreadID {
 		if err := s.agent.SwitchThread(view); err != nil {
-			_ = enqueueThreadMessage(ws, view, item.Text, item.From, item.Kind)
+			s.requeueThreadItem(ws, view, item)
 			return
 		}
 		s.mu.Lock()
 		s.viewThread = ""
 		s.mu.Unlock()
 	}
-	if !s.startAgentRun(item.Text) {
-		_ = enqueueThreadMessage(ws, view, item.Text, item.From, item.Kind)
+	if !s.startAgentRunWake(threadWakeText(item), ws, view, item) {
+		s.requeueThreadItem(ws, view, item)
 	}
+}
+
+// threadWakeText marks a queued watch wake so the run and the transcript show
+// where the text came from.
+func threadWakeText(item AgentQueueItem) string {
+	if item.Kind == "watch" || item.Kind == "alarm" {
+		return formatWatchWake(item.Text)
+	}
+	return item.Text
 }
 
 func (s *appServer) agentState() string {
@@ -3335,8 +3354,18 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 }
 
 func (s *appServer) startAgentRun(text string) bool {
+	return s.startAgentRunWake(text, "", "", AgentQueueItem{})
+}
+
+// startAgentRunWake starts a run of the shell agent for a queued wake. It
+// reports the watch it handled once that run ends.
+func (s *appServer) startAgentRunWake(text, ws, threadID string, item AgentQueueItem) bool {
 	if s.realtimeCallOpen() {
-		return s.injectRealtimeWake(text)
+		if s.injectRealtimeWake(text) {
+			s.finishThreadWake(ws, threadID, item)
+			return true
+		}
+		return false
 	}
 	s.mu.Lock()
 	if s.busy || s.agent == nil {
@@ -3361,6 +3390,7 @@ func (s *appServer) startAgentRun(text string) bool {
 	s.hub.Broadcast("status", map[string]string{"state": "running", "thread_id": agent.Cfg.ThreadID})
 
 	go func() {
+		finished := false
 		defer func() {
 			s.mu.Lock()
 			s.busy = false
@@ -3371,6 +3401,7 @@ func (s *appServer) startAgentRun(text string) bool {
 			}
 			s.mu.Unlock()
 			s.hub.Broadcast("status", map[string]string{"state": "idle", "thread_id": agent.Cfg.ThreadID})
+			s.settleThreadWake(ws, threadID, item, finished)
 			s.pumpAgentWakes()
 			s.drainThreadQueue()
 		}()
@@ -3382,6 +3413,8 @@ func (s *appServer) startAgentRun(text string) bool {
 			// Run already recorded a Stopped note in the transcript.
 			_ = agent.repairInterruptedCalls()
 		}
+		// A user stop counts as handled; only a real failure retries.
+		finished = err == nil || ctx.Err() != nil
 	}()
 	return true
 }
@@ -3447,6 +3480,12 @@ func (s *appServer) steerThread(id, text string) (bool, error) {
 }
 
 func (s *appServer) startForkedRun(threadID, text string) error {
+	return s.startForkedRunWake(threadID, text, "", AgentQueueItem{})
+}
+
+// startForkedRunWake runs one thread outside the shell agent, for a wake whose
+// watch is dropped once that run succeeded.
+func (s *appServer) startForkedRunWake(threadID, text, ws string, item AgentQueueItem) error {
 	if s.agent == nil || s.agent.Client == nil {
 		return fmt.Errorf("no model client")
 	}
@@ -3483,6 +3522,7 @@ func (s *appServer) startForkedRun(threadID, text string) error {
 	s.hub.Broadcast("message", map[string]any{"role": "user", "text": text, "thread_id": threadID})
 	s.hub.Broadcast("status", map[string]string{"state": "running", "thread_id": threadID})
 	go func() {
+		finished := false
 		defer func() {
 			s.mu.Lock()
 			delete(s.runs, threadID)
@@ -3491,11 +3531,13 @@ func (s *appServer) startForkedRun(threadID, text string) error {
 				_ = b.Journal.Close()
 			}
 			s.hub.Broadcast("status", map[string]string{"state": "idle", "thread_id": threadID})
+			s.settleThreadWake(ws, threadID, item, finished)
 		}()
 		err := b.Run(ctx, text, bufio.NewReader(strings.NewReader("")))
 		if err != nil && ctx.Err() != nil {
 			_ = b.repairInterruptedCalls()
 		}
+		finished = err == nil || ctx.Err() != nil
 	}()
 	return nil
 }
@@ -3569,6 +3611,7 @@ func (s *appServer) pumpAgentWakes() {
 		s.agent.runDueIntervalWatches(context.Background(), now)
 		s.agent.ensureLiveWatches()
 	} else {
+		s.pumpThreadWakes(time.Now())
 		return
 	}
 	s.mu.Lock()
@@ -3589,6 +3632,102 @@ func (s *appServer) pumpAgentWakes() {
 		// Still busy (race) — put the head back so nothing is lost.
 		_ = enqueueAgentMessage(inst, first.Text, first.From, first.Kind)
 	}
+}
+
+// wakeThreadRetryLimit bounds how often a failed run puts a wake back.
+const wakeThreadRetryLimit = 2
+
+// pumpThreadWakes fires the due watches of every thread in this workspace and
+// starts one pending thread run per tick. A restart runs the same path, so a
+// wake that arrived while the process was gone is queued once and handled.
+func (s *appServer) pumpThreadWakes(now time.Time) {
+	ws := strings.TrimSpace(s.agent.Cfg.WorkspaceID)
+	if ws == "" {
+		return
+	}
+	threads, err := listThreads(ws)
+	if err != nil {
+		return
+	}
+	started := false
+	for _, th := range threads {
+		if _, err := fireDueThreadWatches(ws, th.ID, now); err != nil {
+			continue
+		}
+		if started {
+			continue
+		}
+		if s.drainThreadQueueFor(ws, th.ID, now) {
+			started = true
+		}
+	}
+}
+
+// drainThreadQueueFor starts the head wake of one thread queue. It reports
+// whether a run started.
+func (s *appServer) drainThreadQueueFor(ws, threadID string, now time.Time) bool {
+	s.mu.Lock()
+	if s.agent == nil || s.runs[threadID] != nil {
+		s.mu.Unlock()
+		return false
+	}
+	shellThread := s.agent.Cfg.ThreadID
+	shellBusy := s.busy && shellThread == threadID
+	s.mu.Unlock()
+	if shellBusy {
+		return false
+	}
+	item, ok, err := dequeueThreadMessage(ws, threadID)
+	if err != nil || !ok {
+		return false
+	}
+	text := threadWakeText(item)
+	if shellThread == threadID && !s.isBusy() {
+		if s.startAgentRunWake(text, ws, threadID, item) {
+			return true
+		}
+	} else if s.startForkedRunWake(threadID, text, ws, item) == nil {
+		return true
+	}
+	s.requeueThreadItem(ws, threadID, item)
+	return false
+}
+
+// requeueThreadItem puts a wake back after its run could not start or failed.
+// A wake that already failed often enough gives up and drops its watch.
+func (s *appServer) requeueThreadItem(ws, threadID string, item AgentQueueItem) {
+	if item.Attempts+1 >= wakeThreadRetryLimit {
+		if item.WatchID != "" {
+			_ = dropThreadWatch(ws, threadID, item.WatchID)
+		}
+		return
+	}
+	item.Attempts++
+	_ = enqueueThreadItem(ws, threadID, item)
+}
+
+// settleThreadWake drops the watch of a handled wake. Only a watch wake is
+// retried after a failed run; other queued text keeps the old behaviour.
+func (s *appServer) settleThreadWake(ws, threadID string, item AgentQueueItem, finished bool) {
+	if item.Text == "" && item.WatchID == "" {
+		return
+	}
+	if finished {
+		s.finishThreadWake(ws, threadID, item)
+		return
+	}
+	if item.WatchID == "" && item.Kind != "watch" && item.Kind != "alarm" {
+		return
+	}
+	s.requeueThreadItem(ws, threadID, item)
+}
+
+// finishThreadWake drops the watch of a wake whose run succeeded.
+func (s *appServer) finishThreadWake(ws, threadID string, item AgentQueueItem) {
+	if item.WatchID == "" {
+		return
+	}
+	_ = dropThreadWatch(ws, threadID, item.WatchID)
 }
 
 func (s *appServer) voiceAvailable() bool {
@@ -3760,7 +3899,7 @@ func (s *appServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ch := s.hub.Subscribe(64)
 	defer s.hub.Unsubscribe(ch)
 
-	fmt.Fprintf(w, "event: ready\ndata: {\"ok\":true}\n\n")
+	fmt.Fprintf(w, "event: ready\ndata: {\"ok\":true,\"started_at\":%q}\n\n", s.startedAt.Format(time.RFC3339Nano))
 	flusher.Flush()
 
 	ticker := time.NewTicker(15 * time.Second)

@@ -28,6 +28,9 @@ type AgentWatch struct {
 	Last      string        `json:"last,omitempty"`
 	Seen      bool          `json:"seen,omitempty"`
 	Exited    string        `json:"exited,omitempty"`
+	// FiredAt marks a one-shot time watch whose wake is already in the queue.
+	// It keeps a restart from queuing the same wake twice.
+	FiredAt time.Time `json:"fired_at,omitempty"`
 }
 
 // WatchStep is one tool call in a watch chain.
@@ -43,6 +46,11 @@ func agentInstanceWatchesPath(id string) string {
 	return filepath.Join(agentInstanceDir(id), "watches.json")
 }
 
+// threadWatchesPath is where a workspace thread keeps its watches.
+func threadWatchesPath(workspaceID, threadID string) string {
+	return filepath.Join(threadDir(workspaceID, threadID), "watches.json")
+}
+
 // watchPlace is where one chat stores its watches and where a match is delivered.
 type watchPlace struct {
 	key      string
@@ -56,15 +64,29 @@ func (a *Agent) watchPlace() (watchPlace, bool) {
 	if a == nil {
 		return watchPlace{}, false
 	}
-	id := strings.TrimSpace(a.Cfg.AgentInstanceID)
-	if id == "" {
+	if id := strings.TrimSpace(a.Cfg.AgentInstanceID); id != "" {
+		return watchPlace{key: id, path: agentInstanceWatchesPath(id), instance: id}, true
+	}
+	ws := strings.TrimSpace(a.Cfg.WorkspaceID)
+	thread := strings.TrimSpace(a.Cfg.ThreadID)
+	if ws == "" || thread == "" || !isWorkspaceThreadID(thread) {
 		return watchPlace{}, false
 	}
-	return watchPlace{key: id, path: agentInstanceWatchesPath(id), instance: id}, true
+	return watchPlace{
+		key:    "thread:" + ws + "/" + thread,
+		path:   threadWatchesPath(ws, thread),
+		ws:     ws,
+		thread: thread,
+	}, true
 }
 
 func (p watchPlace) held() bool {
 	return p.instance != "" && agentWakesHeld(p.instance)
+}
+
+// threadPlace reports a workspace thread rather than an agent instance.
+func (p watchPlace) threadPlace() bool {
+	return p.instance == "" && p.thread != ""
 }
 
 func (p watchPlace) enqueue(message, body string) {
@@ -114,12 +136,22 @@ func writeAgentAlarms(instanceID string, list []AgentAlarm) error {
 	return writeWatches(agentInstanceWatchesPath(instanceID), list)
 }
 
+// watchPlaceAlive reports a directory that still owns its watches: an agent
+// instance keeps meta.json, a workspace thread keeps thread.json.
+func watchPlaceAlive(dir string) error {
+	for _, name := range []string{"meta.json", "thread.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return fmt.Errorf("watch place is gone")
+}
+
 func writeWatches(path string, list []AgentWatch) error {
 	dir := filepath.Dir(path)
-	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("agent instance is gone")
-		}
+	if err := watchPlaceAlive(dir); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -251,6 +283,132 @@ func dueWatches(path string, now time.Time) ([]AgentWatch, error) {
 
 func watchIsTime(w AgentWatch) bool {
 	return w.Kind == "" || w.Kind == "time"
+}
+
+// missedWakeMaxAge bounds a startup replay: a wake older than this is dropped
+// instead of starting a run for work that is long past.
+const missedWakeMaxAge = 24 * time.Hour
+
+// fireDueThreadWatches queues the time watches of one thread that are due.
+// A one-shot watch stays in the file with FiredAt set until its run succeeds,
+// so a restart replays a wake instead of forgetting it. A wake older than
+// missedWakeMaxAge is dropped rather than queued.
+func fireDueThreadWatches(workspaceID, threadID string, now time.Time) (int, error) {
+	path := threadWatchesPath(workspaceID, threadID)
+	agentAlarmsMu.Lock()
+	defer agentAlarmsMu.Unlock()
+	list, err := readWatches(path)
+	if err != nil {
+		return 0, err
+	}
+	if len(list) == 0 {
+		return 0, nil
+	}
+	remain := make([]AgentWatch, 0, len(list))
+	fired := 0
+	changed := false
+	for _, w := range list {
+		if !watchIsTime(w) || w.FireAt.After(now) {
+			remain = append(remain, w)
+			continue
+		}
+		expired := now.Sub(w.FireAt) > missedWakeMaxAge
+		every := w.Every
+		if every <= 0 && w.EveryRaw != "" {
+			every, _ = time.ParseDuration(w.EveryRaw)
+		}
+		if every > 0 {
+			// A recurring watch moves on even when one occurrence is missed.
+			next := now.Add(every).UTC()
+			if expired {
+				w.FireAt = next
+				w.Every = every
+				w.FiredAt = time.Time{}
+				changed = true
+				remain = append(remain, w)
+				continue
+			}
+			if err := enqueueThreadWake(workspaceID, threadID, w.Message, w.ID, 0); err == nil {
+				w.FireAt = next
+				w.Every = every
+				w.FiredAt = time.Time{}
+				changed = true
+				fired++
+			}
+			remain = append(remain, w)
+			continue
+		}
+		if !w.FiredAt.IsZero() {
+			// Already queued once. Keep it while its run is pending, and let it
+			// go once the wake is too old to matter.
+			if expired {
+				changed = true
+				continue
+			}
+			remain = append(remain, w)
+			continue
+		}
+		if expired {
+			changed = true
+			continue
+		}
+		if err := enqueueThreadWake(workspaceID, threadID, w.Message, w.ID, 0); err != nil {
+			remain = append(remain, w)
+			continue
+		}
+		w.FiredAt = now.UTC()
+		changed = true
+		remain = append(remain, w)
+		fired++
+	}
+	if changed {
+		if err := writeWatches(path, remain); err != nil {
+			return fired, err
+		}
+	}
+	return fired, nil
+}
+
+// dropThreadWatch removes a watch from a thread after its wake was handled.
+func dropThreadWatch(workspaceID, threadID, watchID string) error {
+	watchID = strings.TrimSpace(watchID)
+	if watchID == "" {
+		return nil
+	}
+	path := threadWatchesPath(workspaceID, threadID)
+	agentAlarmsMu.Lock()
+	defer agentAlarmsMu.Unlock()
+	list, err := readWatches(path)
+	if err != nil || len(list) == 0 {
+		return err
+	}
+	out := make([]AgentWatch, 0, len(list))
+	removed := false
+	for _, w := range list {
+		if w.ID == watchID && !w.FiredAt.IsZero() && w.Every <= 0 {
+			removed = true
+			continue
+		}
+		out = append(out, w)
+	}
+	if !removed {
+		return nil
+	}
+	return writeWatches(path, out)
+}
+
+// threadWatchQueued reports a wake that is still waiting in a thread queue.
+func threadWatchQueued(workspaceID, threadID, watchID string) bool {
+	items, err := peekThreadMessages(workspaceID, threadID)
+	if err != nil {
+		return false
+	}
+	for _, it := range items {
+		if it.WatchID == watchID {
+			return true
+		}
+	}
+	return false
 }
 
 // agentWatchNeedsProcess reports a watch that runs only while this worker is up.

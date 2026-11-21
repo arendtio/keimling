@@ -46,6 +46,9 @@ type Config struct {
 	CompactParallel                                                          bool // parallel leaf distill/summarize (API); off for local models
 	MaxSteps, ContextLimit                                                   int
 	MCPParallel                                                              int // simultaneous MCP calls; 0 means 10
+	// WatchesLive means a wake loop runs for this process, so a thread may keep
+	// watches. The CLI has none; server and GUI start one.
+	WatchesLive bool
 }
 
 var errAPIKeyMissing = errors.New("API key not found")

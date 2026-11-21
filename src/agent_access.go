@@ -424,7 +424,7 @@ func (a *Agent) workspacePrompt() string {
 // An agent instance gets its own prompt: who it is, its task, where it works, then how tools work.
 func (a *Agent) modelInstructions() string {
 	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
-		base := keimlingBaseInstructions()
+		base := keimlingBaseInstructionsFor(a != nil && a.Cfg.WatchesLive)
 		if a == nil {
 			return base
 		}

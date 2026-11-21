@@ -56,7 +56,7 @@ func (a *Agent) agentExtraTools() []map[string]any {
 	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
 		tools = append(tools, toolDef("change_workspace", "Switch this agent instance to another allowed workspace (like cd). workspace_id must be in the instance ACL.", map[string]any{"workspace_id": map[string]any{"type": "string", "description": "Workspace id from the instance ACL"}}, "workspace_id"))
 	}
-	if _, ok := a.watchPlace(); ok {
+	if place, ok := a.watchPlace(); ok && (!place.threadPlace() || a.Cfg.WatchesLive) {
 		tools = append(tools, watchToolDefs()...)
 	}
 	if strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {

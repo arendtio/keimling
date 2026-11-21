@@ -199,6 +199,11 @@ func TestAppServerVoiceFlag(t *testing.T) {
 	if body["voice"] != false {
 		t.Fatalf("voice without a chosen provider: %#v", body)
 	}
+	// The client compares this after a lost event stream to notice a replaced
+	// backend and reload instead of staying on a dead page.
+	if started, _ := body["started_at"].(string); started == "" {
+		t.Fatalf("health has no started_at: %#v", body)
+	}
 }
 
 func TestAppServerServesAnsiJS(t *testing.T) {

@@ -25,7 +25,7 @@
 | `GET` | `/ui` | yes | App document (settings, secret fields, session shell) |
 | `GET` | `/assets/*` | no | CSS/JS |
 | `GET` | `/files/{token}` | capability token | Shared file download (see `05-file-shares.md`); no access secret |
-| `GET` | `/api/health` | yes | Liveness + build/mode info |
+| `GET` | `/api/health` | yes | Liveness, build/mode info, `started_at` of this process |
 | `GET` | `/api/session` | yes | Session view: `messages`, `chapters`, `working_state`, `workspace_id`, `workspace_root`, `thread_id`, legacy `lines`. `model` is the thread's effective chat model; `chat_model_custom` is true when the thread has a saved choice. |
 | `GET` | `/api/workspaces` | yes | Host: list workspaces + `current` (attached) + `running` |
 | `POST` | `/api/workspaces/open` | yes | Host: register folder, ensure worker, attach `{ "path" }` → `{ "relaunch": false }` |

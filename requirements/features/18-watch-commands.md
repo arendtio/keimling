@@ -66,16 +66,36 @@ Time alarms stay. A watch is an additional way for an agent to be woken.
 - **Statement:** The agent shall set, list, and turn off watches, and shall not have separate alarm tools. A watch with a time and no condition shall wake the agent the way an alarm did.
 - **Origin:** User, 2026-11-07 (quote: "können wir das nicht vereinfachen und alarm streichen und nur noch watch nutzen? ein set_watch ohne bedingung wäre dann praktisch das gleiche wie bisher alarm und wir sparen uns ein paar kleine manage tools" and "sollten wir es vielleicht create_watch nennen, sonst könnte man auch denken man stellt damit eine Uhrzeit?" and "alarms.json müssen wir nicht weiter supporten. stattdessen gerne eher sowas wie watch/watcher/watchers.json" and "Eine dauerhafte Prüfung alle 10 Sekunden mit Nachrichten hier kann ich nicht zuverlässig ausführen" and "hast Du nicht die Möglichkeit create_watch zu nutzen?").
 - **Rationale:** A time wake and a conditional wake are the same job. Two tool sets make the agent choose a name for one job.
-- **Fit criterion:** The tools are `create_watch`, `list_watches`, and `cancel_watch`. There is no `set_alarm`, `list_alarms`, `cancel_alarm`, or `set_watch`. A watch with a time and no condition wakes once for a time such as "in 2m" or "at 15:04", and wakes on each interval for "every 30s" until the agent cancels it. The instructions tell the agent that `create_watch` wakes only itself. The list is stored as `watches.json` in the instance directory. An existing `alarms.json` is not read. A workspace thread is not offered these tools. The check runs while a model reply is still in progress.
+- **Fit criterion:** The tools are `create_watch`, `list_watches`, and `cancel_watch`. There is no `set_alarm`, `list_alarms`, `cancel_alarm`, or `set_watch`. A watch with a time and no condition wakes once for a time such as "in 2m" or "at 15:04", and wakes on each interval for "every 30s" until the agent cancels it. The instructions tell the agent that `create_watch` wakes only itself. The list is stored as `watches.json` in the instance directory. An existing `alarms.json` is not read. A workspace thread with a running wake loop is offered the same tools. The check runs while a model reply is still in progress.
 - **Priority:** shall
 - **Status:** confirmed
 
-## REQ-WC-7 A workspace chat offers an agent for a watch
+## REQ-WC-7 (superseded by REQ-WC-9) A workspace chat offers an agent for a watch
 
 - **Bin:** explicit requirement
 - **Statement:** A workspace chat shall not set a watch. It shall know that an agent can, tell the user that, and after the user agrees create an agent, start an instance, and hand that instance the requested job.
 - **Origin:** User, 2026-11-07 (quote: "ein normaler Chat keine Watch einstellen sollte, sondern dass das eben genau die Funktion eines Agenten ist" and "der Thread weiß, welche zusätzlichen Möglichkeiten ein Agent hat" and "dass er selbst das nicht kann, weil er kein Agent ist und dass er aber einen Agenten erstellen kann" and "wenn der User das möchte, dann sollte er in dem Moment auch einen Agent erstellen, der genau diese Funktion auch direkt umsetzt" and "erstellen und instanziieren können und auch damit starten" and "das sollten wir in das agentische Muster bringen und nicht an den Workspace hängen" and "die instruktionen sind beim anlegen des agenten noch nicht automatisch spezifisch genug" and "ob der thread eigentlich seine eigene id kennt?").
 - **Rationale:** A watch that keeps running is what an agent is for. Giving the workspace that loop would make the workspace an agent. A vague job is not a purpose the later approval can match, and the workspace can name the thread only when it knows that thread's id.
 - **Fit criterion:** A workspace thread has no `create_watch`. Its instructions say a watch belongs to an agent, this chat cannot set one, and they include this thread's id. After the user agrees, the chat saves a definition whose job names the concrete check and that thread id as the place to message, starts an instance, and queues that job as the instance's first message. The workspace does not run the check. A match is shown in the agent channel as a Watch report, with the result, and not as a message from the user. It does not open a new chapter.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-WC-9 A workspace thread keeps its own watches
+
+- **Bin:** explicit decision
+- **Statement:** A workspace thread shall have the same watch tools as an agent instance, shall store its watches in the thread directory, and shall wake on them. This replaces REQ-WC-7: the thread no longer has to hand a watch to an agent.
+- **Origin:** User, 2026-11-21 (quote: "normal threads do not have access to alarms and watches, like agents. at one point I thought it would make sense, but now I think otherwise. so normal threads should also have access to those tools.").
+- **Rationale:** A thread that runs work needs to be woken for that work, not be told it cannot keep a clock.
+- **Fit criterion:** `create_watch`, `list_watches`, and `cancel_watch` are offered in a workspace thread whenever that process runs a wake loop. The watches are stored as `watches.json` in the thread directory and a due wake is queued as that thread's wake. A thread without a wake loop, such as the CLI, is not offered the tools and `create_watch` says so. A thread watch wakes on the clock; a file or command source and step chains stay agent-only.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-WC-10 A missed wake is replayed once after a restart
+
+- **Bin:** explicit requirement
+- **Statement:** When the process was gone while a watch fell due, it shall queue the wake on the next start and process it, once, instead of waiting for the user to write again.
+- **Origin:** User, 2026-11-21 (quote: "after the backend is back the thread does not continue the work. instead the user has to trigger it again. So I think when the backend goes up again, it should queue and process most recent missed alarms.").
+- **Rationale:** A backend update kills the process. The work it owed must not depend on the user remembering it.
+- **Fit criterion:** A watch that fell due while the process was down is queued at the next start, and a restart after the queue was written does not queue it twice. A one-shot watch is removed only after its wake was handled; a wake that cannot start a run stays queued for a bounded number of retries. A due wake older than a day is dropped instead of replayed. A recurring watch continues on its interval and does not catch up on missed occurrences.
 - **Priority:** shall
 - **Status:** confirmed

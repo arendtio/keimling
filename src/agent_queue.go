@@ -19,6 +19,11 @@ type AgentQueueItem struct {
 	Workspace string    `json:"workspace,omitempty"`
 	Kind      string    `json:"kind,omitempty"` // message | alarm | peer | thread
 	At        time.Time `json:"at"`
+	// WatchID ties a wake to the thread watch that produced it, so the watch is
+	// dropped only after its run succeeded.
+	WatchID string `json:"watch_id,omitempty"`
+	// Attempts counts failed runs that put this wake back in the queue.
+	Attempts int `json:"attempts,omitempty"`
 }
 
 func agentInstanceQueuePath(id string) string {
@@ -105,21 +110,34 @@ func threadQueuePath(workspaceID, threadID string) string {
 var threadQueueMu sync.Mutex
 
 func enqueueThreadMessage(workspaceID, threadID, text, from, kind string) error {
+	return enqueueThreadItem(workspaceID, threadID, AgentQueueItem{Text: text, From: from, Kind: kind})
+}
+
+// enqueueThreadWake queues one watch wake for a thread. watchID lets the run
+// report back which watch it handled, and attempts bounds the retries.
+func enqueueThreadWake(workspaceID, threadID, text, watchID string, attempts int) error {
+	return enqueueThreadItem(workspaceID, threadID, AgentQueueItem{
+		Text:     text,
+		From:     "watch",
+		Kind:     "watch",
+		WatchID:  strings.TrimSpace(watchID),
+		Attempts: attempts,
+	})
+}
+
+func enqueueThreadItem(workspaceID, threadID string, item AgentQueueItem) error {
 	workspaceID = strings.TrimSpace(workspaceID)
 	threadID = strings.TrimSpace(threadID)
-	text = strings.TrimSpace(text)
-	if workspaceID == "" || threadID == "" || text == "" {
+	item.Text = strings.TrimSpace(item.Text)
+	if workspaceID == "" || threadID == "" || item.Text == "" {
 		return fmt.Errorf("workspace, thread, and text required")
 	}
 	if st, err := os.Stat(threadDir(workspaceID, threadID)); err != nil || !st.IsDir() {
 		return fmt.Errorf("unknown thread %q", threadID)
 	}
-	item := AgentQueueItem{
-		Text: text,
-		From: strings.TrimSpace(from),
-		Kind: strings.TrimSpace(kind),
-		At:   time.Now().UTC(),
-	}
+	item.From = strings.TrimSpace(item.From)
+	item.Kind = strings.TrimSpace(item.Kind)
+	item.At = time.Now().UTC()
 	if item.Kind == "" {
 		item.Kind = "message"
 	}

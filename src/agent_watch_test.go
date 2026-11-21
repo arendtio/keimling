@@ -162,7 +162,7 @@ func TestWorkspaceChatHasNoWatch(t *testing.T) {
 			t.Fatalf("workspace chat offered %s", name)
 		}
 	}
-	if !strings.Contains(a.createWatch(`{}`), "only available on agent instances") {
+	if !strings.Contains(a.createWatch(`{}`), "no wake loop") {
 		t.Fatal(a.createWatch(`{}`))
 	}
 	text := a.modelInstructions()

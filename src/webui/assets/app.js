@@ -404,6 +404,8 @@
   var voiceStatus = document.getElementById("voice-status");
 
   var es = null;
+  var backendStartedAt = "";
+  var backendPoll = 0;
   var messages = [];
   var chapters = [];
   var activeChapter = null;
@@ -6444,6 +6446,7 @@
               var payload = {};
               try { payload = JSON.parse(data); } catch (e) {}
               // Agent "line" events are for CLI attach; GUI uses structured message/tool.
+              if (ev === "ready") noteBackendStarted(payload);
               if (ev === "message") handleStructuredMessage(payload);
               if (ev === "thinking") handleThinking(payload);
               if (ev === "realtime_inject") speakText(payload && payload.text);
@@ -6540,8 +6543,58 @@
       .catch(function (e) {
         if (ctrl.signal.aborted) return;
         appendLive("\n[events] " + e + "\n");
+        watchBackendRestart();
       });
     es = { close: function () { ctrl.abort(); } };
+  }
+
+  // noteBackendStarted records which process serves this page. The ready event
+  // carries the backend start time, so a replaced backend is visible.
+  function noteBackendStarted(payload) {
+    if (payload && payload.started_at) backendStartedAt = String(payload.started_at);
+    stopBackendPoll();
+  }
+
+  function stopBackendPoll() {
+    if (backendPoll) {
+      clearInterval(backendPoll);
+      backendPoll = 0;
+    }
+  }
+
+  // watchBackendRestart keeps asking the health endpoint while the event stream
+  // is gone. A new start time means the backend was replaced: the page reloads
+  // and picks up the new process. The same process means only the stream broke,
+  // so it reconnects. A backend that stays down keeps the browser on the page.
+  function watchBackendRestart() {
+    if (backendPoll) return;
+    backendPoll = setInterval(function () {
+      fetch(apiURL("/api/health"), { headers: headers() })
+        .then(function (r) {
+          if (!r.ok) return null;
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j || !j.started_at) return;
+          var started = String(j.started_at);
+          if (backendStartedAt && started === backendStartedAt) {
+            stopBackendPoll();
+            connectEvents();
+            loadSession().catch(function () {});
+            return;
+          }
+          if (!backendStartedAt) {
+            backendStartedAt = started;
+            stopBackendPoll();
+            connectEvents();
+            loadSession().catch(function () {});
+            return;
+          }
+          stopBackendPoll();
+          window.location.reload();
+        })
+        .catch(function () {});
+    }, 2000);
   }
 
   // Remote attach navigates the WebView to the agent origin (same as --connect).

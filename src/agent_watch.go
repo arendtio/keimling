@@ -30,7 +30,7 @@ func watchToolDefs() []map[string]any {
 			"path":      map[string]any{"type": "string"},
 			"command":   map[string]any{"type": "string"},
 		}, "when", "message", "condition", "value", "steps", "source", "path", "command"),
-		toolDef("list_watches", "List watches for this agent instance.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
+		toolDef("list_watches", "List the watches of this chat.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
 		toolDef("cancel_watch", "Turn off a watch by id from list_watches. It does not run again.", map[string]any{"id": map[string]any{"type": "string"}}, "id"),
 	}
 }
@@ -49,11 +49,19 @@ type watchRequest struct {
 func (a *Agent) createWatch(argsJSON string) string {
 	place, ok := a.watchPlace()
 	if !ok {
-		return "create_watch error: only available on agent instances"
+		return "create_watch error: only available on agent instances and threads"
 	}
 	var req watchRequest
 	if err := json.Unmarshal([]byte(argsJSON), &req); err != nil {
 		return "create_watch error: invalid arguments"
+	}
+	if place.threadPlace() {
+		if !a.Cfg.WatchesLive {
+			return "create_watch error: this chat has no wake loop, so a watch would never fire"
+		}
+		if len(req.Steps) > 0 || strings.TrimSpace(req.Source) != "" {
+			return "create_watch error: a thread watch wakes on the clock only; steps and a file or command source need an agent instance"
+		}
 	}
 	w, err := a.prepareWatch(req, time.Now())
 	if err != nil {
@@ -174,7 +182,7 @@ func addAgentWatch(path string, w AgentWatch) error {
 func (a *Agent) listWatchesTool(_ string) string {
 	place, ok := a.watchPlace()
 	if !ok {
-		return "list_watches error: only available on agent instances"
+		return "list_watches error: only available on agent instances and threads"
 	}
 	list, err := readWatches(place.path)
 	if err != nil {
@@ -229,7 +237,7 @@ func watchSummary(w AgentWatch) string {
 func (a *Agent) cancelWatch(argsJSON string) string {
 	place, ok := a.watchPlace()
 	if !ok {
-		return "cancel_watch error: only available on agent instances"
+		return "cancel_watch error: only available on agent instances and threads"
 	}
 	var x struct {
 		ID string `json:"id"`
