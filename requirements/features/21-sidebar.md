@@ -131,3 +131,23 @@ The side area is the place for what the user looks at beside the chat. Artifacts
 - **Fit criterion:** At a narrow width the chat is the page and the header starts at the top of the screen. The header menu control opens the workspaces column over the chat and the same control closes it. That column is about 80 percent of the screen width, the full screen height, and scrolls inside. Chapters is a tab in the side area and is not a header button. The Sidebar control is an icon. Sidebar opens the side area over the chat at the same width and height, scrolling inside, and the same control closes it. Focus, Fullscreen, Close, and Dock in that area are icons. Focus covers the whole page, including the header. Dock leaves that full-page layer and the side area is the side drawer again. With both open, the workspaces column is in front of the side area. At a wide width the workspaces column and the side area sit beside the chat, and Chapters and Sidebar are words in the header.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SB-13 The Now view carries the context meter
+
+- **Bin:** explicit requirement
+- **Statement:** The Now view shall show how full the context is, as the Context tab shows it at the top: the same figures with the same wording, and a bar in the same shape that turns to the warning colour when the limit is passed. Both places shall be fed from one answer about the context, not from a second request.
+- **Origin:** User, 2026-11-21 (paraphrase: the Now tab should carry the context usage between the performance block and the plan, and it should look and read exactly like the meter in the Context tab).
+- **Rationale:** The user watches the run in the Now view. Whether the context is filling up is part of that, and having to change tabs for it splits one question in two.
+- **Fit criterion:** With the side area on the Now tab, used, limit, percentage, remaining, and source are shown, together with a filled bar. The figures match the Context tab at that moment. A context above its limit shows the warning colour in both places. The two places keep separate elements, and one refresh of the context fills both.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-SB-14 The Now view lists the agents that are working
+
+- **Bin:** explicit requirement
+- **Statement:** The Now view shall list the agents that are running, on a call, or waiting for a message or a watch, under the plan. An agent that is idle shall not take a place in that list. With nothing running, the view shall say so in one short line and stay quiet. A row shall open that agent the way the Agents view opens it.
+- **Origin:** User, 2026-11-21 (paraphrase: the Now tab should show below the plan which agents are currently active, meaning running, busy, or waiting, but not the idle ones; clicking a row should open that agent).
+- **Rationale:** A fan-out run has several agents. Noticing that someone is still working belongs with the plan and the performance, not in a second tab.
+- **Fit criterion:** With one agent running and one waiting for a watch, both are listed with their name, their definition, and their state. An idle agent does not appear. With only idle agents, the list is empty and the view says there is no active agent. Choosing a listed agent opens its chat. The list is only rebuilt while the Now view is visible.
+- **Priority:** shall
+- **Status:** confirmed

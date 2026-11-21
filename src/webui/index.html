@@ -1049,10 +1049,22 @@
               <button id="screen-dismiss" type="button" class="ghost">Stop</button>
             </div>
           </section>
+          <section class="side-block" aria-label="Context budget">
+            <h2>Context</h2>
+            <div class="budget-bar-wrap">
+              <div class="budget-meta"><span id="now-budget-label">—</span></div>
+              <div class="budget-track"><div id="now-budget-fill" class="budget-fill"></div></div>
+            </div>
+          </section>
           <section class="side-block">
             <h2>Plan</h2>
             <p id="side-plan-empty" class="hint">No plan for this run.</p>
             <ol id="side-plan" class="side-plan"></ol>
+          </section>
+          <section class="side-block" aria-label="Active agents">
+            <h2>Agents</h2>
+            <p id="now-agents-empty" class="hint">No active agents.</p>
+            <ul id="now-agents" class="now-agents"></ul>
           </section>
           </div>
           <footer id="side-chat-ref" class="side-chat-ref" hidden>

@@ -390,6 +390,42 @@ label.color-field input[type="color"] {
 }
 .agent-phase.running { color: var(--accent); }
 .agent-phase.waiting { color: var(--live-warn); }
+.now-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.now-agents:empty { display: none; }
+.now-agent {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.now-agent-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.now-agent-open .agent-board-name,
+.now-agent-open .agent-board-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.now-agent .agent-phase { flex: 0 0 auto; }
 select {
   width: 100%;
   max-width: 100%;
