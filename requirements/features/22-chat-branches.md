@@ -51,3 +51,14 @@ A chat can leave the linear transcript and continue from an earlier user message
 - **Fit criterion:** A long thread is forked at an early user message. The stored size added by the fork is the new message and the links needed to rebuild that point, not a second copy of the transcript above it. After a restart only the visible continuation is loaded for the model, and selecting another continuation still shows it.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-CB-6 An agent chat can continue from an edited message while it works
+
+- **Bin:** explicit requirement
+- **Statement:** In a chat run by an agent instance, the product shall let the user edit a message they already sent and send the replacement even while the agent is working. Sending shall first stop the running run, as the stop button does, and then continue from the edited message. That stop shall not reset the agent's watches, alarms, queued input, contacts, or tools. An agent that was already stopped by the user shall send the replacement once and stay stopped.
+- **Origin:** User, 2026-11-21 (quote: the agent chat shall behave "wie ein Workspace-Thread"; while the agent runs, "wird der laufende Run abgebrochen (wie der Stop-Knopf), danach wird geforkt und neu gestartet. Kein Kontext-Reset: Watches, Alarme, Queue, Kontakte, Tools bleiben").
+- **Rationale:** Only the conversation is replaced. Losing wakes or tools would turn a correction into a restart of the agent.
+- **Fit criterion:** Given an agent chat whose run is in progress, the user edits an earlier user message and sends it. The run stops, the visible chat continues from the new text, and the continuation that was there can still be selected. An agent that was already stopped runs the new text once and stays stopped. A workspace thread keeps rejecting the edit while it runs.
+- **Priority:** shall
+- **Status:** confirmed
+- **Risks:** Stop and fork share one worker, so a queued wake must not start a run between them; the wake pump is held for that window. An aborted tool call can leave side effects behind, because only interactive terminals are killed. Editing a message from before the last compaction brings back the memory as it was at that message, so later findings are gone on purpose.

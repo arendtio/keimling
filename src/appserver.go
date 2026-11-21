@@ -42,6 +42,7 @@ type appServer struct {
 	runs                  map[string]*liveThread
 	cancel                context.CancelFunc
 	stopRequested         bool
+	forkHold              bool // keeps the wake pump off between a forced stop and its fork
 	skillCandidates       []SkillCandidate
 	skillPreviews         *skillPreviewHub
 	pendingProviders      []modelProvider
@@ -2927,17 +2928,29 @@ func (s *appServer) handleBranch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
-	if s.isBusy() || s.realtimeCallOpen() {
-		http.Error(w, "The agent is still working.", http.StatusConflict)
-		return
-	}
 	var body struct {
-		Line int    `json:"line"`
-		Text string `json:"text"`
+		Line  int    `json:"line"`
+		Text  string `json:"text"`
+		Force bool   `json:"force"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
+	}
+	// A forced fork belongs to an agent chat: the running run is stopped first,
+	// then the fork starts from the edited message. Workspace threads and an
+	// open realtime call keep the conflict.
+	forced := body.Force && strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != ""
+	if s.isBusy() || s.realtimeCallOpen() {
+		if !forced || s.realtimeCallOpen() {
+			http.Error(w, "The agent is still working.", http.StatusConflict)
+			return
+		}
+		if !s.stopForFork() {
+			http.Error(w, "The agent did not stop in time.", http.StatusConflict)
+			return
+		}
+		defer s.clearForkHold()
 	}
 	if err := s.agent.prepareFork(body.Line, body.Text); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2952,6 +2965,50 @@ func (s *appServer) handleBranch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true})
+}
+
+// stopForFork stops the running agent-instance run for a forced fork and waits
+// until the server is idle again. It holds the wake pump from the stop until the
+// caller clears the hold, so no queued wake starts a run between stop and fork.
+// It reports false when the run did not end within the deadline.
+func (s *appServer) stopForFork() bool {
+	s.mu.Lock()
+	if !s.busy {
+		s.mu.Unlock()
+		return true
+	}
+	s.stopRequested = true
+	s.forkHold = true
+	cancel := s.cancel
+	others := len(s.runs) > 0
+	s.mu.Unlock()
+	// A decision queued before/while stopping must not auto-approve the next run.
+	drainApproval(s.agent)
+	if cancel != nil {
+		cancel()
+	}
+	if !others {
+		killTrackedCommands()
+	}
+	if s.agent.Compaction != nil && s.agent.Compaction.cancel != nil {
+		s.agent.Compaction.cancel()
+	}
+	// Catch a decision that slipped in between the drain and cancel.
+	drainApproval(s.agent)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !s.isBusy() {
+			return true
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return !s.isBusy()
+}
+
+func (s *appServer) clearForkHold() {
+	s.mu.Lock()
+	s.forkHold = false
+	s.mu.Unlock()
 }
 
 func (s *appServer) handleBranchSelect(w http.ResponseWriter, r *http.Request) {
@@ -3655,6 +3712,12 @@ func (s *appServer) agentWakeLoop() {
 
 func (s *appServer) pumpAgentWakes() {
 	if s.agent == nil {
+		return
+	}
+	s.mu.Lock()
+	hold := s.forkHold
+	s.mu.Unlock()
+	if hold {
 		return
 	}
 	inst := strings.TrimSpace(s.agent.Cfg.AgentInstanceID)

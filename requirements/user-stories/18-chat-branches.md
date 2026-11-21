@@ -17,3 +17,9 @@
 **As** a user, **I want** the other continuations kept on disk without a full copy of the earlier chat beside every message, **so that** a long thread can be forked without storing the same history again and again.
 
 **Acceptance:** traces REQ-CB-5. Forking an early message does not duplicate the transcript above it. After a restart the model is loaded with the visible continuation, and another continuation can still be selected.
+
+## US-54 — Correct a message in a working agent chat
+
+**As** a user, **I want** to edit a message in an agent chat even while the agent is working, **so that** I can correct the instruction without losing the agent's setup.
+
+**Acceptance:** traces REQ-CB-6. Sending asks once, then stops the running run. The chat continues from the new text and the earlier continuation stays reachable. The agent keeps its watches, queue, contacts, and tools; an agent that was already stopped runs the new text once and stays stopped.

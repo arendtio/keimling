@@ -217,3 +217,74 @@ func TestOpenJournalSkipsBranchCheckpoint(t *testing.T) {
 		t.Fatal("root message missing")
 	}
 }
+
+// An agent instance forks in its own session beside the instance thread dir.
+func TestAgentInstanceBranchKeepsTheOldContinuation(t *testing.T) {
+	withTempAgentHomes(t)
+	id := newAgentInstanceID()
+	if err := os.MkdirAll(agentInstanceThreadDir(id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := agentInstanceSessionPath(id)
+	j, err := OpenJournal(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{
+		Journal: j,
+		History: j.History,
+		Cfg:     Config{SessionPath: path, AgentInstanceID: id},
+		Charter: &Charter{Version: charterVersion, Goal: "ship"},
+	}
+	if err := a.persistCharter(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.addBranchableUser("FIRST-AGENT"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.add(map[string]any{"role": "assistant", "content": "reply-agent"}); err != nil {
+		t.Fatal(err)
+	}
+	a.Charter.Plan = []CharterStep{{Step: "later", Status: "pending"}}
+	if err := a.persistCharter(); err != nil {
+		t.Fatal(err)
+	}
+	source := branchSourceLine(t, path, "FIRST-AGENT")
+	if err := a.prepareFork(source, "SECOND-AGENT"); err != nil {
+		t.Fatal(err)
+	}
+	if planStep(a, "later") {
+		t.Fatal("the new continuation kept the later plan")
+	}
+	items, lines, err := visibleJournal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := sessionMessages(items, 120)
+	annotateBranchMessages(path, msgs, lines)
+	var user *sessionMessage
+	for i := range msgs {
+		if msgs[i].Role == "user" {
+			user = &msgs[i]
+		}
+	}
+	if user == nil || user.Text != "SECOND-AGENT" || user.BranchCount != 2 || user.BranchLine != source || user.BranchIndex != 1 {
+		t.Fatalf("visible continuation %+v", user)
+	}
+	if _, err := os.Stat(branchIndexPath(path)); err != nil {
+		t.Fatalf("branch file beside the instance session: %v", err)
+	}
+	if err := a.selectContinuation(source, 0); err != nil {
+		t.Fatal(err)
+	}
+	blob := histBlob(a)
+	if !strings.Contains(blob, "FIRST-AGENT") || !strings.Contains(blob, "reply-agent") || strings.Contains(blob, "SECOND-AGENT") {
+		t.Fatal(blob)
+	}
+	if !planStep(a, "later") {
+		t.Fatal("the old continuation lost its plan")
+	}
+	if err := j.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

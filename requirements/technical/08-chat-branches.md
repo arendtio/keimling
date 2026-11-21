@@ -23,3 +23,15 @@ Only the active path's tail and charter are loaded. Another continuation is read
 ## Files
 
 Beside the session journal: a branch index (nodes, parent links, revision ids, active tip) and a charter-revision log that grows only when the charter changes. Existing checkpoint lines stay the compaction snapshots they already are.
+
+## Agent chats
+
+An agent chat runs in its own instance session, so its branch index and charter log lie beside `<data>/keimling/agent-instances/<id>/thread/session.jsonl`. The host forwards `POST /api/branch` to the attached instance worker unchanged; that worker writes those files.
+
+### Forced fork
+
+`POST /api/branch` accepts `force`. Only an agent chat may use it: in a workspace thread, or without an instance id, a busy server still answers 409. A forced request stops the running run the way the stop button does — stop flag, cancel the run context, drain a queued approval decision, kill tracked commands, cancel compaction — and waits up to five seconds for the server to become idle. On timeout it answers 409 and starts nothing. Only after that does it fork and start the run.
+
+The wake pump is held from the stop until that fork has started (`forkHold` on the app server). Without the hold the pump would start a queued wake between the stop and the fork and mutate the history the fork rebuilds. The hold is cleared on every path, including a failed fork. A forced stop leaves the instance's wakes alone: an agent that already held its wakes stays held and runs the new text once.
+
+Risks: an aborted tool call can leave side effects behind, because only interactive terminals are killed. A source message without a branch mark has no recorded charter revision, so the fork starts from the memory as it was at that message; later findings are intentionally gone.

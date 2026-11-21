@@ -5543,14 +5543,16 @@
     edit.className = "ghost";
     edit.textContent = "Edit";
     edit.setAttribute("aria-label", "Edit message");
-    edit.disabled = agentBusy();
-    edit.addEventListener("click", function () { openBranchEditor(el, m, source); });
+    // An agent chat may stop its run for the fork, so its button stays usable.
+    var force = !!currentAgentInstanceID;
+    edit.disabled = !force && agentBusy();
+    edit.addEventListener("click", function () { openBranchEditor(el, m, source, force); });
     nav.appendChild(edit);
     body.appendChild(nav);
   }
 
-  function openBranchEditor(el, m, source) {
-    if (agentBusy()) {
+  function openBranchEditor(el, m, source, force) {
+    if (agentBusy() && !force) {
       appendLive("\n[branch] The agent is still working.\n");
       return;
     }
@@ -5588,11 +5590,26 @@
       if (!text) return;
       send.disabled = true;
       cancel.disabled = true;
-      sendEditedMessage(source, text).catch(function (err) {
-        send.disabled = false;
-        cancel.disabled = false;
-        appendLive("\n[branch] " + ((err && err.message) || err) + "\n");
-      });
+      function submit(forceNow) {
+        sendEditedMessage(source, text, forceNow).catch(function (err) {
+          send.disabled = false;
+          cancel.disabled = false;
+          appendLive("\n[branch] " + ((err && err.message) || err) + "\n");
+        });
+      }
+      if (force && agentBusy()) {
+        askConfirm("The agent is working. Sending stops the current run and continues from this message.", "Stop and send").then(function (ok) {
+          if (!ok) {
+            // Cancelling keeps the editor open and stops nothing.
+            send.disabled = false;
+            cancel.disabled = false;
+            return;
+          }
+          submit(true);
+        });
+        return;
+      }
+      submit(force);
     });
     ta.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
@@ -5612,10 +5629,12 @@
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }
 
-  function sendEditedMessage(line, text) {
-    if (agentBusy()) return Promise.reject(new Error("The agent is still working."));
-    return postJSON("/api/branch", { line: line, text: text }).then(function () {
+  function sendEditedMessage(line, text, force) {
+    // A forced fork stops the running agent run first; workspace threads wait.
+    if (agentBusy() && !force) return Promise.reject(new Error("The agent is still working."));
+    return postJSON("/api/branch", { line: line, text: text, force: !!force }).then(function () {
       if (agentState === "idle") resetSideSamples();
+      clearLive();
       setState("running");
       return loadSession();
     }).then(function () {

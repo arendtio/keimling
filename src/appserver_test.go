@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -861,5 +862,134 @@ func TestPeerDeliveryWakesTheAttachedThreadOnce(t *testing.T) {
 	foreign, err := originalEvents(otherSession)
 	if err != nil || len(foreign) != 1 || !strings.Contains(string(foreign[0]), "elsewhere") {
 		t.Fatalf("foreign thread record: %v %v", foreign, err)
+	}
+}
+
+// branchSourceLine returns the journal line of the last user message that
+// contains want, so a fork test does not depend on numbering.
+func branchSourceLine(t *testing.T, path, want string) int {
+	t.Helper()
+	rows, err := readJournalRows(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := 0
+	for _, row := range rows {
+		if strings.Contains(string(row.Item), want) {
+			line = row.Line
+		}
+	}
+	if line == 0 {
+		t.Fatalf("missing journal line for %q", want)
+	}
+	return line
+}
+
+func TestBranchForceStopsTheRunningAgentInstanceRun(t *testing.T) {
+	withTempAgentHomes(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	j, err := OpenJournal(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Journal: j,
+		History: j.History,
+		Cfg:     Config{Mode: "ask", SessionPath: path, AgentInstanceID: "agent-force-fork"},
+	}
+	if err := a.addBranchableUser("FIRST-MSG"); err != nil {
+		t.Fatal(err)
+	}
+	source := branchSourceLine(t, path, "FIRST-MSG")
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv.mu.Lock()
+	srv.busy = true
+	srv.cancel = cancel
+	srv.mu.Unlock()
+
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/branch", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer tok")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Without force a running agent keeps the conflict.
+	rec := post(`{"line":` + strconv.Itoa(source) + `,"text":"SECOND-MSG"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("fork while busy without force: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal("a rejected fork stopped the run")
+	default:
+	}
+
+	// The stopped run ends; record that the fork asked for the stop first.
+	var sawStop bool
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		srv.mu.Lock()
+		sawStop = srv.stopRequested
+		srv.busy = false
+		srv.mu.Unlock()
+	}()
+	rec = post(`{"line":` + strconv.Itoa(source) + `,"text":"SECOND-MSG","force":true}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("forced fork: %d %s", rec.Code, rec.Body.String())
+	}
+	if !sawStop {
+		t.Fatal("forced fork did not ask the running agent to stop")
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("forced fork did not cancel the run")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for srv.isBusy() {
+		if time.Now().After(deadline) {
+			t.Fatal("forked run did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	srv.mu.Lock()
+	held := srv.forkHold
+	srv.mu.Unlock()
+	if held {
+		t.Fatal("the wake pump stayed held after the fork")
+	}
+}
+
+func TestBranchForceNeedsAnAgentInstance(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	j, err := OpenJournal(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{Journal: j, History: j.History, Cfg: Config{SessionPath: path}}
+	if err := a.addBranchableUser("FIRST-MSG"); err != nil {
+		t.Fatal(err)
+	}
+	source := branchSourceLine(t, path, "FIRST-MSG")
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/branch", strings.NewReader(`{"line":`+strconv.Itoa(source)+`,"text":"NEXT","force":true}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("force on a workspace thread: %d %s", rec.Code, rec.Body.String())
 	}
 }
