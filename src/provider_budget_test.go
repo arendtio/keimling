@@ -90,6 +90,9 @@ func TestOpenRouterAccountLoadsWhenTheKeyCallFails(t *testing.T) {
 
 func TestBudgetFollowsTheChatModel(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// A real fetch also appends one spend-ledger budget snapshot; keep it out
+	// of the developer's config directory.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/key":

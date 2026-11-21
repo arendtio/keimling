@@ -222,6 +222,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/settings", s.requireSecret(http.HandlerFunc(s.handleSettings)))
 	s.mux.Handle("/api/settings/model-catalog", s.requireSecret(http.HandlerFunc(s.handleModelCatalog)))
 	s.mux.Handle("/api/settings/budget", s.requireSecret(http.HandlerFunc(s.handleProviderBudget)))
+	s.mux.Handle("/api/spend", s.requireSecret(http.HandlerFunc(s.handleSpend)))
 	s.mux.Handle("/api/gui-prefs", s.requireSecret(http.HandlerFunc(s.handleGuiPrefs)))
 	s.mux.Handle("/api/client-connections", s.requireSecret(http.HandlerFunc(s.handleClientConnections)))
 	s.mux.Handle("/api/credentials", s.requireSecret(http.HandlerFunc(s.handleCredentials)))
@@ -2398,6 +2399,7 @@ func (s *appServer) applySettings(body agentSettings) error {
 		if s.agent.Client == nil {
 			s.agent.Client = NewClient(k)
 			s.agent.Client.BaseURL = cfg.BaseURL
+			s.agent.Client.Spend = recordCloudSpend
 		} else {
 			s.agent.Client.APIKey = k
 		}
@@ -3493,7 +3495,7 @@ func (s *appServer) startForkedRunWake(threadID, text, ws string, item AgentQueu
 	}
 	b := &Agent{
 		Cfg:         s.agent.Cfg,
-		Client:      &Client{APIKey: s.agent.Client.APIKey, BaseURL: s.agent.Client.BaseURL, HTTP: s.agent.Client.HTTP, Parallel: s.agent.Client.Parallel},
+		Client:      &Client{APIKey: s.agent.Client.APIKey, BaseURL: s.agent.Client.BaseURL, HTTP: s.agent.Client.HTTP, Parallel: s.agent.Client.Parallel, Spend: s.agent.Client.Spend},
 		Skills:      s.agent.Skills,
 		MCP:         s.agent.MCP,
 		Credentials: s.agent.Credentials,

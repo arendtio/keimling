@@ -70,6 +70,7 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 		}()
 		client := NewClient(key)
 		client.BaseURL = baseURL
+		client.Spend = recordCloudSpend
 		var body strings.Builder
 		body.WriteString("Current charter JSON:\n")
 		body.Write(curJSON)
