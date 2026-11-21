@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -335,5 +337,52 @@ func TestParseSpendDays(t *testing.T) {
 		if got := parseSpendDays(tc.gran, tc.raw); got != tc.want {
 			t.Fatalf("parseSpendDays(%q, %q) = %d, want %d", tc.gran, tc.raw, got, tc.want)
 		}
+	}
+}
+
+func TestHandleSpendServesAggregates(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	prev := spendConfigFile
+	spendConfigFile = filepath.Join(cfgHome, "keimling", "config.json")
+	defer func() { spendConfigFile = prev }()
+
+	now := time.Now().UTC()
+	recordModelSpend(spendDir(), spendRecord{
+		Time:         now.Add(-time.Hour).Format(time.RFC3339),
+		Provider:     "openrouter",
+		Model:        "vendor/a",
+		InputTokens:  100,
+		OutputTokens: 20,
+		USD:          usdPtr(0.02),
+		Priced:       true,
+	})
+	srv := newAppServer(appServerOpts{AccessSecret: "s", Agent: &Agent{}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/spend?granularity=day&days=2", nil)
+	req.Header.Set("Authorization", "Bearer s")
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var body spendOverview
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Granularity != spendGranularityDay || len(body.Buckets) != 2 {
+		t.Fatalf("unexpected overview: %+v", body)
+	}
+	if body.Totals.Calls != 1 || body.Totals.InputTokens != 100 {
+		t.Fatalf("totals wrong: %+v", body.Totals)
+	}
+	if len(body.ByModel) != 1 || body.ByModel[0].Model != "vendor/a" || body.ByModel[0].Provider != "openrouter" {
+		t.Fatalf("by_model wrong: %+v", body.ByModel)
+	}
+
+	unauth := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(unauth, httptest.NewRequest(http.MethodGet, "/api/spend", nil))
+	if unauth.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status %d", unauth.Code)
 	}
 }
