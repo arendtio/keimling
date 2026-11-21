@@ -743,3 +743,123 @@ func TestUnauthenticatedPageIsLoginOnly(t *testing.T) {
 		t.Fatalf("cache: %q", rec.Header().Get("Cache-Control"))
 	}
 }
+
+func TestPeerDeliveryWakesTheAttachedThreadOnce(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, otherSession, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := OpenJournal(session, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg:     Config{Model: "m", Mode: "ask", WorkspaceID: ws.ID, ThreadID: th.ID, SessionPath: session},
+		Journal: j,
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	var woken []string
+	srv.startPeerRun = func(text, wsID, threadID string, item AgentQueueItem) bool {
+		woken = append(woken, wsID+"/"+threadID+": "+text)
+		return true
+	}
+	deliver := func(threadID, text string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{
+			"workspace_id": ws.ID,
+			"thread_id":    threadID,
+			"from_name":    "Ada",
+			"from_id":      "agent-ada",
+			"text":         text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/threads/deliver", strings.NewReader(string(body)))
+		req.Header.Set("Authorization", "Bearer tok")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	// An idle attached thread runs once, with the text parsePeerUserText reads.
+	if rec := deliver(th.ID, "ping"); rec.Code != http.StatusOK {
+		t.Fatalf("deliver: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(woken) != 1 || woken[0] != ws.ID+"/"+th.ID+": [From Ada] ping" {
+		t.Fatalf("idle wake: %q", woken)
+	}
+	if name, body, ok := parsePeerUserText("[From Ada] ping"); !ok || name != "Ada" || body != "ping" {
+		t.Fatalf("wake text is not a peer message: %q %q %v", name, body, ok)
+	}
+
+	// A retry of the same text and a further peer message stay quiet: the peer
+	// chain is one step long.
+	if rec := deliver(th.ID, "ping"); rec.Code != http.StatusOK {
+		t.Fatalf("retry: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := deliver(th.ID, "again"); rec.Code != http.StatusOK {
+		t.Fatalf("second peer message: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(woken) != 1 {
+		t.Fatalf("peer chain woke twice: %q", woken)
+	}
+
+	// After the human writes, a peer message wakes the thread again.
+	srv.noteUserTurn()
+	if rec := deliver(th.ID, "third"); rec.Code != http.StatusOK {
+		t.Fatalf("after a user turn: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(woken) != 2 {
+		t.Fatalf("user turn did not rearm the wake: %q", woken)
+	}
+
+	// A busy agent stores the message and starts no second run.
+	srv.mu.Lock()
+	srv.busy = true
+	srv.mu.Unlock()
+	srv.noteUserTurn()
+	if rec := deliver(th.ID, "while busy"); rec.Code != http.StatusOK {
+		t.Fatalf("busy deliver: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(woken) != 2 {
+		t.Fatalf("busy thread started a run: %q", woken)
+	}
+	srv.mu.Lock()
+	srv.busy = false
+	srv.mu.Unlock()
+
+	// Another thread is stored only; it is neither woken nor switched.
+	if rec := deliver(other.ID, "elsewhere"); rec.Code != http.StatusOK {
+		t.Fatalf("foreign thread: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(woken) != 2 {
+		t.Fatalf("foreign thread was woken: %q", woken)
+	}
+	if a.Cfg.ThreadID != th.ID {
+		t.Fatalf("worker left the attached thread for %s", a.Cfg.ThreadID)
+	}
+	events, err := originalEvents(session)
+	if err != nil || len(events) != 5 {
+		t.Fatalf("attached thread record: %d %v", len(events), err)
+	}
+	for _, ev := range events {
+		if !strings.Contains(string(ev), `"keimling_peer"`) || !strings.Contains(string(ev), `"Ada"`) {
+			t.Fatalf("stored peer item: %s", ev)
+		}
+	}
+	foreign, err := originalEvents(otherSession)
+	if err != nil || len(foreign) != 1 || !strings.Contains(string(foreign[0]), "elsewhere") {
+		t.Fatalf("foreign thread record: %v %v", foreign, err)
+	}
+}

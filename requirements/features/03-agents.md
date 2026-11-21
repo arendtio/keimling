@@ -474,6 +474,16 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-39 A peer message wakes an idle attached thread once
+
+- **Bin:** explicit requirement
+- **Statement:** A peer message delivered to the thread this process runs shall start a run when that thread is idle. The text of that run shall name the sender, so the run shows a peer message and not user text. A busy thread shall store the message for the run in flight and shall not start a second run. A message for another thread shall be stored only, with no run and no workspace switch. A peer message shall not wake the attached thread again until the user writes in it. A wake that cannot start shall keep the stored message and shall not report an error to the sender.
+- **Origin:** User, 2026-11-21 (paraphrase: a peer message to a thread shall wake that thread instead of waiting for the user, and two agents shall not answer each other forever).
+- **Rationale:** A delivered message that only sits in the journal leaves the sender waiting for a user who is not there. Waking on every peer message instead lets two agents keep each other busy, so one step per user turn is the bound.
+- **Fit criterion:** With an idle attached thread, delivering a peer message starts one run whose text is `[From <name>] <body>`. Repeating the same delivery, or delivering another peer message before the user writes, starts no run. After the user sends a message, the next peer message starts a run again. With a run in flight, the peer message is stored and no second run starts. A message for another thread is stored in that thread's session and starts no run. The sender receives a success response in every case.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 Until the user saves tools on a definition, that definition grants every tool. Saving stores the checked tools. An instance with no narrower set uses that definition. Saving the same set again clears the instance override. REQ-AG-2’s unanswered default is this design, not a stakeholder shall.
