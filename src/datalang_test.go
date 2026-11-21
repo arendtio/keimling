@@ -834,3 +834,98 @@ func TestDataLangReshapesObjectsAndText(t *testing.T) {
 		}
 	}
 }
+
+func TestHeldResultKeepsShapeWithoutHead(t *testing.T) {
+	a := &Agent{}
+	body := strings.Repeat("BODY", 2000)
+	value := map[string]any{"issues": []any{map[string]any{"body": body}}}
+	out, err := a.toolResults().hold("json", value, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "BODY") || !strings.Contains(out, `"preview"`) {
+		t.Fatalf("a plain hold keeps the shape and the body stays out: %q", out)
+	}
+}
+
+func TestHeldResultShowsHeadUpToLineCap(t *testing.T) {
+	a := &Agent{}
+	display := strings.Repeat("0123456789\n", 400)
+	out, err := a.toolResults().holdSource("text", display, display)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Ref     string `json:"ref"`
+		Preview string `json:"preview"`
+		Omitted int    `json:"preview_omitted"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("envelope: %v in %q", err, out)
+	}
+	if env.Ref == "" || env.Preview == "" {
+		t.Fatalf("envelope needs a ref and a head: %q", out)
+	}
+	if lines := strings.Count(env.Preview, "\n"); lines != previewLines {
+		t.Fatalf("head shows %d lines, want %d", lines, previewLines)
+	}
+	if env.Omitted != len(display)-len(env.Preview) {
+		t.Fatalf("omitted %d, want %d", env.Omitted, len(display)-len(env.Preview))
+	}
+}
+
+func TestHeldResultHeadStopsAtByteCapAndKeepsRunes(t *testing.T) {
+	a := &Agent{}
+	display := strings.Repeat("€", 2000) // one line, three bytes per rune
+	out, err := a.toolResults().holdSource("text", display, display)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Preview string `json:"preview"`
+		Omitted int    `json:"preview_omitted"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("envelope: %v in %q", err, out)
+	}
+	if len(env.Preview) > previewBytes {
+		t.Fatalf("head is %d bytes, want at most %d", len(env.Preview), previewBytes)
+	}
+	if strings.ToValidUTF8(env.Preview, "") != env.Preview {
+		t.Fatalf("head splits a rune: %q", env.Preview)
+	}
+	if env.Omitted != len(display)-len(env.Preview) {
+		t.Fatalf("omitted %d, want %d", env.Omitted, len(display)-len(env.Preview))
+	}
+}
+
+func TestExecRefCarriesTheHead(t *testing.T) {
+	a := &Agent{}
+	got := a.attachDataRef("exec", "exit_code=0\n"+strings.Repeat("row\n", 2000))
+	if !strings.Contains(got, `"ref"`) || !strings.Contains(got, "row") {
+		t.Fatalf("an exec ref must show the head of its output: %q", got)
+	}
+	if strings.Contains(got, strings.Repeat("row\n", 60)) {
+		t.Fatalf("the head is not bounded: %d bytes", len(got))
+	}
+}
+
+func TestFilteredExecKeepsRawHead(t *testing.T) {
+	raw := "exit_code=0\n" + strings.Repeat("row\n", 400)
+	got := withRawHead("exit_code=0\n[Filtered]\nsummary\nref: r7", raw)
+	parts := strings.SplitN(got, "--- raw head ---\n", 2)
+	if len(parts) != 2 || !strings.Contains(parts[1], "row") {
+		t.Fatalf("filtered result misses the raw head: %q", got)
+	}
+	head := parts[1]
+	if !strings.Contains(got, "more bytes") {
+		t.Fatalf("filtered result must say how much was left out: %q", got)
+	}
+	if lines := strings.Count(head, "\n"); lines > previewLines+1 {
+		t.Fatalf("head shows %d lines, want at most %d", lines, previewLines)
+	}
+	small := withRawHead("exit_code=0\n[Filtered]\nsummary", "exit_code=0\nonly line\n")
+	if !strings.Contains(small, "only line") || strings.Contains(small, "more bytes") {
+		t.Fatalf("a short raw output must pass whole: %q", small)
+	}
+}

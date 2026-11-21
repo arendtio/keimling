@@ -493,6 +493,9 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 		} else {
 			a.presentToolResult(item.Name, toolCmd, item.Arguments, strings.TrimSpace(output), "", toolOK, false)
 		}
+		if filteredExec {
+			result = withRawHead(result, rawExec)
+		}
 		visible := a.attachDataRef(item.Name, result)
 		if visible != result {
 			result = visible

@@ -546,7 +546,7 @@ func (a *Agent) attachDataRef(name, result string) string {
 		return text
 	}
 	if name == "exec" {
-		text, err := a.toolResults().hold("json", normalizeExec(result), result)
+		text, err := a.toolResults().holdSource("json", normalizeExec(result), result)
 		if err != nil {
 			return result
 		}

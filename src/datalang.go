@@ -9,10 +9,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
 	dataModelLimit = 4 << 10
+	// A ref or a filtered summary still carries the head of the replaced text,
+	// so the model can often answer without a second call. Whichever cap is
+	// reached first ends the head: previewLines lines or previewBytes bytes.
+	previewLines = 40
+	previewBytes = 1000
 	// A stored result stays for the life of the thread. Count and byte caps
 	// of zero mean there is no cap. Tests set a cap when they need eviction.
 	dataStoreByteLimit = 0
@@ -156,15 +162,77 @@ func (s *dataStore) get(id string) (*dataItem, error) {
 	return it, nil
 }
 
+// headText returns the leading part of s and how many bytes it left out.
+// It stops at maxBytes or after maxLines lines, whichever comes first, and
+// never splits a UTF-8 sequence.
+func headText(s string, maxBytes, maxLines int) (string, int) {
+	if maxBytes <= 0 || maxLines <= 0 || len(s) <= 0 {
+		return "", len(s)
+	}
+	cut := len(s)
+	lines := 0
+	for i := 0; i < len(s); i++ {
+		if i >= maxBytes {
+			cut = i
+			break
+		}
+		if s[i] == '\n' {
+			lines++
+			if lines >= maxLines {
+				cut = i + 1
+				break
+			}
+		}
+	}
+	for cut > 0 && cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	if cut <= 0 {
+		return "", len(s)
+	}
+	return s[:cut], len(s) - cut
+}
+
+// withRawHead appends the bounded head of raw to text, so a filtered result
+// still shows what the command printed.
+func withRawHead(text, raw string) string {
+	head, omitted := headText(raw, previewBytes, previewLines)
+	if strings.TrimSpace(head) == "" {
+		return text
+	}
+	out := strings.TrimRight(text, "\n") + "\n--- raw head ---\n" + head
+	if omitted > 0 {
+		out += fmt.Sprintf("\n… %d more bytes", omitted)
+	}
+	return out
+}
+
 // hold stores a tool result. Large displays become a reference preview.
 // Small displays keep their text and name the reference.
 func (s *dataStore) hold(kind string, value any, display string) (string, error) {
+	return s.holdText(kind, value, display, false)
+}
+
+// holdSource is hold for a result whose own bytes are the answer, such as exec
+// stdout: the preview then carries the head of the text instead of a shape.
+func (s *dataStore) holdSource(kind string, value any, display string) (string, error) {
+	return s.holdText(kind, value, display, true)
+}
+
+func (s *dataStore) holdText(kind string, value any, display string, source bool) (string, error) {
 	it, err := s.put(kind, value)
 	if err != nil {
 		return "", err
 	}
 	if len(display) > dataModelLimit {
-		b, _ := json.Marshal(it.envelope(false))
+		m := it.envelope(false)
+		if head, omitted := headText(display, previewBytes, previewLines); source && head != "" {
+			m["preview"] = head
+			if omitted > 0 {
+				m["preview_omitted"] = omitted
+			}
+		}
+		b, _ := json.Marshal(m)
 		return string(b), nil
 	}
 	if strings.TrimSpace(display) == "" {
