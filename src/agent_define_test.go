@@ -287,6 +287,31 @@ func TestSpawnAgentAsksTheHostToStart(t *testing.T) {
 	}
 }
 
+func TestSpawnToolSaysTheAgentRunsInTheBackground(t *testing.T) {
+	withTempAgentHomes(t)
+	t.Setenv("KEIMLING_HOST", "")
+	t.Setenv("KEIMLING_SECRET", "")
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
+	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run."}`); strings.Contains(saved, "error") {
+		t.Fatal(saved)
+	}
+	started := a.runDefineAgentTool("spawn_agent", `{"definition":"Runner","name":""}`)
+	if !strings.Contains(started, "background") || !strings.Contains(started, "sidebar") {
+		t.Fatalf("spawn result does not say it runs in the background: %s", started)
+	}
+	if made := a.runDefineAgentTool("save_team", `{"id":"","name":"Crew","definitions":["Runner"]}`); strings.Contains(made, "error") {
+		t.Fatal(made)
+	}
+	spawned := a.runDefineAgentTool("spawn_team", `{"team":"Crew"}`)
+	if strings.Contains(spawned, "error") || !strings.Contains(spawned, "background") {
+		t.Fatalf("team spawn result: %s", spawned)
+	}
+}
+
 func TestThreadReachesTheAgentItStarted(t *testing.T) {
 	withTempAgentHomes(t)
 	ws, err := ensureWorkspaceForRoot(t.TempDir())

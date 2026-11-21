@@ -124,6 +124,57 @@ func TestHostStopIdleAgentDoesNotStartWorker(t *testing.T) {
 	}
 }
 
+func TestHostSpawnDoesNotAttachTheAgent(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Runner", "Run.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := newHost("sekrit", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.StopAll()
+	post := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer sekrit")
+		rec := httptest.NewRecorder()
+		h.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := post("/api/agents/instances", `{"recipe_id":"`+recipe.ID+`","name":"Ada","workspace_id":"`+ws.ID+`"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"attached":false`) {
+		t.Fatalf("spawn: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := h.Attached(); got != "" {
+		t.Fatalf("spawn attached %q", got)
+	}
+	list, err := listAgentInstances()
+	if err != nil || len(list) != 1 || list[0].Name != "Ada" {
+		t.Fatalf("instance: %+v %v", list, err)
+	}
+	if _, ok := h.liveAgentWorker(list[0].ID); ok {
+		t.Fatal("spawn started a worker")
+	}
+
+	team, err := createAgentTeam("Crew", []string{recipe.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = post("/api/agents/teams/spawn", `{"id":"`+team.ID+`","workspace_id":"`+ws.ID+`"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"attached":false`) {
+		t.Fatalf("team spawn: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := h.Attached(); got != "" {
+		t.Fatalf("team spawn attached %q", got)
+	}
+}
+
 func TestHostLoginPageWithholdsApp(t *testing.T) {
 	h, err := newHost("sekrit", "")
 	if err != nil {

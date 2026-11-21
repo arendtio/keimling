@@ -30,9 +30,9 @@ func defineAgentTools() []map[string]any {
 	return []map[string]any{
 		toolDef("agent_instructions", "Return the instructions a new agent definition starts from. Call this before save_agent when writing or revising a prompt, and start from this text. Pass unused as an empty string.", map[string]any{"unused": str("Pass empty string")}, "unused"),
 		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text.")}, "id", "name", "instructions"),
-		toolDef("spawn_agent", "Start one instance of a definition in the workspace this call is running in. definition is an id or a unique name. name empty uses the definition name. task is the first message, the user's request in the user's words, or empty when the instance should wait. An agent can start an instance only in a workspace it can use.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "task": str("First message for the new instance, or empty.")}, "definition", "name", "task"),
+		toolDef("spawn_agent", "Start one instance of a definition in the workspace this call is running in. definition is an id or a unique name. name empty uses the definition name. task is the first message, the user's request in the user's words, or empty when the instance should wait. An agent can start an instance only in a workspace it can use. The instance runs in the background; the user's view does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "task": str("First message for the new instance, or empty.")}, "definition", "name", "task"),
 		toolDef("save_team", "Create a team of agent definitions, or replace the definitions of an existing team. id empty creates. definitions are definition ids or unique names. On update, an empty list keeps the saved definitions.", map[string]any{"id": str("Team id to update, or empty to create"), "name": str("Team name. Required on create. Empty on update keeps the saved name."), "definitions": defs}, "id", "name", "definitions"),
-		toolDef("spawn_team", "Start one instance per definition of a team in the workspace this call is running in. team is an id or a unique name. Teammates may message each other. An agent can start a team only in a workspace it can use.", map[string]any{"team": str("Team id or unique team name")}, "team"),
+		toolDef("spawn_team", "Start one instance per definition of a team in the workspace this call is running in. team is an id or a unique name. Teammates may message each other. An agent can start a team only in a workspace it can use. The instances run in the background; the user's view does not switch to them.", map[string]any{"team": str("Team id or unique team name")}, "team"),
 	}
 }
 
@@ -115,7 +115,7 @@ func (a *Agent) spawnAgentTool(args string) string {
 		"workspace_id": ws,
 	})
 	if err == nil {
-		return formatHostSpawn("spawn_agent", started, body) + queueInstanceTask(instanceIDFromHost(body), x.Task)
+		return formatHostSpawn("spawn_agent", started, body) + queueInstanceTask(instanceIDFromHost(body), x.Task) + spawnBackgroundNote
 	}
 	if err != errNoHost {
 		return "spawn_agent error: " + err.Error()
@@ -124,8 +124,12 @@ func (a *Agent) spawnAgentTool(args string) string {
 	if err != nil {
 		return "spawn_agent error: " + err.Error()
 	}
-	return formatInstance(inst, false) + queueInstanceTask(inst.ID, x.Task)
+	return formatInstance(inst, false) + queueInstanceTask(inst.ID, x.Task) + spawnBackgroundNote
 }
+
+// spawnBackgroundNote tells the calling model where the new instance ran to.
+// A spawn does not attach, so the user still looks at the chat they were in.
+const spawnBackgroundNote = "\nThe instance runs in the background. The user's view stays on the chat they are in; the instance appears in the sidebar and opens on a click."
 
 func instanceIDFromHost(body []byte) string {
 	var resp struct {
@@ -211,12 +215,12 @@ func (a *Agent) spawnTeamTool(args string) string {
 		"workspace_id": ws,
 	})
 	if err == nil {
-		return formatHostSpawn("spawn_team", started, body)
+		return formatHostSpawn("spawn_team", started, body) + spawnBackgroundNote
 	}
 	if err != errNoHost {
 		return "spawn_team error: " + err.Error()
 	}
-	return spawnTeamLocal(team, ws)
+	return spawnTeamLocal(team, ws) + spawnBackgroundNote
 }
 
 func spawnTeamLocal(team AgentTeam, ws string) string {

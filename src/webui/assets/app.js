@@ -3639,6 +3639,15 @@
       });
   }
 
+  // A spawn does not attach: the host leaves the open view alone, so the chat
+  // stays where it is and the new agent is opened from the sidebar.
+  function afterAgentSpawn(name) {
+    var label = name || "The agent";
+    return Promise.all([loadAgents(), refreshSidebar()]).then(function () {
+      appendLive("[agents] " + label + " runs in the background. Open it in the sidebar.");
+    });
+  }
+
   function switchWorkspace(id, force) {
     if (!id || (!force && id === currentWorkspaceID && !currentAgentInstanceID)) {
       setWorkspaceMenuOpen(false);
@@ -5087,8 +5096,7 @@
       .then(readAPIResult)
       .then(function (j) {
         if (agentDefDialog && agentDefDialog.open) agentDefDialog.close();
-        currentAgentInstanceID = (j.instance && j.instance.id) || "";
-        return afterAgentAttach();
+        return afterAgentSpawn((j.instance && (j.instance.name || j.instance.id)) || "");
       })
       .catch(function (err) {
         showAgentDefErr(String(err));
@@ -5136,9 +5144,8 @@
       .then(readAPIResult)
       .then(function (j) {
         if (agentDefDialog && agentDefDialog.open) agentDefDialog.close();
-        var first = (j.instances && j.instances[0]) || null;
-        currentAgentInstanceID = first ? first.id : "";
-        return afterAgentAttach();
+        var names = (j.instances || []).map(function (inst) { return inst.name || inst.id; }).join(", ");
+        return afterAgentSpawn(names);
       })
       .catch(function (err) {
         showAgentDefErr(String(err));

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -174,14 +173,11 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		h.focusWorkspace = wsID
 		h.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		defer cancel()
-		if err := h.AttachAgent(ctx, inst.ID); err != nil {
-			writeAttachErr(w, err)
-			return
-		}
+		// A spawn does not move the client's view: the user keeps the chat they
+		// are in, and the new instance appears in the sidebar. Its worker starts
+		// when a queued task, a watch, or a message needs it.
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instance": inst, "attached": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instance": inst, "attached": false})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -776,19 +772,7 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.focusWorkspace = wsID
 	h.mu.Unlock()
-	attached := false
-	if len(created) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		defer cancel()
-		if err := h.AttachAgent(ctx, created[0].ID); err != nil {
-			if !errors.Is(err, errHangUpFirst) {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-		} else {
-			attached = true
-		}
-	}
+	// Same as a single spawn: no attach, so the user keeps the chat they are in.
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instances": created, "attached": attached})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instances": created, "attached": false})
 }
