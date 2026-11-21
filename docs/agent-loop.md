@@ -58,6 +58,10 @@ again, and the next model call sees the same note. Token-rate progress stays on
 the status line while the run is going. The CLI text stream is not copied into
 the chat.
 
+When the run goes idle, the Thinking rows and tool cards of that run close, so
+what stays open is what the agent wrote to the user. Rows the user already had
+open before the run keep their state, and a closed row opens again on a click.
+
 A failed tool card is labeled Failed and stays collapsed. A tool interrupted by
 Stop is labeled Stopped. The run itself adds the line `Stopped` or
 `Run stopped: …`. In a chapter, those rows stay outside the “messages in
