@@ -2784,6 +2784,7 @@
       stop: ["M8 8h8v8H8z"],
       file: ["M7 3.5h7l4.5 4.5V20.5H7z", "M14 3.5v4.5h4.5"],
       screen: ["M4 5h16v11H4z", "M8 20h8", "M12 16v4"],
+      camera: ["M3.5 7.5h4l1.8-2h5.4l1.8 2h4v11h-17z", "M12 15.4a3.2 3.2 0 1 0 0-6.4a3.2 3.2 0 0 0 0 6.4"],
       mic: ["M9 4.5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M6.5 11a5.5 5.5 0 0 0 11 0", "M12 16.5V20"],
       "mic-off": ["M9 4.5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M6.5 11a5.5 5.5 0 0 0 11 0", "M12 16.5V20", "M5 5l14 14"],
       cassette: ["M4 8h16v9H4z", "M8 12.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0", "M12.8 12.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0"],
@@ -3214,6 +3215,7 @@
       setGlyph(callBtn, callLive ? "hangup" : "phone");
     }
     if (screenBtn) screenBtn.disabled = !connected || screenBusy;
+    if (cameraBtn) cameraBtn.disabled = !connected || cameraBusy;
     if (callMuteBtn) {
       callMuteBtn.hidden = !callLive;
       setControlLabel(callMuteBtn, callMuted ? "Unmute" : "Mute", callMuted ? "Turn the microphone back on" : "Mute the microphone");
@@ -11543,6 +11545,169 @@
     shareScreen({ input: !screenInput, target: screenTarget, picked: true });
   });
   if (screenDismiss) screenDismiss.addEventListener("click", stopScreenShare);
+
+  // The camera share is its own browser stream. It keeps running beside a
+  // screen share, and the newest frame goes with the next chat turn.
+  var cameraBtn = document.getElementById("camera-share");
+  var cameraPreview = document.getElementById("camera-preview");
+  var cameraVideo = document.getElementById("camera-video");
+  var cameraDismiss = document.getElementById("camera-dismiss");
+  var cameraStream = null;
+  var cameraTimer = null;
+  var cameraBusy = false;
+  var cameraSending = false;
+  var cameraRun = 0;
+
+  // A camera frame is scaled down to a small edge and sent as a JPEG.
+  function cameraFrameFit(width, height, maxEdge) {
+    if (!width || !height || !maxEdge) return { width: 0, height: 0 };
+    var scale = Math.min(1, maxEdge / Math.max(width, height));
+    return {
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale)),
+    };
+  }
+
+  // Desktop browsers take any camera. Phones prefer the back camera and fall
+  // back to whatever camera the browser offers.
+  function cameraVideoConstraints(facing) {
+    var video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 30 } };
+    if (facing === "environment" || facing === "user") video.facingMode = { ideal: facing };
+    return { audio: false, video: video };
+  }
+
+  function setCameraStatus(text) {
+    var el = document.getElementById("camera-status");
+    if (el) el.textContent = text || "";
+  }
+
+  function revealCameraShare(text) {
+    var block = document.getElementById("side-camera");
+    if (block) block.hidden = false;
+    if (text) setCameraStatus(text);
+    selectSidebar("now");
+  }
+
+  function postCameraFrame(blob) {
+    if (!blob || cameraSending) return;
+    cameraSending = true;
+    var h = headers();
+    h["Content-Type"] = "image/jpeg";
+    fetch(apiURL("/api/camera/share"), { method: "POST", headers: h, body: blob })
+      .catch(function () {})
+      .then(function () { cameraSending = false; });
+  }
+
+  function canvasJpeg(canvas) {
+    if (canvas.toBlob) {
+      return new Promise(function (resolve) {
+        canvas.toBlob(function (blob) { resolve(blob || null); }, "image/jpeg", 0.6);
+      });
+    }
+    var url = canvas.toDataURL("image/jpeg", 0.6);
+    return fetch(url).then(function (r) { return r.blob(); }).catch(function () { return null; });
+  }
+
+  // Five frames a second are enough for the chat model and stay cheap on a phone.
+  function pumpCameraFrames() {
+    if (!cameraStream || !cameraVideo) return;
+    var width = cameraVideo.videoWidth;
+    var height = cameraVideo.videoHeight;
+    if (!width || !height) return;
+    var fit = cameraFrameFit(width, height, 1280);
+    var canvas = document.createElement("canvas");
+    canvas.width = fit.width;
+    canvas.height = fit.height;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(cameraVideo, 0, 0, fit.width, fit.height);
+    canvasJpeg(canvas).then(postCameraFrame).catch(function () {});
+  }
+
+  function stopCameraTracks() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(function (track) {
+        try { track.stop(); } catch (e) { /* the camera already closed */ }
+      });
+    }
+    cameraStream = null;
+  }
+
+  function stopCameraShare() {
+    cameraRun++;
+    if (cameraTimer) clearInterval(cameraTimer);
+    cameraTimer = null;
+    stopCameraTracks();
+    if (cameraVideo) {
+      if (cameraVideo.pause) cameraVideo.pause();
+      cameraVideo.srcObject = null;
+    }
+    cameraSending = false;
+    cameraBusy = false;
+    if (cameraPreview) cameraPreview.hidden = true;
+    var block = document.getElementById("side-camera");
+    if (block) block.hidden = true;
+    setCameraStatus("");
+    // The server forgets the frame too, so the next turn carries no picture.
+    fetch(apiURL("/api/camera/share?stop=1"), { method: "POST", headers: headers() }).catch(function () {});
+    setState(agentState);
+  }
+
+  function startCameraShare() {
+    var block = document.getElementById("side-camera");
+    if (cameraStream) {
+      if (block) block.hidden = false;
+      selectSidebar("now");
+      return;
+    }
+    var media = navigator && navigator.mediaDevices;
+    if (!media || !media.getUserMedia) {
+      revealCameraShare("This window cannot share a camera.");
+      return;
+    }
+    var gen = ++cameraRun;
+    cameraBusy = true;
+    setState(agentState);
+    revealCameraShare("Allow the camera in the browser dialog.");
+    var phone = /Android|iPhone|iPad|iPod|Mobile/i.test((navigator.userAgent || ""));
+    media.getUserMedia(cameraVideoConstraints(phone ? "environment" : ""))
+      .catch(function () { return media.getUserMedia({ audio: false, video: true }); })
+      .then(function (stream) {
+        if (gen !== cameraRun) {
+          stream.getTracks().forEach(function (track) { track.stop(); });
+          return;
+        }
+        cameraStream = stream;
+        if (cameraVideo) {
+          cameraVideo.srcObject = stream;
+          var played = cameraVideo.play && cameraVideo.play();
+          if (played && played.catch) played.catch(function () {});
+        }
+        if (cameraPreview) cameraPreview.hidden = false;
+        setCameraStatus("Sharing the camera.");
+        cameraTimer = setInterval(pumpCameraFrames, 200);
+        cameraBusy = false;
+        setState(agentState);
+      })
+      .catch(function (err) {
+        if (gen !== cameraRun) return;
+        cameraBusy = false;
+        setState(agentState);
+        var msg = (err && err.message) || err || "failed";
+        if (err && err.name === "NotAllowedError") revealCameraShare("Camera share was cancelled.");
+        else revealCameraShare("Camera: " + msg);
+      });
+  }
+
+  if (cameraBtn) cameraBtn.addEventListener("click", function () {
+    var block = document.getElementById("side-camera");
+    if (block && !block.hidden && cameraStream) {
+      selectSidebar("now");
+      return;
+    }
+    startCameraShare();
+  });
+  if (cameraDismiss) cameraDismiss.addEventListener("click", stopCameraShare);
   if (callBtn) callBtn.addEventListener("click", function () {
     if (callLive) hangUpCall();
     else startCall();

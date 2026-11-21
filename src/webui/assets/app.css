@@ -2398,6 +2398,7 @@ button.wide { width: 100%; max-width: 100%; }
   margin: 0 0 0.45rem;
 }
 .screen-preview[hidden] { display: none; }
+.screen-preview video,
 .screen-preview img {
   display: block;
   width: 100%;
