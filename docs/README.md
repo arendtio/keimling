@@ -14,6 +14,7 @@ was previously called *tinyagent*.
 | [tools-and-editing.md](tools-and-editing.md) | Tool surface, file reading, `edit_file`, `write_file` |
 | [context-and-history.md](context-and-history.md) | JSONL journal, model switching, semantic compaction, context estimation |
 | [security-and-quality.md](security-and-quality.md) | Safety rules, deferred work, acceptance criteria |
+| [camera-share.md](camera-share.md) | Live camera share beside the chat and the `camera_snapshot` tool |
 
 ## Related documents
 
