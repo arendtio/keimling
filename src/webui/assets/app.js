@@ -243,7 +243,10 @@
   var instructionEditorFull = document.getElementById("instruction-editor-full");
   var instructionKind = "";
   var approvalPolicyBaseline = "";
-  var threadDrafts = {};
+  // Drafts belong to the chat they were typed in: an agent chat is an instance,
+  // a workspace chat is a thread. draftChatKey names the chat in the composer.
+  var chatDrafts = {};
+  var draftChatKey = "";
   var autopilotSettingsCustom = false;
   var autopilotSettingsBaseline = "";
   var autopilotSettingsUndoText = "";
@@ -3977,10 +3980,46 @@
     return runningThreadID === currentThreadID;
   }
 
+  // A draft belongs to the chat it was typed in. An agent chat is an instance,
+  // a workspace chat is a thread, so the instance id wins when both are set.
+  function chatDraftKey() {
+    if (currentAgentInstanceID) return "agent:" + currentAgentInstanceID;
+    if (currentThreadID) return "thread:" + currentThreadID;
+    return "";
+  }
+
+  // Keep what is in the composer under the chat it belongs to.
+  function saveChatDraft() {
+    if (!msg) return;
+    if (!draftChatKey) draftChatKey = chatDraftKey();
+    if (!draftChatKey) return;
+    chatDrafts[draftChatKey] = msg.value;
+  }
+
+  // The open chat changed: park the old draft and show the new chat one.
+  function syncChatDraft() {
+    if (!msg) return;
+    var next = chatDraftKey();
+    if (!draftChatKey) {
+      draftChatKey = next;
+      return;
+    }
+    if (next === draftChatKey) return;
+    chatDrafts[draftChatKey] = msg.value;
+    draftChatKey = next;
+    msg.value = next ? (chatDrafts[next] || "") : "";
+    fitComposer();
+  }
+
+  // A sent message is no longer a draft.
+  function forgetChatDraft() {
+    if (draftChatKey) delete chatDrafts[draftChatKey];
+  }
+
   function switchThread(id) {
     if (!id) return;
     if (!currentAgentInstanceID && id === currentThreadID) return;
-    if (msg && currentThreadID) threadDrafts[currentThreadID] = msg.value;
+    saveChatDraft();
     if (stateEl) stateEl.textContent = "opening";
     fetch(apiURL("/api/threads/switch"), {
       method: "POST",
@@ -4002,10 +4041,7 @@
         }
         clearLive();
         hideApproval();
-        if (msg) {
-          msg.value = threadDrafts[id] || "";
-          fitComposer();
-        }
+        syncChatDraft();
         return loadSession();
       })
       .then(function () {
@@ -4141,6 +4177,7 @@
             // Host reports no agent attached (e.g. after thread switch).
             currentAgentInstanceID = "";
           }
+          syncChatDraft();
           var sig = agentsPollSig();
           if (opts.poll && sig === agentsPollDrawn) return;
           agentsPollDrawn = sig;
@@ -6642,6 +6679,7 @@
     // Prefer host attach state; session still reveals agent worker identity.
     if (j.agent_instance_id) currentAgentInstanceID = j.agent_instance_id;
     else if (!j.agent_instance_id) currentAgentInstanceID = "";
+    syncChatDraft();
     renderSideChatRef();
     if (workspaceLabel && j.workspace_id) {
       // refined when loadWorkspaces returns
@@ -10385,6 +10423,7 @@
 
   if (msg) {
     msg.addEventListener("input", function () {
+      saveChatDraft();
       mentionDismissed = null;
       fitComposer();
       if (activeMention(msg.value, msg.selectionStart)) ensureMentionAgents();
@@ -10542,6 +10581,7 @@
       return;
     }
     msg.value = "";
+    forgetChatDraft();
     fitComposer();
   }
 
