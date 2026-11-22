@@ -334,16 +334,15 @@ func TestReviewPurposeSkipsInternalTurns(t *testing.T) {
 		purposeTurn(t, "assistant", "On it."),
 		purposeTurn(t, "user", task),
 		purposeTurn(t, "user", "[User steering during ongoing task] hurry up"),
-		purposeTurn(t, "user", "[From agent-20261122-101010-000000] merge the branch"),
 		purposeTurn(t, "user", "[Watch] the runner finished"),
 		purposeTurn(t, "user", "Continue the current plan"),
 		purposeTurn(t, "assistant", "Still working."),
 	}
 	got := a.reviewPurpose()
 	if !strings.Contains(got, task) {
-		t.Fatalf("the human task is missing: %q", got)
+		t.Fatalf("the task is missing: %q", got)
 	}
-	for _, internal := range []string{"AUTOPILOT", "steering", "[From agent-", "[Watch]", "Continue the current plan"} {
+	for _, internal := range []string{"AUTOPILOT", "steering", "[Watch]", "Continue the current plan"} {
 		if strings.Contains(got, internal) {
 			t.Fatalf("internal turn %q became the task: %q", internal, got)
 		}
@@ -352,10 +351,87 @@ func TestReviewPurposeSkipsInternalTurns(t *testing.T) {
 	b := &Agent{Cfg: Config{AgentInstanceID: "agent-2", AgentInstructions: "ROLE-PROMPT"}}
 	b.History = []json.RawMessage{
 		purposeTurn(t, "user", "[User steering during ongoing task] hurry"),
+		purposeTurn(t, "user", "[Watch] the runner finished"),
 		purposeTurn(t, "assistant", "Ok."),
 	}
 	if got := b.reviewPurpose(); got != "ROLE-PROMPT" {
 		t.Fatalf("a label opened the job: %q", got)
+	}
+}
+
+func TestReviewPurposeTakesAnOrderFromAnotherAgent(t *testing.T) {
+	order := "[From dispatcher] Merge feat/004 and report back.\nERLAUBTE PFADE:\n- src/branch.go"
+	// The first thing the instance receives is that order, not a human message.
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{
+		purposeTurn(t, "user", order),
+		purposeTurn(t, "user", "[User steering during ongoing task] hurry"),
+		purposeTurn(t, "assistant", "Merging."),
+	}
+	got := a.reviewPurpose()
+	if !strings.HasPrefix(got, "ROLE-PROMPT\n\nAUFTRAG:\n") || !strings.Contains(got, order) {
+		t.Fatalf("the order is missing: %q", got)
+	}
+	// A human task followed by an order from another agent: the order is the job.
+	human := "Read the diff of branch 004 and report."
+	b := &Agent{Cfg: Config{AgentInstanceID: "agent-2", AgentInstructions: "ROLE-PROMPT"}}
+	b.History = []json.RawMessage{
+		purposeTurn(t, "user", human),
+		purposeTurn(t, "assistant", "Done."),
+		purposeTurn(t, "user", order),
+		purposeTurn(t, "assistant", "Merging."),
+	}
+	latest := b.reviewPurpose()
+	if !strings.Contains(latest, order) || strings.Contains(latest, human) {
+		t.Fatalf("purpose: %q", latest)
+	}
+}
+
+func TestPurposeTaskRuleKeepsTheHumanChapterRule(t *testing.T) {
+	from := "[From dispatcher] Merge feat/004."
+	// The chapter view still does not read a peer message as a human turn.
+	if !internalUserLabel(from) || isHumanChapterTurn(from) {
+		t.Fatal("a peer message must stay an internal chapter label")
+	}
+	// The purpose rule does read it as a task, because it is an order.
+	if !purposeTaskTurn(from) {
+		t.Fatal("a peer order was not a task")
+	}
+	for _, internal := range []string{
+		"",
+		"  ",
+		"[AUTOPILOT wake] keep going",
+		"[User steering during ongoing task] hurry",
+		"[Watch] the runner finished",
+		"Continue the current plan",
+		"<compacted_conversation_memory>\nold\n</compacted_conversation_memory>",
+		"[task finished]",
+		"[From dispatcher]", // a bare label names no order
+		"[From ] no name",
+	} {
+		if purposeTaskTurn(internal) {
+			t.Fatalf("internal turn %q was a task", internal)
+		}
+	}
+}
+
+func TestReviewPurposeIsNotClearedByAStatusMessage(t *testing.T) {
+	job := "Fix the failing test.\nERLAUBTE PFADE:\n- src/new.go"
+	status := "[From dispatcher] feat/004 is merged, nothing else to do."
+	write := `{"path":"src/new.go","content":"package main\n"}`
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", Mode: "auto", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{purposeTurn(t, "user", job)}
+	if !agentPurposeClears(true, "auto", a.reviewPurpose(), "write_file", write) {
+		t.Fatal("the job did not allow its own file")
+	}
+	// The peer message is the newest task and names no action, so nothing is
+	// cleared by it; the finished job does not linger as a grant.
+	a.History = append(a.History, purposeTurn(t, "user", status))
+	if p := a.reviewPurpose(); !strings.Contains(p, status) || strings.Contains(p, "Fix the failing test.") {
+		t.Fatalf("purpose: %q", p)
+	}
+	if agentPurposeClears(true, "auto", a.reviewPurpose(), "write_file", write) {
+		t.Fatal("a status message cleared a write")
 	}
 }
 

@@ -769,11 +769,25 @@ func agentPurpose(role, task string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// latestUserTask is the newest human task of a thread: its last user message
-// that is not an internal label such as steering, an autopilot nudge, or an
-// agent message. Assistant turns and tool results are never a task. A thread
-// the user tasked again is judged by the newer job, not the one it opened with.
-func latestUserTask(events []json.RawMessage) string {
+// purposeTaskTurn reports whether a user turn counts as a task in the review
+// purpose. A human message does, and so does an order another agent sent with
+// message_agent: its "[From <name>] " prefix is only a label, and the order
+// stays a task even when it is the first one an instance receives. Steering,
+// autopilot nudges, watch reports, compaction memory, and finished-task markers
+// are no task. The chapter view keeps its own rule, where a "[From …" turn is
+// not a human chapter; this rule only decides what the reviewer sees.
+func purposeTaskTurn(text string) bool {
+	if _, _, ok := parsePeerUserText(text); ok {
+		return true
+	}
+	return isHumanChapterTurn(text)
+}
+
+// latestTask is the newest task of a thread: its last user message that is a
+// task by purposeTaskTurn. Assistant turns and tool results are never a task. A
+// thread the user tasked again is judged by the newer job, not the one it
+// opened with.
+func latestTask(events []json.RawMessage) string {
 	for i := len(events) - 1; i >= 0; i-- {
 		var v struct {
 			Role    string          `json:"role"`
@@ -786,7 +800,7 @@ func latestUserTask(events []json.RawMessage) string {
 		if json.Unmarshal(v.Content, &text) != nil {
 			continue
 		}
-		if isHumanChapterTurn(text) {
+		if purposeTaskTurn(text) {
 			return strings.TrimSpace(text)
 		}
 	}
@@ -794,20 +808,20 @@ func latestUserTask(events []json.RawMessage) string {
 }
 
 // reviewPurpose is the purpose this agent review sees. It joins the definition
-// instructions with the newest human task of the instance thread, so a named
-// action can be told from an unrelated one and a re-tasked instance is judged
-// by what the user asks now. A workspace thread has no such grant and gets an
-// empty purpose.
+// instructions with the newest task of the instance thread, so a named action
+// can be told from an unrelated one and a re-tasked instance is judged by what
+// it is asked now. A workspace thread has no such grant and gets an empty
+// purpose.
 func (a *Agent) reviewPurpose() string {
 	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		return ""
 	}
-	task := latestUserTask(a.History)
+	task := latestTask(a.History)
 	if task == "" && strings.TrimSpace(a.Cfg.SessionPath) != "" {
 		// Compaction can drop the task from the run history; the journal still
-		// holds every event, and its newest human turn is the same job.
+		// holds every event, and its newest task is the same job.
 		if events, err := originalEvents(a.Cfg.SessionPath); err == nil {
-			task = latestUserTask(events)
+			task = latestTask(events)
 		}
 	}
 	return agentPurpose(a.Cfg.AgentInstructions, task)
