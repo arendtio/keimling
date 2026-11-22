@@ -53,19 +53,19 @@ func TestGateToolCallWorkspaceKeepsTheFloor(t *testing.T) {
 }
 
 func TestSettleReviewAgentRefusesInsteadOfAsking(t *testing.T) {
-	denied := settleReview(true, "ask", "touches ssh", nil)
+	denied := settleReview(true, true, "ask", "touches ssh", nil)
 	if !denied.Deny || denied.Ask || denied.Reason != "touches ssh" {
 		t.Fatalf("deny: %+v", denied)
 	}
-	down := settleReview(true, "", "", errReviewDown)
+	down := settleReview(true, false, "", "", errReviewDown)
 	if !down.Deny || !strings.Contains(down.Reason, "review unavailable") {
 		t.Fatalf("down: %+v", down)
 	}
-	asked := settleReview(false, "ask", "touches ssh", nil)
+	asked := settleReview(false, true, "ask", "touches ssh", nil)
 	if !asked.Ask || asked.Deny {
 		t.Fatalf("workspace ask: %+v", asked)
 	}
-	if g := settleReview(true, "approve", "", nil); !g.Allow {
+	if g := settleReview(true, true, "approve", "", nil); !g.Allow {
 		t.Fatalf("approve: %+v", g)
 	}
 }

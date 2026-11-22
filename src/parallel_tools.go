@@ -90,7 +90,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 					why = "review asked for approval"
 				}
 			}
-			g = settleReview(agentRun, verdict.Decision, why, e)
+			g = settleReview(agentRun, a.canAskHuman(ctx, reader), verdict.Decision, why, e)
 		}
 		reason = g.Reason
 	}

@@ -270,7 +270,7 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 		}
 		raw, _ := json.Marshal(map[string]any{"tools": listed})
 		verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, "data_processing", string(raw), cwd, purpose, nil, a.Cfg.ApprovalPolicyReplace)
-		g := settleReview(agentRun, verdict.Decision, verdict.Reason, e)
+		g := settleReview(agentRun, a.canAskHuman(ctx, reader), verdict.Decision, verdict.Reason, e)
 		if g.Allow {
 			return true, nil
 		}
@@ -288,6 +288,20 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 	}
 	a.println("Approval required:", truncate(reason, 240))
 	return a.waitApproval(ctx, reader, "data_processing", reason, reason, "")
+}
+
+// canAskHuman reports whether an approval question can reach a human right now:
+// the app shows it in the thread, an attached terminal asks, or the CLI reads
+// stdin. In a live realtime call the user is on voice, and a run without any of
+// those has nobody to ask, so a failed reviewer must not wait on a question.
+func (a *Agent) canAskHuman(ctx context.Context, reader *bufio.Reader) bool {
+	if a == nil || inRealtimeCall(ctx) {
+		return false
+	}
+	if a.ApprovalCh != nil || reader != nil {
+		return true
+	}
+	return a.Control != nil && isTerminal(0)
 }
 
 // waitApproval is the one question for a tool or for a whole MCP program.
