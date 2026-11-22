@@ -143,6 +143,7 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 			Name        string `json:"name"`
 			Path        string `json:"path"`
 			WorkspaceID string `json:"workspace_id"`
+			SpawnerID   string `json:"spawner_id"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -168,6 +169,14 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		}
 		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, body.Name)
 		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// The spawning agent and the new instance reach each other. A contact
+		// that cannot be written fails the spawn; the instance is not left
+		// behind unable to answer.
+		if err := linkSpawnedInstances(body.SpawnerID, []AgentInstanceMeta{inst}); err != nil {
+			rollbackSpawn([]AgentInstanceMeta{inst})
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -730,6 +739,7 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 		ID          string `json:"id"`
 		Path        string `json:"path"`
 		WorkspaceID string `json:"workspace_id"`
+		SpawnerID   string `json:"spawner_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
 		http.Error(w, "id required", http.StatusBadRequest)
@@ -762,14 +772,13 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 		}
 		created = append(created, inst)
 	}
-	// Allow teammates to message each other.
-	for i := range created {
-		for j := range created {
-			if i == j {
-				continue
-			}
-			_ = addAgentInstancePeer(created[i].ID, created[j].ID)
-		}
+	// The members of one spawn reach each other, and the spawning agent reaches
+	// every member. A contact that cannot be written fails the spawn instead of
+	// leaving a crew that cannot answer.
+	if err := linkSpawnedInstances(body.SpawnerID, created); err != nil {
+		rollbackSpawn(created)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	h.mu.Lock()
 	h.focusWorkspace = wsID

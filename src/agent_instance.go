@@ -633,6 +633,74 @@ func addAgentInstancePeer(id, peerID string) error {
 	return writeAgentInstanceMeta(m)
 }
 
+// writeSpawnPeerLink writes one direction of a spawn contact. A test replaces
+// it to check that a contact which cannot be written fails the spawn instead of
+// being lost.
+var writeSpawnPeerLink = addAgentInstancePeer
+
+// linkAgentInstances makes two instances contacts of each other. Both sides
+// list the other, so the user sees the link on either instance and removes it
+// there.
+func linkAgentInstances(a, b string) error {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return fmt.Errorf("instance and peer id required")
+	}
+	if a == b {
+		return fmt.Errorf("cannot link an instance to itself")
+	}
+	if err := writeSpawnPeerLink(a, b); err != nil {
+		return err
+	}
+	return writeSpawnPeerLink(b, a)
+}
+
+// dropAgentInstancePeers removes ids from the contacts of every instance that
+// is left. A failed spawn uses it, so nobody keeps a link to a deleted instance.
+func dropAgentInstancePeers(ids []string) {
+	drop := map[string]bool{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			drop[id] = true
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	all, err := listAgentInstances()
+	if err != nil {
+		return
+	}
+	for _, m := range all {
+		next := make([]string, 0, len(m.Peers))
+		for _, p := range m.Peers {
+			if !drop[p] {
+				next = append(next, p)
+			}
+		}
+		if len(next) == len(m.Peers) {
+			continue
+		}
+		m.Peers = next
+		_ = writeAgentInstanceMeta(m)
+	}
+}
+
+// rollbackSpawn removes the instances a spawn created after that spawn failed,
+// together with any contact already written for them. A failed spawn leaves no
+// half crew and no stale link behind.
+func rollbackSpawn(created []AgentInstanceMeta) {
+	ids := make([]string, 0, len(created))
+	for _, inst := range created {
+		ids = append(ids, inst.ID)
+	}
+	dropAgentInstancePeers(ids)
+	for _, id := range ids {
+		_ = deleteAgentInstance(id)
+	}
+}
+
 func instancesUsingRecipe(recipeID string) ([]AgentInstanceMeta, error) {
 	recipeID = strings.TrimSpace(recipeID)
 	all, err := listAgentInstances()
