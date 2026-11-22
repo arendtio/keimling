@@ -506,6 +506,16 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-42 An instance controls the instances it starts
+
+- **Bin:** explicit requirement
+- **Statement:** A start shall record which instance or thread started the new instance. The starter shall be able to stop and delete the instance it started, in whatever workspace that instance works. The instance started shall be able to reach the instance that started it with `message_agent`, and shall appear in that instance's `list_agents`, marked as its spawner. An instance that was not started by the caller shall not be stoppable or deletable by it, even in the same workspace. A start from the user's own chat keeps the existing behaviour: the chat controls the instances its workspace lists. Deleting an instance shall leave no dangling contact and no dangling spawn record.
+- **Origin:** User, 2026-11-22 (quote: "derjenige, der einen Agenten instanziiert, sollte immer die volle Kontrolle haben, ihn zu stoppen oder ihn wieder zu löschen. Und der Agent, der instanziiert wurde, auch der sollte die Möglichkeit haben, seinen Parent … zu kontaktieren").
+- **Rationale:** Control follows who made the instance, not which workspace it happens to work in. Today an instance started into a worktree is invisible and unreachable from the agent that started it.
+- **Fit criterion:** Agent A starts B with `spawn_agent` and a `path` outside A's workspace. A lists B with `relation=child` and can stop and delete it; B lists A with `relation=parent` and can message A without a saved contact. An unrelated instance in A's workspace lists without a relation marker and cannot be stopped by B. Deleting B removes B from A's contacts and clears A as B's spawner on any instance that named B.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 A definition must name its tools when it is created; the create call is rejected without a list, and an empty list grants no tools. Saving stores the checked tools. An instance with no narrower set uses that definition. An instance may only narrow, never widen. Saving the definition’s own set again clears the instance override. REQ-AG-2’s unanswered default is decided here: no choice means no tools.

@@ -171,7 +171,7 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, body.Name)
+		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, body.Name, body.SpawnerID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -769,7 +769,7 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, recipe.Name)
+		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, recipe.Name, body.SpawnerID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

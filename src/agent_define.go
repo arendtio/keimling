@@ -141,7 +141,7 @@ func (a *Agent) spawnAgentTool(args string) string {
 	if err != errNoHost {
 		return "spawn_agent error: " + err.Error()
 	}
-	inst, err := createAgentInstanceForPath(rec, ws, x.Path, x.Name)
+	inst, err := createAgentInstanceForPath(rec, ws, x.Path, x.Name, a.spawnerInstanceID())
 	if err != nil {
 		return "spawn_agent error: " + err.Error()
 	}
@@ -294,7 +294,7 @@ func (a *Agent) spawnTeamLocal(team AgentTeam, ws, path string) string {
 		if err != nil {
 			return "spawn_team error: " + err.Error()
 		}
-		inst, err := createAgentInstanceForPath(rec, ws, path, rec.Name)
+		inst, err := createAgentInstanceForPath(rec, ws, path, rec.Name, a.spawnerInstanceID())
 		if err != nil {
 			return "spawn_team error: " + err.Error()
 		}

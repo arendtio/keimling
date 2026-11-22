@@ -72,10 +72,10 @@ func (a *Agent) agentExtraTools() []map[string]any {
 
 func threadAgentTools() []map[string]any {
 	return []map[string]any{
-		toolDef("list_agents", "List agent instances in this workspace. Pass an instance_id to message_agent, stop_agent, or delete_agent.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
+		toolDef("list_agents", "List the agent instances you can address: those in your workspaces, the ones you started, and the instance that started you. Items you started carry relation=child, your spawner carries relation=parent. Pass an instance_id to message_agent, stop_agent, or delete_agent.", map[string]any{"unused": map[string]any{"type": "string", "description": "Pass empty string"}}, "unused"),
 		toolDef("message_agent", "Send text to an agent instance in this workspace. instance_id is an id or a unique name from list_agents. The instance is woken and can reply to this thread.", map[string]any{"instance_id": map[string]any{"type": "string", "description": "Instance id or unique name from list_agents."}, "text": map[string]any{"type": "string", "description": "The message for that instance."}}, "instance_id", "text"),
-		toolDef("stop_agent", "Stop an agent instance in this workspace. Its run ends and it does not wake again until it is messaged. The instance and its watches stay.", map[string]any{"instance_id": map[string]any{"type": "string", "description": "Instance id or unique name from list_agents."}}, "instance_id"),
-		toolDef("delete_agent", "Delete an agent instance in this workspace. The definition stays. The user confirms this.", map[string]any{"instance_id": map[string]any{"type": "string", "description": "Instance id or unique name from list_agents."}}, "instance_id"),
+		toolDef("stop_agent", "Stop an agent instance you control: one you started or one in your workspace. Its run ends and it does not wake again until it is messaged. The instance and its watches stay.", map[string]any{"instance_id": map[string]any{"type": "string", "description": "Instance id or unique name from list_agents."}}, "instance_id"),
+		toolDef("delete_agent", "Delete an agent instance you control: one you started or one in your workspace. The definition stays. The user confirms this.", map[string]any{"instance_id": map[string]any{"type": "string", "description": "Instance id or unique name from list_agents."}}, "instance_id"),
 	}
 }
 
@@ -201,44 +201,163 @@ func (a *Agent) messageAgent(argsJSON string) string {
 	return fmt.Sprintf("Sent to %s: %s", name, text)
 }
 
+// agentChildren returns the instances this one spawned, in any workspace.
+func agentChildren(selfID string) []AgentInstanceMeta {
+	selfID = strings.TrimSpace(selfID)
+	if selfID == "" {
+		return nil
+	}
+	all, err := listAgentInstances()
+	if err != nil {
+		return nil
+	}
+	out := make([]AgentInstanceMeta, 0, 2)
+	for _, m := range all {
+		if m.Spawner == selfID {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func hasWorkspace(m AgentInstanceMeta, ws string) bool {
+	ws = strings.TrimSpace(ws)
+	if ws == "" {
+		return false
+	}
+	for _, one := range m.Workspaces {
+		if one == ws {
+			return true
+		}
+	}
+	return false
+}
+
+func sharesAWorkspace(a, b AgentInstanceMeta) bool {
+	for _, ws := range a.Workspaces {
+		if hasWorkspace(b, ws) {
+			return true
+		}
+	}
+	return false
+}
+
+// agentPool is what this caller may address: the instances of its workspaces,
+// the instances it started, and (unless only control targets are wanted) the
+// instance that started it.
+func (a *Agent) agentPool(self AgentInstanceMeta, withParent bool) ([]AgentInstanceMeta, error) {
+	seen := map[string]bool{}
+	pool := make([]AgentInstanceMeta, 0, 8)
+	add := func(m AgentInstanceMeta) {
+		if m.ID == "" || seen[m.ID] {
+			return
+		}
+		seen[m.ID] = true
+		pool = append(pool, m)
+	}
+	for _, ws := range self.Workspaces {
+		all, err := listAgentInstancesForWorkspace(ws)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range all {
+			add(m)
+		}
+	}
+	for _, m := range agentChildren(self.ID) {
+		add(m)
+	}
+	if withParent && strings.TrimSpace(self.Spawner) != "" {
+		if parent, err := readAgentInstanceMeta(self.Spawner); err == nil {
+			add(parent)
+		}
+	}
+	return pool, nil
+}
+
+// listWorkspaceAgents lists the instances this caller can address. A spawner
+// also sees what it started, even when that instance works elsewhere.
 func (a *Agent) listWorkspaceAgents() string {
-	ws := strings.TrimSpace(a.Cfg.WorkspaceID)
-	if a == nil || ws == "" {
+	if a == nil {
 		return "list_agents error: no workspace"
 	}
-	all, err := listAgentInstancesForWorkspace(ws)
-	if err != nil {
-		return "list_agents error: " + err.Error()
+	selfID := strings.TrimSpace(a.Cfg.AgentInstanceID)
+	var pool []AgentInstanceMeta
+	relation := map[string]string{}
+	if selfID != "" {
+		self, err := readAgentInstanceMeta(selfID)
+		if err != nil {
+			return "list_agents error: " + err.Error()
+		}
+		pool, err = a.agentPool(self, true)
+		if err != nil {
+			return "list_agents error: " + err.Error()
+		}
+		for _, m := range pool {
+			switch {
+			case m.Spawner == selfID:
+				relation[m.ID] = "child"
+			case m.ID == self.Spawner:
+				relation[m.ID] = "parent"
+			}
+		}
+	} else {
+		ws := strings.TrimSpace(a.Cfg.WorkspaceID)
+		if ws == "" {
+			return "list_agents error: no workspace"
+		}
+		all, err := listAgentInstancesForWorkspace(ws)
+		if err != nil {
+			return "list_agents error: " + err.Error()
+		}
+		pool = all
 	}
-	if len(all) == 0 {
-		return "no agent instances in this workspace"
+	if len(pool) == 0 {
+		return "no agent instances reachable from here"
 	}
 	var b strings.Builder
 	b.WriteString("Pass one of these instance_id values:\n")
-	for _, m := range all {
+	for _, m := range pool {
+		if rel := relation[m.ID]; rel != "" {
+			fmt.Fprintf(&b, "- instance_id=%s name=%q relation=%s\n", m.ID, m.Name, rel)
+			continue
+		}
 		fmt.Fprintf(&b, "- instance_id=%s name=%q\n", m.ID, m.Name)
 	}
 	return strings.TrimSpace(b.String())
 }
 
-func (a *Agent) resolveWorkspaceAgent(ref string) (AgentInstanceMeta, error) {
-	ws := ""
-	if a != nil {
-		ws = strings.TrimSpace(a.Cfg.WorkspaceID)
-	}
-	if ws == "" {
-		return AgentInstanceMeta{}, fmt.Errorf("no workspace")
-	}
+// resolveAgentRef finds one instance the caller may address, by id or unique
+// name. The pool covers the caller's workspaces, the instances it started and
+// its own spawner.
+func (a *Agent) resolveAgentRef(ref string) (AgentInstanceMeta, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return AgentInstanceMeta{}, fmt.Errorf("instance_id required")
 	}
-	all, err := listAgentInstancesForWorkspace(ws)
-	if err != nil {
-		return AgentInstanceMeta{}, err
+	selfID := strings.TrimSpace(a.Cfg.AgentInstanceID)
+	var pool []AgentInstanceMeta
+	if selfID != "" {
+		self, err := readAgentInstanceMeta(selfID)
+		if err != nil {
+			return AgentInstanceMeta{}, err
+		}
+		if pool, err = a.agentPool(self, true); err != nil {
+			return AgentInstanceMeta{}, err
+		}
+	} else {
+		ws := strings.TrimSpace(a.Cfg.WorkspaceID)
+		if ws == "" {
+			return AgentInstanceMeta{}, fmt.Errorf("no workspace")
+		}
+		all, err := listAgentInstancesForWorkspace(ws)
+		if err != nil {
+			return AgentInstanceMeta{}, err
+		}
+		pool = all
 	}
 	var byName []AgentInstanceMeta
-	for _, m := range all {
+	for _, m := range pool {
 		if m.ID == ref {
 			return m, nil
 		}
@@ -270,7 +389,7 @@ func (a *Agent) messageAgentFromThread(argsJSON string) string {
 	if text == "" {
 		return "message_agent error: instance_id and text required"
 	}
-	meta, err := a.resolveWorkspaceAgent(x.InstanceID)
+	meta, err := a.resolveAgentRef(x.InstanceID)
 	if err != nil {
 		return "message_agent error: " + err.Error()
 	}
@@ -298,7 +417,7 @@ func (a *Agent) deliverThreadToAgent(meta AgentInstanceMeta, text string) string
 }
 
 func (a *Agent) stopAgentTool(argsJSON string) string {
-	meta, err := a.workspaceAgentArg(argsJSON, "stop_agent")
+	meta, err := a.controllableAgentArg(argsJSON, "stop_agent")
 	if err != nil {
 		return err.Error()
 	}
@@ -314,7 +433,7 @@ func (a *Agent) stopAgentTool(argsJSON string) string {
 }
 
 func (a *Agent) deleteAgentTool(argsJSON string) string {
-	meta, err := a.workspaceAgentArg(argsJSON, "delete_agent")
+	meta, err := a.controllableAgentArg(argsJSON, "delete_agent")
 	if err != nil {
 		return err.Error()
 	}
@@ -329,9 +448,12 @@ func (a *Agent) deleteAgentTool(argsJSON string) string {
 	return "deleted " + meta.Name
 }
 
-func (a *Agent) workspaceAgentArg(argsJSON, tool string) (AgentInstanceMeta, error) {
-	if a == nil || strings.TrimSpace(a.Cfg.WorkspaceID) == "" || strings.TrimSpace(a.Cfg.AgentInstanceID) != "" || !isWorkspaceThreadID(a.Cfg.ThreadID) {
-		return AgentInstanceMeta{}, fmt.Errorf("%s error: only available in a workspace thread", tool)
+// controllableAgentArg resolves an instance this caller may stop or delete:
+// one it started, or one that shares a workspace with it. A workspace thread
+// controls what its workspace lists.
+func (a *Agent) controllableAgentArg(argsJSON, tool string) (AgentInstanceMeta, error) {
+	if a == nil {
+		return AgentInstanceMeta{}, fmt.Errorf("%s error: not available here", tool)
 	}
 	var x struct {
 		InstanceID string `json:"instance_id"`
@@ -339,11 +461,21 @@ func (a *Agent) workspaceAgentArg(argsJSON, tool string) (AgentInstanceMeta, err
 	if err := json.Unmarshal([]byte(argsJSON), &x); err != nil {
 		return AgentInstanceMeta{}, fmt.Errorf("%s error: invalid arguments", tool)
 	}
-	meta, err := a.resolveWorkspaceAgent(x.InstanceID)
+	selfID := strings.TrimSpace(a.Cfg.AgentInstanceID)
+	if selfID == "" && !isWorkspaceThreadID(a.Cfg.ThreadID) {
+		return AgentInstanceMeta{}, fmt.Errorf("%s error: only available in a workspace thread or on an agent instance", tool)
+	}
+	meta, err := a.resolveAgentRef(x.InstanceID)
 	if err != nil {
 		return AgentInstanceMeta{}, fmt.Errorf("%s error: %s", tool, err.Error())
 	}
-	return meta, nil
+	if selfID == "" {
+		return meta, nil
+	}
+	if meta.Spawner == selfID {
+		return meta, nil
+	}
+	return AgentInstanceMeta{}, fmt.Errorf("%s error: %s was not started by you", tool, meta.Name)
 }
 
 func (a *Agent) deliverThreadMessage(self AgentInstanceMeta, workspaceID, threadID, title, text string) string {

@@ -28,6 +28,10 @@ type AgentInstanceMeta struct {
 	// A non-nil slice, including empty, is the saved choice.
 	Tools *[]string `json:"tools,omitempty"`
 	Peers []string  `json:"peers,omitempty"` // instance ids this agent may message
+	// Spawner is the instance that started this one. Whoever instantiates an
+	// instance controls it: the spawner may stop and delete it, and each side
+	// may contact the other.
+	Spawner string `json:"spawner,omitempty"`
 	// Model overrides the definition. Empty follows the definition.
 	Model            string    `json:"model,omitempty"`
 	CurrentWorkspace string    `json:"current_workspace"`
@@ -359,7 +363,14 @@ func spawnPathWorkspace(path string) (string, error) {
 // worktree: it becomes a second workspace of the instance and its current
 // workspace, so the file tools write there. The workspace of the caller stays
 // in the ACL, so the sidebar entry and contact discovery keep working.
-func createAgentInstanceForPath(recipe AgentRecipe, workspaceID, path, name string) (AgentInstanceMeta, error) {
+// createAgentInstanceForPath starts an instance in workspaceID. A non-empty
+// path is the directory the instance should work in, for example a git
+// worktree: it becomes a second workspace of the instance and its current
+// workspace, so the file tools write there. The workspace of the caller stays
+// in the ACL, so the sidebar entry and contact discovery keep working.
+// spawnerID is the instance that started this one; it stays the parent for
+// contact and control.
+func createAgentInstanceForPath(recipe AgentRecipe, workspaceID, path, name, spawnerID string) (AgentInstanceMeta, error) {
 	pathWS, err := spawnPathWorkspace(path)
 	if err != nil {
 		return AgentInstanceMeta{}, err
@@ -368,11 +379,14 @@ func createAgentInstanceForPath(recipe AgentRecipe, workspaceID, path, name stri
 	if err != nil {
 		return AgentInstanceMeta{}, err
 	}
-	if pathWS == "" || pathWS == workspaceID {
-		return inst, nil
+	inst.Spawner = strings.TrimSpace(spawnerID)
+	if inst.Spawner == inst.ID {
+		inst.Spawner = ""
 	}
-	inst.Workspaces = append(inst.Workspaces, pathWS)
-	inst.CurrentWorkspace = pathWS
+	if pathWS != "" && pathWS != workspaceID {
+		inst.Workspaces = append(inst.Workspaces, pathWS)
+		inst.CurrentWorkspace = pathWS
+	}
 	if err := writeAgentInstanceMeta(inst); err != nil {
 		_ = deleteAgentInstance(inst.ID)
 		return AgentInstanceMeta{}, err
@@ -474,6 +488,18 @@ func deleteAgentInstance(id string) error {
 		return err
 	}
 	stopInstanceWatches(id)
+	// A deleted instance leaves no dangling line: nobody lists it as a contact,
+	// and no child points at it as its spawner.
+	dropAgentInstancePeers([]string{id})
+	if all, err := listAgentInstances(); err == nil {
+		for _, m := range all {
+			if m.Spawner != id {
+				continue
+			}
+			m.Spawner = ""
+			_ = writeAgentInstanceMeta(m)
+		}
+	}
 	return os.RemoveAll(dir)
 }
 
@@ -541,6 +567,11 @@ func peersContain(list []string, id string) bool {
 func agentsMayContact(a, b AgentInstanceMeta) bool {
 	if a.ID == "" || b.ID == "" || a.ID == b.ID {
 		return false
+	}
+	// Lineage is contact: a spawner and the instance it started reach each
+	// other even when the peer link was never written.
+	if a.Spawner == b.ID || b.Spawner == a.ID {
+		return true
 	}
 	return peersContain(a.Peers, b.ID) || peersContain(b.Peers, a.ID)
 }
