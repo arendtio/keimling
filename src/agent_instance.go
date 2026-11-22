@@ -340,6 +340,46 @@ func createAgentInstance(recipe AgentRecipe, workspaceID, name string) (AgentIns
 	return m, nil
 }
 
+// spawnPathWorkspace resolves the optional path argument of a spawn into a
+// workspace id. An empty path means the workspace of the calling process.
+func spawnPathWorkspace(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	meta, err := ensureWorkspaceForRoot(path)
+	if err != nil {
+		return "", err
+	}
+	return meta.ID, nil
+}
+
+// createAgentInstanceForPath starts an instance in workspaceID. A non-empty
+// path is the directory the instance should work in, for example a git
+// worktree: it becomes a second workspace of the instance and its current
+// workspace, so the file tools write there. The workspace of the caller stays
+// in the ACL, so the sidebar entry and contact discovery keep working.
+func createAgentInstanceForPath(recipe AgentRecipe, workspaceID, path, name string) (AgentInstanceMeta, error) {
+	pathWS, err := spawnPathWorkspace(path)
+	if err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	inst, err := createAgentInstance(recipe, workspaceID, name)
+	if err != nil {
+		return AgentInstanceMeta{}, err
+	}
+	if pathWS == "" || pathWS == workspaceID {
+		return inst, nil
+	}
+	inst.Workspaces = append(inst.Workspaces, pathWS)
+	inst.CurrentWorkspace = pathWS
+	if err := writeAgentInstanceMeta(inst); err != nil {
+		_ = deleteAgentInstance(inst.ID)
+		return AgentInstanceMeta{}, err
+	}
+	return inst, nil
+}
+
 // ownThreadDir is where this process stores thread.json. An agent instance
 // uses its own directory. A workspace thread uses the workspace. The agent
 // placeholder id is never a workspace thread path.

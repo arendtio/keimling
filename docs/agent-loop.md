@@ -190,5 +190,8 @@ in the chat they were reading. The new instance shows up in the sidebar and
 opens on a click. The tool result says so as well, because the calling model
 would otherwise describe a switch that did not happen. A task passed to the
 start is queued on the new instance, and the host wake loop starts the worker
-for it, so nothing waits for a click. Messaging the instance works the same
-way: `message_agent` starts its worker when a line is waiting.
+for it, so nothing waits for a click. A start may also name the
+directory the new instance works in (`path`), which is how a developer agent
+gets its own git worktree; the workspace the call came from stays in its ACL, so
+the sidebar entry and contact discovery keep working. Messaging the instance
+works the same way: `message_agent` starts its worker when a line is waiting.

@@ -141,6 +141,7 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			RecipeID    string `json:"recipe_id"`
 			Name        string `json:"name"`
+			Path        string `json:"path"`
 			WorkspaceID string `json:"workspace_id"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
@@ -165,7 +166,7 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, err := createAgentInstance(recipe, wsID, body.Name)
+		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, body.Name)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -727,6 +728,7 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		ID          string `json:"id"`
+		Path        string `json:"path"`
 		WorkspaceID string `json:"workspace_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
@@ -753,7 +755,7 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, err := createAgentInstance(recipe, wsID, recipe.Name)
+		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, recipe.Name)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
