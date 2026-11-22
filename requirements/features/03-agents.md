@@ -45,7 +45,9 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 
 1. Create/edit/delete **definitions**; optional **teams**.
 2. Create **instance** from definition (or spawn team).
-3. Messages / peer messages / watches → queue → run when idle.
+3. Messages / peer messages / watches → queue → run when idle. A peer message
+   that arrives during a run wakes the thread once that run ends, one run for
+   all of them.
 4. Stop cancels; delete instance removes its data.
 
 ## UI

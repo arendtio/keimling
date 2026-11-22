@@ -162,10 +162,13 @@ The text lands as a `keimling_peer` item in the target's journal. When the
 target is the thread this process runs and no run is in flight, the stored peer
 message starts a run with the text `[From <name>] <body>`, so the run and the
 transcript show a peer message and not user text. A busy thread stores the
-message for the run already in flight and starts nothing. A message for another
-thread is stored only; the process neither switches to that thread nor starts
-it. A peer message does not wake the attached thread a second time until the
-user writes in it, so two agents cannot answer each other forever; the user's
+message for the run already in flight; when that run ends, one run carries every
+message stored meanwhile, each in the same `[From <name>] <body>` form, so
+nothing waits for the user to type. A live realtime call keeps its own delivery
+and the stored messages wait for it. A message for another thread is stored
+only; the process neither switches to that thread nor starts it. A peer message
+does not wake the attached thread a second time until the user writes in it, so
+two agents cannot answer each other forever; the user's
 next message re-arms the wake. A wake that cannot start leaves the stored
 message in place and does not report an error to the sender, so the sender does
 not retry.
