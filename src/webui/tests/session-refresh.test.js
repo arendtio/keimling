@@ -17,6 +17,7 @@ const sessionCode = [
   section("  function transcriptMatches(", "  function stampMessageEl("),
   section("  // Within this many pixels of the bottom", "  function appendLive("),
   section("  function sessionViewKey(", "  function loadSession("),
+  section("  // A draft belongs to the chat it was typed in.", "  function switchThread("),
 ].join("\n");
 
 // Model a browser that clamps the scroll position when an attached transcript
@@ -104,6 +105,10 @@ function makeSession({ position = 9400, matching = false, rowHeight = 4700, snap
     currentThreadID: "main",
     currentWorkspaceID: "ws",
     currentAgentInstanceID: "",
+    msg: { value: "" },
+    fitComposer() {},
+    chatDrafts: {},
+    draftChatKey: "",
     runningThreadID: "main",
     workspaceThreadID: "",
     stoppingThreadID: "",

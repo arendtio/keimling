@@ -35,3 +35,9 @@
 **As** a user, **I want** the composer to grow with what I am writing, **so that** a transcription or a long message stays readable until the screen needs the conversation back.
 
 **Acceptance:** traces REQ-CW-5 and REQ-CW-9. On a narrow window the composer stays within about 70 percent of the screen height, and on a wide window within about 50 percent. Beyond that, the field scrolls. More on a narrow window opens over the chat, by the Plus control, with every entry clickable.
+
+## US-60 — Keep a draft in the chat where it was written
+
+**As** a user, **I want** my draft to stay in the chat I typed it in, **so that** I do not find half a message in another chat and lose it when I switch.
+
+**Acceptance:** traces REQ-CW-10. A draft typed in an agent chat does not appear in a workspace thread, and the other way round. Returning to a chat shows its draft again. Sending clears it. A reload starts empty.
