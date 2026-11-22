@@ -89,6 +89,11 @@ names the affected path, and file edits show the old/new preview above the
 `Approve? [Y/n]` prompt. Approval reasons are specific, for example
 `modifying existing file` or `write outside working directory`.
 
+A failed review call is retried twice with a short pause before it counts as an
+outage. On an outage the call becomes a question to the user. A live realtime
+call and a run with nobody to answer refuse instead, so an unattended run still
+ends safely.
+
 ## Autopilot
 
 - Autopilot monitors task progress, makes intermediate decisions, and can restart
