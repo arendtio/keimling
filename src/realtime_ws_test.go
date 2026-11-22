@@ -74,6 +74,9 @@ func TestRealtimeWebSocketProxiesText(t *testing.T) {
 			return
 		}
 		_ = writeWSFrame(conn, true, 0x1, []byte(`{"type":"session.created"}`), false)
+		// Stay open until the client goes away: the proxy marks the call closed
+		// as soon as this side ends, and the test checks the open state next.
+		_, _, _, _ = readWSFrame(conn)
 	}))
 	defer upstream.Close()
 
