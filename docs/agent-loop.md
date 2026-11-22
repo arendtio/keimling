@@ -123,9 +123,36 @@ pair when Settings change. Choosing the pair Settings currently use clears the
 thread choice. Reasoning and context limit come from the model in effect; a
 model with no context limit still uses the global fallback. A run already
 started keeps the model it started with. The next sent message uses the new
-choice. Compaction, autopilot, text delegates, and review stay on their Settings
-models. A delegate call that looks at an attached image uses the chat model
-that can see, and that call does not include the conversation.
+choice. Compaction and the balanced and deep delegates stay on their Settings
+models. Approval review, the output filter, autopilot supervision, the fast
+delegate, and the external web search follow the auxiliary model or this chat
+model (next section). A delegate call that looks at an attached image uses the
+chat model that can see, and that call does not include the conversation.
+
+## Auxiliary model for side tasks
+
+Approval review, output filtering, autopilot supervision, the fast delegate, and
+the external web search share one model: the *auxiliary model*. Settings → Side
+tasks offers a saved provider's models plus the empty choice "Use the chat
+model"; the value is stored as `auxiliary_model` in `config.json` and can also be
+set with `--auxiliary-model`.
+
+- Empty means each of those tasks uses the chat model of its run: the model the
+  open thread chatted with when the run started, otherwise the Settings model.
+  A chat on a cheap or local model therefore keeps its side tasks on that same
+  endpoint.
+- A saved value applies to the next side task without a restart and to later
+  runs. It does not rewrite a chat call.
+- Precedence is explicit flag first (`--review-model`, `--autopilot-model`,
+  `--delegate-fast-model`), then `auxiliary_model`, then the chat model. The
+  balanced and deep delegates keep `--delegate-balanced-model` and
+  `--delegate-deep-model`.
+- A saved auxiliary model that no configured provider offers never stops
+  startup or a run: the task falls back to the chat model and the transcript
+  says so once.
+- Agent instances and workspace threads read the same setting from
+  `config.json`; a worker has no flags, so its side tasks use the auxiliary
+  model or that worker's chat model.
 
 ## Peer messages
 

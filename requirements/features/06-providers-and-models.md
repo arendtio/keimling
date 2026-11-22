@@ -136,3 +136,12 @@ remote catalogs.
 - **Fit criterion:** A stored prompt price of 0.000002 is shown as 2. Saving 3 stores 0.000003. Opening the form and leaving it does not rewrite the config. An empty price stays empty.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-PM-10 One auxiliary model for the side tasks
+
+- **Statement:** Settings shall offer one "Auxiliary model" choice, saved as `auxiliary_model` in `config.json` and settable with `--auxiliary-model`. The approval review, the output filter, autopilot supervision, the fast delegate, and the external web search shall use it. An empty value shall make each of those tasks use the chat model of the run (the model the thread chatted with when the run started, else the Settings model). A set value shall apply to the next side task without a restart and to later runs. An explicit flag (`--review-model`, `--autopilot-model`, `--delegate-fast-model`) shall win over it, and the balanced and deep delegates shall keep their own flags. The empty choice shall be labelled "Use the chat model".
+- **Origin:** User, 2026-11-22 (quote: "In den Model-Settings soll man ein Modell auswählen können, das für die Nebenaufgaben benutzt wird. Ist keins ausgewählt (leer), nimmt jede dieser Aufgaben das normale Modell des Chats").
+- **Rationale:** A chat on a cheap or local model sent its reviews, filters, supervision, and searches to a different provider, so the cost and the data path of a run did not follow its own model.
+- **Fit criterion:** With an empty value, the filter, review, autopilot, fast delegate, and web search request the chat model. After saving a model in Settings, the next side task names it in its request and the value survives a restart. `--review-model` still overrides it. A saved model that no provider offers falls back to the chat model, says so once, and never stops startup.
+- **Priority:** shall
+- **Status:** confirmed
