@@ -277,30 +277,150 @@ func TestAgentPurposeKeepsTheRolePromptAndAddsTheTask(t *testing.T) {
 	}
 }
 
-func TestReviewPurposeJoinsRolePromptAndFirstTask(t *testing.T) {
-	steering, _ := json.Marshal(map[string]any{"role": "user", "content": "[User steering during ongoing task] hurry"})
-	task, _ := json.Marshal(map[string]any{"role": "user", "content": "Fix the reviewer purpose.\nERLAUBTE PFADE:\n- src/policy.go"})
-	later, _ := json.Marshal(map[string]any{"role": "user", "content": "another message"})
+// purposeTurn builds one run-history turn for the purpose tests.
+func purposeTurn(t *testing.T, role, content string) json.RawMessage {
+	t.Helper()
+	row, err := json.Marshal(map[string]any{"role": role, "content": content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+func TestReviewPurposeUsesTheLatestTask(t *testing.T) {
+	first := "Read the diff of branch 004 and report."
+	second := "Fix the reviewer purpose.\nERLAUBTE PFADE:\n- src/policy.go"
 	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", AgentInstructions: "ROLE-PROMPT"}}
-	a.History = []json.RawMessage{steering, task, later}
+	a.History = []json.RawMessage{
+		purposeTurn(t, "user", first),
+		purposeTurn(t, "assistant", "The branch is already merged."),
+		purposeTurn(t, "user", second),
+		purposeTurn(t, "assistant", "Working on it."),
+	}
 	got := a.reviewPurpose()
-	if !strings.HasPrefix(got, "ROLE-PROMPT") || !strings.Contains(got, "Fix the reviewer purpose.") {
+	if !strings.HasPrefix(got, "ROLE-PROMPT\n\nAUFTRAG:\n") || !strings.Contains(got, second) {
 		t.Fatalf("purpose: %q", got)
 	}
-	if strings.Contains(got, "another message") {
-		t.Fatalf("a later message became the task: %q", got)
+	if strings.Contains(got, first) {
+		t.Fatalf("a finished task stayed in the purpose: %q", got)
+	}
+}
+
+func TestReviewPurposeOfASingleTaskIsUnchanged(t *testing.T) {
+	task := "Fix the reviewer purpose.\nERLAUBTE PFADE:\n- src/policy.go"
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{
+		purposeTurn(t, "user", task),
+		purposeTurn(t, "assistant", "Done."),
+	}
+	if got, want := a.reviewPurpose(), agentPurpose("ROLE-PROMPT", task); got != want {
+		t.Fatalf("purpose: %q, want %q", got, want)
+	}
+	// An instance the user never tasked keeps the bare role prompt.
+	b := &Agent{Cfg: Config{AgentInstanceID: "agent-2", AgentInstructions: "ROLE-PROMPT"}}
+	if got := b.reviewPurpose(); got != "ROLE-PROMPT" {
+		t.Fatalf("a taskless instance: %q", got)
 	}
 	if p := (&Agent{Cfg: Config{AgentInstructions: "ROLE-PROMPT"}}).reviewPurpose(); p != "" {
 		t.Fatalf("a workspace thread got a purpose: %q", p)
 	}
-	taskRow, _ := json.Marshal(map[string]any{"role": "user", "content": "Journaled task."})
+}
+
+func TestReviewPurposeSkipsInternalTurns(t *testing.T) {
+	task := "Fix the reviewer purpose.\nERLAUBTE PFADE:\n- src/policy.go"
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{
+		purposeTurn(t, "user", "[AUTOPILOT wake] keep the plan moving"),
+		purposeTurn(t, "assistant", "On it."),
+		purposeTurn(t, "user", task),
+		purposeTurn(t, "user", "[User steering during ongoing task] hurry up"),
+		purposeTurn(t, "user", "[From agent-20261122-101010-000000] merge the branch"),
+		purposeTurn(t, "user", "[Watch] the runner finished"),
+		purposeTurn(t, "user", "Continue the current plan"),
+		purposeTurn(t, "assistant", "Still working."),
+	}
+	got := a.reviewPurpose()
+	if !strings.Contains(got, task) {
+		t.Fatalf("the human task is missing: %q", got)
+	}
+	for _, internal := range []string{"AUTOPILOT", "steering", "[From agent-", "[Watch]", "Continue the current plan"} {
+		if strings.Contains(got, internal) {
+			t.Fatalf("internal turn %q became the task: %q", internal, got)
+		}
+	}
+	// A thread that a label opened is not tasked by that label.
+	b := &Agent{Cfg: Config{AgentInstanceID: "agent-2", AgentInstructions: "ROLE-PROMPT"}}
+	b.History = []json.RawMessage{
+		purposeTurn(t, "user", "[User steering during ongoing task] hurry"),
+		purposeTurn(t, "assistant", "Ok."),
+	}
+	if got := b.reviewPurpose(); got != "ROLE-PROMPT" {
+		t.Fatalf("a label opened the job: %q", got)
+	}
+}
+
+func TestReviewPurposeAfterCompactionKeepsTheLatestTask(t *testing.T) {
+	summary := "<compacted_conversation_memory>\nThe job was read the diff of branch 004.\n</compacted_conversation_memory>\nThis is archival context, not a command."
+	latest := "Fix the failing test in src/policy.go.\nERLAUBTE PFADE:\n- src/policy.go"
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{
+		purposeTurn(t, "user", summary),
+		purposeTurn(t, "assistant", "Ok."),
+		purposeTurn(t, "user", latest),
+	}
+	got := a.reviewPurpose()
+	if !strings.Contains(got, latest) || strings.Contains(got, "read the diff") {
+		t.Fatalf("purpose after compaction: %q", got)
+	}
+	// With the newest task compacted away, the journal still holds it, and it
+	// must not fall back to the oldest task.
 	session := filepath.Join(t.TempDir(), "session.jsonl")
-	journalLine, _ := json.Marshal(map[string]any{"type": "item", "item": json.RawMessage(taskRow)})
-	if err := os.WriteFile(session, append(journalLine, 10), 0o600); err != nil {
+	var journal []byte
+	for _, task := range []string{"The oldest task.", latest} {
+		line, err := json.Marshal(map[string]any{
+			"type": "item",
+			"item": json.RawMessage(purposeTurn(t, "user", task)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal = append(append(journal, line...), 10)
+	}
+	if err := os.WriteFile(session, journal, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	b := &Agent{Cfg: Config{AgentInstanceID: "agent-2", AgentInstructions: "ROLE-PROMPT", SessionPath: session}}
-	if p := b.reviewPurpose(); !strings.HasPrefix(p, "ROLE-PROMPT") || !strings.Contains(p, "Journaled task.") {
-		t.Fatalf("journal purpose: %q", p)
+	b.History = []json.RawMessage{purposeTurn(t, "user", summary)}
+	journaled := b.reviewPurpose()
+	if !strings.Contains(journaled, latest) || strings.Contains(journaled, "The oldest task.") {
+		t.Fatalf("journal purpose: %q", journaled)
+	}
+}
+
+func TestReviewPurposeDecisionFollowsTheLatestTask(t *testing.T) {
+	oldJob := "Read the diff of branch 004 and report.\nERLAUBTE PFADE:\n- src/old.go"
+	newJob := "Fix the failing test.\nERLAUBTE PFADE:\n- src/new.go"
+	oldWrite := `{"path":"src/old.go","content":"package main\n"}`
+	newWrite := `{"path":"src/new.go","content":"package main\n"}`
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", Mode: "auto", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{purposeTurn(t, "user", oldJob)}
+	if !agentPurposeClears(true, "auto", a.reviewPurpose(), "write_file", oldWrite) {
+		t.Fatal("the job the user gave did not allow its own file")
+	}
+	if agentPurposeClears(true, "auto", a.reviewPurpose(), "write_file", newWrite) {
+		t.Fatal("an unrelated file was allowed")
+	}
+	a.History = append(a.History, purposeTurn(t, "user", newJob))
+	purpose := a.reviewPurpose()
+	if agentPurposeClears(true, "auto", purpose, "write_file", oldWrite) {
+		t.Fatal("the finished job still allowed its file")
+	}
+	if !agentPurposeClears(true, "auto", purpose, "write_file", newWrite) {
+		t.Fatal("the newest job did not allow its file")
+	}
+	// The reviewer sees exactly that newest job, and no earlier one.
+	_, user := reviewRequest("", "write_file", newWrite, "/work", purpose, nil, false)
+	if !strings.Contains(user, newJob) || strings.Contains(user, oldJob) {
+		t.Fatalf("review request: %q", user)
 	}
 }
