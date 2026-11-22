@@ -72,7 +72,7 @@ func (a *Agent) filterExecResult(ctx context.Context, task, arguments, result st
 			}
 		}
 	}()
-	filtered, err := a.Client.FilterOutput(ctx, "gpt-6-luna", task, args.Command, focus, body)
+	filtered, err := a.Client.FilterOutput(ctx, a.auxiliaryModel(auxFilter), task, args.Command, focus, body)
 	close(done)
 	<-stopped
 	fmt.Print("\r\033[2K")

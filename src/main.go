@@ -18,6 +18,10 @@ import (
 
 type Config struct {
 	Model, CompactionModel, Mode, Key, SessionPath, VoiceModel, ReviewModel, ApprovalPolicy, Reasoning, BaseURL string
+	// AuxiliaryModel is the shared model for side tasks (approval review, output
+	// filtering, autopilot supervision, fast delegate, web search). Empty means
+	// each task uses the chat model of its run.
+	AuxiliaryModel string
 	// ConversationMode is the mode stored for workspace threads. Agent workers
 	// keep their definition mode in Mode and leave this as the shared setting.
 	ConversationMode string
@@ -108,6 +112,7 @@ type fileConfig struct {
 	} `json:"features"`
 	Reasoning             string                     `json:"reasoning,omitempty"`
 	VoiceModel            string                     `json:"voice_model,omitempty"`
+	AuxiliaryModel        string                     `json:"auxiliary_model,omitempty"`
 	VoiceProviderID       string                     `json:"voice_provider_id,omitempty"`
 	RealtimeModel         string                     `json:"realtime_model,omitempty"`
 	RealtimeProviderID    string                     `json:"realtime_provider_id,omitempty"`
@@ -203,14 +208,15 @@ func main() {
 	apiMode := flag.String("api-mode", "responses", "Only responses is supported")
 	model := flag.String("model", "gpt-6-luna", "OpenAI model (Responses API)")
 	compactionModel := flag.String("compaction-model", "", "Optional model for compaction (uses same API endpoint and credentials)")
-	reviewModel := flag.String("review-model", "gpt-6-luna", "Model for automatic approval review")
+	auxiliaryModel := flag.String("auxiliary-model", "", "Model for approval review, output filter, autopilot, fast delegate, and web search (empty: the chat model)")
+	reviewModel := flag.String("review-model", "", "Model for automatic approval review (empty: the auxiliary model, else the chat model)")
 	approvalPolicy := flag.String("approval-policy", "", "Optional path to additional approval policy text")
 	reasoning := flag.String("reasoning", "high", "Reasoning effort: low, medium, high, xhigh, max")
-	delegateFast := flag.String("delegate-fast-model", "gpt-6-luna", "Fast delegate model")
+	delegateFast := flag.String("delegate-fast-model", "", "Fast delegate model (empty: the auxiliary model, else the chat model)")
 	delegateBalanced := flag.String("delegate-balanced-model", "gpt-6.1-sol", "Balanced delegate model")
 	delegateDeep := flag.String("delegate-deep-model", "gpt-6.1-sol", "Deep delegate model (high reasoning)")
 	pilot := flag.Bool("autopilot", false, "Enable autonomous task supervisor")
-	pilotModel := flag.String("autopilot-model", "gpt-6-luna", "Autopilot supervisor model")
+	pilotModel := flag.String("autopilot-model", "", "Autopilot supervisor model (empty: the auxiliary model, else the chat model)")
 	pilotReasoning := flag.String("autopilot-reasoning", "high", "Autopilot reasoning effort")
 	mode := flag.String("mode", "auto", "ask, auto, or yolo")
 	web := flag.Bool("web", true, "Enable OpenAI web search")
@@ -386,6 +392,9 @@ func main() {
 	}
 	if !changed["voice-model"] && strings.TrimSpace(fc.VoiceModel) != "" {
 		*voiceModel = strings.TrimSpace(fc.VoiceModel)
+	}
+	if !changed["auxiliary-model"] && strings.TrimSpace(fc.AuxiliaryModel) != "" {
+		*auxiliaryModel = strings.TrimSpace(fc.AuxiliaryModel)
 	}
 	if !changed["max-steps"] && fc.MaxSteps > 0 {
 		*steps = fc.MaxSteps
@@ -586,6 +595,7 @@ func main() {
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
 	a.Client.Spend = recordCloudSpend
 	a.Cfg.ConversationMode = a.Cfg.Mode
+	a.Cfg.AuxiliaryModel = strings.TrimSpace(*auxiliaryModel)
 	a.applyDefinitionApproval()
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch
@@ -887,7 +897,7 @@ func printStatus(a *Agent) {
 	if shown == "" {
 		shown = a.Cfg.Model
 	}
-	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Review: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", shown, a.Cfg.ReviewModel, a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
+	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Side tasks: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", shown, a.auxiliaryModel(auxReview), a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
 	fmt.Printf("  Compaction: model %s | endpoint %s\n", a.compactionModel(), a.Client.BaseURL)
 	fmt.Printf("  Context budget: used %d / %d (%.1f%%) · remaining %d (%.1f%%) · source %s\n", b.Used, b.Limit, b.UsedPct, b.Remaining, b.RemainingPct, b.Source)
 	if b.Warn {

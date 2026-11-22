@@ -76,12 +76,13 @@ Run `./keimling --help` for the generated list. Flags override the configuration
 | `--context-limit` | `128000` | Context token budget for compaction |
 | `--compaction-model` | main model | Model used for context compaction |
 | `--compact-parallel` | on | Parallel leaf distill/summarize (`false` for single local models) |
-| `--review-model` | `gpt-6-luna` | Model for automatic approval review |
+| `--auxiliary-model` | empty (the chat model) | Model for approval review, output filter, autopilot, fast delegate, and web search |
+| `--review-model` | auxiliary model or the chat model | Model for automatic approval review |
 | `--approval-policy` | none | Path to additional approval policy text |
 | `--autopilot` | `false` | Enable the autonomous task supervisor |
-| `--autopilot-model` | `gpt-6-luna` | Supervisor model |
+| `--autopilot-model` | auxiliary model or the chat model | Supervisor model |
 | `--autopilot-reasoning` | `high` | Supervisor reasoning effort |
-| `--delegate-fast-model` | `gpt-6-luna` | Fast delegate model |
+| `--delegate-fast-model` | auxiliary model or the chat model | Fast delegate model |
 | `--delegate-balanced-model` | `gpt-6.1-sol` | Balanced delegate model |
 | `--delegate-deep-model` | `gpt-6.1-sol` | Deep delegate model |
 | `--voice-model` | `gpt-transcribe` | Transcription model |

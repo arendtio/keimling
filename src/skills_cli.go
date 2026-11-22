@@ -108,7 +108,7 @@ func handleSkillsCommand(a *Agent, arg string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		fmt.Println("⌕ Searching for skills…")
-		cands, _, err := SearchSkillsOnline(ctx, a.Cfg.Search, q)
+		cands, _, err := SearchSkillsOnline(ctx, a.Cfg.Search, a.auxiliaryModel(auxSearch), q)
 		if err != nil {
 			fmt.Println("skills search:", err)
 			return
@@ -164,10 +164,7 @@ func handleSkillsCommand(a *Agent, arg string) {
 			fmt.Println("skills review: model client unavailable")
 			return
 		}
-		model := strings.TrimSpace(a.Cfg.ReviewModel)
-		if model == "" {
-			model = a.Cfg.Model
-		}
+		model := a.auxiliaryModel(auxReview)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		fmt.Println("◌ AI review…")

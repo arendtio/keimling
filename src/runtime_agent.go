@@ -159,11 +159,14 @@ func openRuntimeAgent(configPath, workspaceID, agentInstanceID string) (*Agent, 
 	}
 	cfg := Config{
 		Model: model, CompactionModel: "", Mode: mode, Key: key, SessionPath: sessPath,
-		VoiceModel: voiceModel, ReviewModel: "gpt-6-luna", ApprovalPolicy: policyText, Reasoning: reasoning,
+		VoiceModel: voiceModel, ApprovalPolicy: policyText, Reasoning: reasoning,
 		BaseURL: resolvedURL, ApprovalPolicyReplace: policyReplace,
-		DelegateFast: "gpt-6-luna", DelegateBalanced: "gpt-6.1-sol", DelegateDeep: "gpt-6.1-sol",
-		PilotModel: "gpt-6-luna", PilotReasoning: "high",
-		ConfigPath: configPath, PublicURL: strings.TrimRight(strings.TrimSpace(fc.PublicURL), "/"),
+		DelegateBalanced: "gpt-6.1-sol", DelegateDeep: "gpt-6.1-sol",
+		PilotReasoning: "high",
+		// A worker has no flags: review, filter, autopilot, fast delegate, and
+		// web search take auxiliary_model, else this worker's chat model.
+		AuxiliaryModel: strings.TrimSpace(fc.AuxiliaryModel),
+		ConfigPath:     configPath, PublicURL: strings.TrimRight(strings.TrimSpace(fc.PublicURL), "/"),
 		WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID,
 		AgentInstanceID: strings.TrimSpace(agentInstanceID), AgentInstructions: agentInstructions,
 		AllowedWorkspaces: allowed, Autopilot: pilot,

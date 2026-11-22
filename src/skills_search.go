@@ -24,7 +24,7 @@ var (
 )
 
 // SearchSkillsOnline uses the configured web-search service and extracts installable candidates.
-func SearchSkillsOnline(ctx context.Context, search searchConfig, query string) ([]SkillCandidate, string, error) {
+func SearchSkillsOnline(ctx context.Context, search searchConfig, model, query string) ([]SkillCandidate, string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, "", fmt.Errorf("empty query")
@@ -38,7 +38,7 @@ Prefer GitHub repositories or paths that contain a SKILL.md file with YAML front
 Return a short list with title, one-line description, and exact https URLs. Do not invent URLs.`,
 		query,
 	)
-	text, err := runSearch(ctx, search, prompt)
+	text, err := runSearch(ctx, search, model, prompt)
 	if err != nil {
 		return nil, "", err
 	}

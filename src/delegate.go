@@ -28,14 +28,14 @@ type delegateImage struct {
 	Data []byte
 }
 
-func delegateProfile(c Config, profile string) (model, effort string, err error) {
+func (a *Agent) delegateProfile(profile string) (model, effort string, err error) {
 	switch profile {
 	case "fast":
-		return c.DelegateFast, "low", nil
+		return a.auxiliaryModel(auxDelegate), "low", nil
 	case "balanced":
-		return c.DelegateBalanced, "medium", nil
+		return a.Cfg.DelegateBalanced, "medium", nil
 	case "deep":
-		return c.DelegateDeep, "high", nil
+		return a.Cfg.DelegateDeep, "high", nil
 	default:
 		return "", "", fmt.Errorf("unknown delegate profile %q", profile)
 	}
@@ -62,7 +62,7 @@ func (a *Agent) runDelegate(ctx context.Context, args DelegateArgs) (string, err
 		return a.runDelegateSource(ctx, args)
 	}
 	if strings.TrimSpace(args.Image) == "" {
-		model, effort, err := delegateProfile(a.Cfg, args.Profile)
+		model, effort, err := a.delegateProfile(args.Profile)
 		if err != nil {
 			return "", err
 		}

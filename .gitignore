@@ -1,6 +1,8 @@
 /keimling
+/src/keimling
 dist/
 __pycache__/
+*.orig
 scenarios/cards/
 scenarios/runs/
 scenarios/checkpoint.json

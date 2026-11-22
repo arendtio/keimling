@@ -269,7 +269,7 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 			purpose = a.Cfg.AgentInstructions
 		}
 		raw, _ := json.Marshal(map[string]any{"tools": listed})
-		verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, "data_processing", string(raw), cwd, purpose, nil, a.Cfg.ApprovalPolicyReplace)
+		verdict, e := a.approvalReview(ctx, "data_processing", string(raw), cwd, purpose, nil)
 		g := settleReview(agentRun, a.canAskHuman(ctx, reader), verdict.Decision, verdict.Reason, e)
 		if g.Allow {
 			return true, nil

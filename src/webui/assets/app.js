@@ -260,6 +260,7 @@
   var setMCPParallel = document.getElementById("set-mcp-parallel");
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
+  var setAuxiliaryModel = document.getElementById("set-auxiliary-model");
   var setVoiceProvider = document.getElementById("set-voice-provider");
   var setRealtimeProvider = document.getElementById("set-realtime-provider");
   var setRealtimeModel = document.getElementById("set-realtime-model");
@@ -2240,6 +2241,29 @@
     setState(agentState);
   }
 
+  // fillAuxiliaryModel lists the saved provider models plus the empty choice
+  // that means "use the chat model".
+  function fillAuxiliaryModel(j) {
+    if (!setAuxiliaryModel) return;
+    var wanted = (j && j.auxiliary_model) || "";
+    setAuxiliaryModel.innerHTML = '<option value="">Use the chat model</option>';
+    providersCache.forEach(function (p) {
+      (p.models || []).forEach(function (m) {
+        var opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = (p.name || p.id) + " · " + (m.name || m.id);
+        setAuxiliaryModel.appendChild(opt);
+      });
+    });
+    setAuxiliaryModel.value = wanted;
+    if (setAuxiliaryModel.value !== wanted) setAuxiliaryModel.value = "";
+  }
+
+  // auxiliaryModelPayload is the saved value. Empty means the chat model.
+  function auxiliaryModelPayload() {
+    return setAuxiliaryModel ? String(setAuxiliaryModel.value || "").trim() : "";
+  }
+
   function fillVoiceModels(selected) {
     if (!setVoiceModel) return;
     setVoiceModel.value = selected || "";
@@ -2308,6 +2332,7 @@
     setMode.value = j.mode || "auto";
     fillVoiceAndSearch(j);
     fillRealtime(j);
+    fillAuxiliaryModel(j);
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
     applyAutopilotSettingsFields(j);
@@ -2370,6 +2395,7 @@
     if (agentSettingsLoaded) {
       body.web = setWeb ? setWeb.checked : false;
       body.voice_model = setVoiceModel ? setVoiceModel.value.trim() : "";
+      body.auxiliary_model = auxiliaryModelPayload();
       body.voice_provider_id = setVoiceProvider ? setVoiceProvider.value : "";
       body.realtime_model = setRealtimeModel ? setRealtimeModel.value.trim() : "";
       body.realtime_provider_id = setRealtimeProvider ? setRealtimeProvider.value : "";
