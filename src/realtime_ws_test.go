@@ -1,15 +1,39 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// streamWait bounds a read on a streaming body: a stalled stream must fail the
+// test in seconds instead of holding the whole package run until -timeout.
+const streamWait = 5 * time.Second
+
+func readFullWithin(t *testing.T, r io.Reader, buf []byte) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.ReadFull(r, buf)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("read %d bytes: %v", len(buf), err)
+		}
+	case <-time.After(streamWait):
+		t.Fatalf("stream stalled: no %d bytes within %s", len(buf), streamWait)
+	}
+}
 
 func TestRealtimeWebSocketURL(t *testing.T) {
 	got, err := realtimeWebSocketURL("https://api.openai.com/v1", "gpt-realtime-2.1")
@@ -119,18 +143,14 @@ func TestRealtimeSpeakerAppendsPCM(t *testing.T) {
 		t.Fatal("content-length would make this window wait to start")
 	}
 	hdr := make([]byte, 44)
-	if _, err := io.ReadFull(resp.Body, hdr); err != nil {
-		t.Fatal(err)
-	}
+	readFullWithin(t, resp.Body, hdr)
 	if string(hdr[0:4]) != "RIFF" || string(hdr[8:12]) != "WAVE" {
 		t.Fatalf("header %q", hdr)
 	}
 	pcm := []byte{0x34, 0x12, 0x78, 0x56}
 	srv.teeRealtimeAudio([]byte(`{"type":"response.output_audio.delta","delta":"` + base64.StdEncoding.EncodeToString(pcm) + `"}`))
 	got := make([]byte, len(pcm))
-	if _, err := io.ReadFull(resp.Body, got); err != nil {
-		t.Fatal(err)
-	}
+	readFullWithin(t, resp.Body, got)
 	if string(got) != string(pcm) {
 		t.Fatalf("pcm %v", got)
 	}
@@ -140,9 +160,7 @@ func TestRealtimeSpeakerAppendsPCM(t *testing.T) {
 	srv.teeRealtimeAudio([]byte(`{"type":"response.created"}`))
 	srv.teeRealtimeAudio([]byte(`{"type":"response.output_audio.delta","delta":"` + base64.StdEncoding.EncodeToString(next) + `"}`))
 	got = make([]byte, len(next))
-	if _, err := io.ReadFull(resp.Body, got); err != nil {
-		t.Fatal(err)
-	}
+	readFullWithin(t, resp.Body, got)
 	if string(got) != string(next) {
 		t.Fatalf("after cancel %v", got)
 	}
@@ -152,9 +170,7 @@ func TestRealtimeSpeakerAppendsPCM(t *testing.T) {
 	srv.teeRealtimeAudio([]byte(`{"type":"response.created"}`))
 	srv.teeRealtimeAudio([]byte(`{"type":"response.output_audio.delta","delta":"` + base64.StdEncoding.EncodeToString(kept) + `"}`))
 	got = make([]byte, len(kept))
-	if _, err := io.ReadFull(resp.Body, got); err != nil {
-		t.Fatal(err)
-	}
+	readFullWithin(t, resp.Body, got)
 	if string(got) != string(kept) {
 		t.Fatalf("after speech started %v", got)
 	}
@@ -173,10 +189,83 @@ func TestRealtimeSpeakerAcceptsPageSecret(t *testing.T) {
 		t.Fatal(resp.Status)
 	}
 	hdr := make([]byte, 44)
-	if _, err := io.ReadFull(resp.Body, hdr); err != nil {
-		t.Fatal(err)
-	}
+	readFullWithin(t, resp.Body, hdr)
 	if string(hdr[0:4]) != "RIFF" {
 		t.Fatalf("header %q", hdr[:4])
+	}
+}
+
+// flushGate is a response writer that holds the handler in its first Flush, so
+// the test can push audio while the WAV header is still on its way to the client.
+type flushGate struct {
+	mu      sync.Mutex
+	header  http.Header
+	buf     bytes.Buffer
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newFlushGate() *flushGate {
+	return &flushGate{header: http.Header{}, entered: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (g *flushGate) Header() http.Header { return g.header }
+
+func (g *flushGate) WriteHeader(int) {}
+
+func (g *flushGate) Write(p []byte) (int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.buf.Write(p)
+}
+
+func (g *flushGate) Flush() {
+	g.once.Do(func() {
+		close(g.entered)
+		<-g.release
+	})
+}
+
+func (g *flushGate) written() []byte {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]byte(nil), g.buf.Bytes()...)
+}
+
+func TestRealtimeSpeakerQueuesAudioBeforeHeaderFlush(t *testing.T) {
+	srv := newAppServer(appServerOpts{AccessSecret: "tok"})
+	gate := newFlushGate()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/realtime/speaker", nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleRealtimeSpeaker(gate, req)
+	}()
+	select {
+	case <-gate.entered:
+	case <-time.After(streamWait):
+		t.Fatal("handler did not write the WAV header")
+	}
+	// The window starts playing as soon as the header arrives. Audio that
+	// arrives before that must be queued, never dropped: otherwise the player
+	// waits for bytes that never come.
+	pcm := []byte{0x34, 0x12, 0x78, 0x56}
+	srv.teeRealtimeAudio([]byte(`{"type":"response.output_audio.delta","delta":"` + base64.StdEncoding.EncodeToString(pcm) + `"}`))
+	close(gate.release)
+	deadline := time.Now().Add(streamWait)
+	for len(gate.written()) < 44+len(pcm) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := gate.written(); len(got) != 44+len(pcm) || string(got[44:]) != string(pcm) {
+		t.Fatalf("streamed %d bytes, want the header plus %v", len(got), pcm)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(streamWait):
+		t.Fatal("handler did not stop after the request was cancelled")
 	}
 }
