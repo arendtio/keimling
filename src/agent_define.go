@@ -30,9 +30,9 @@ func defineAgentTools() []map[string]any {
 	return []map[string]any{
 		toolDef("agent_instructions", "Return the instructions a new agent definition starts from. Call this before save_agent when writing or revising a prompt, and start from this text. Pass unused as an empty string.", map[string]any{"unused": str("Pass empty string")}, "unused"),
 		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text.")}, "id", "name", "instructions"),
-		toolDef("spawn_agent", "Start one instance of a definition in the workspace this call is running in. definition is an id or a unique name. name empty uses the definition name. task is the first message, the user's request in the user's words, or empty when the instance should wait. An agent can start an instance only in a workspace it can use. The instance runs in the background; the user's view does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "task": str("First message for the new instance, or empty.")}, "definition", "name", "task"),
+		toolDef("spawn_agent", "Start one instance of a definition. definition is an id or a unique name. name empty uses the definition name. path is an optional existing directory that becomes the current workspace of the instance, for example a git worktree; empty uses the workspace this call is running in. task is the first message, or empty when the instance should wait. The instance runs in the background; the view of the user does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "path": str("Existing directory the instance works in (a git worktree), or empty for the workspace of this call"), "task": str("First message for the new instance, or empty.")}, "definition", "name", "task"),
 		toolDef("save_team", "Create a team of agent definitions, or replace the definitions of an existing team. id empty creates. definitions are definition ids or unique names. On update, an empty list keeps the saved definitions.", map[string]any{"id": str("Team id to update, or empty to create"), "name": str("Team name. Required on create. Empty on update keeps the saved name."), "definitions": defs}, "id", "name", "definitions"),
-		toolDef("spawn_team", "Start one instance per definition of a team in the workspace this call is running in. team is an id or a unique name. Teammates may message each other. An agent can start a team only in a workspace it can use. The instances run in the background; the user's view does not switch to them.", map[string]any{"team": str("Team id or unique team name")}, "team"),
+		toolDef("spawn_team", "Start one instance per definition of a team. team is an id or a unique name. path is an optional existing directory that becomes the current workspace of every instance, for example a git worktree; empty uses the workspace this call is running in. Teammates may message each other. The instances run in the background; the view of the user does not switch to them.", map[string]any{"team": str("Team id or unique team name"), "path": str("Existing directory the instances work in (a git worktree), or empty for the workspace of this call")}, "team"),
 	}
 }
 
@@ -96,6 +96,7 @@ func (a *Agent) spawnAgentTool(args string) string {
 	var x struct {
 		Definition string `json:"definition"`
 		Name       string `json:"name"`
+		Path       string `json:"path"`
 		Task       string `json:"task"`
 	}
 	if err := decodeArgs(args, &x); err != nil {
@@ -112,6 +113,7 @@ func (a *Agent) spawnAgentTool(args string) string {
 	started, body, err := postHostJSON("/api/agents/instances", map[string]string{
 		"recipe_id":    rec.ID,
 		"name":         strings.TrimSpace(x.Name),
+		"path":         strings.TrimSpace(x.Path),
 		"workspace_id": ws,
 	})
 	if err == nil {
@@ -120,7 +122,7 @@ func (a *Agent) spawnAgentTool(args string) string {
 	if err != errNoHost {
 		return "spawn_agent error: " + err.Error()
 	}
-	inst, err := createAgentInstance(rec, ws, x.Name)
+	inst, err := createAgentInstanceForPath(rec, ws, x.Path, x.Name)
 	if err != nil {
 		return "spawn_agent error: " + err.Error()
 	}
@@ -198,6 +200,7 @@ func formatTeam(t AgentTeam, created bool) string {
 func (a *Agent) spawnTeamTool(args string) string {
 	var x struct {
 		Team string `json:"team"`
+		Path string `json:"path"`
 	}
 	if err := decodeArgs(args, &x); err != nil {
 		return "spawn_team error: " + err.Error()
@@ -212,6 +215,7 @@ func (a *Agent) spawnTeamTool(args string) string {
 	}
 	started, body, err := postHostJSON("/api/agents/teams/spawn", map[string]string{
 		"id":           team.ID,
+		"path":         strings.TrimSpace(x.Path),
 		"workspace_id": ws,
 	})
 	if err == nil {
@@ -220,17 +224,17 @@ func (a *Agent) spawnTeamTool(args string) string {
 	if err != errNoHost {
 		return "spawn_team error: " + err.Error()
 	}
-	return spawnTeamLocal(team, ws) + spawnBackgroundNote
+	return spawnTeamLocal(team, ws, x.Path) + spawnBackgroundNote
 }
 
-func spawnTeamLocal(team AgentTeam, ws string) string {
+func spawnTeamLocal(team AgentTeam, ws, path string) string {
 	created := make([]AgentInstanceMeta, 0, len(team.DefinitionIDs))
 	for _, defID := range team.DefinitionIDs {
 		rec, err := readAgentRecipe(defID)
 		if err != nil {
 			return "spawn_team error: " + err.Error()
 		}
-		inst, err := createAgentInstance(rec, ws, rec.Name)
+		inst, err := createAgentInstanceForPath(rec, ws, path, rec.Name)
 		if err != nil {
 			return "spawn_team error: " + err.Error()
 		}
