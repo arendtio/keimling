@@ -63,9 +63,20 @@ type appServer struct {
 	// message. A further peer message does not wake the thread until the
 	// human writes, so two agents cannot answer each other forever.
 	peerWoken bool
+	// peerPending holds peer messages that reached the attached thread while
+	// its run was busy. The journal stores them, but the run never loaded them,
+	// so pumpPeerWakes starts one run for them once that run is over.
+	peerPending []pendingPeer
 	// startPeerRun starts the run for a peer message. Tests replace it to
 	// observe the wake without a model call.
 	startPeerRun func(text, ws, threadID string, item AgentQueueItem) bool
+}
+
+// pendingPeer is one peer message that arrived during a run of the attached
+// thread and has not reached a run yet.
+type pendingPeer struct {
+	name string
+	text string
 }
 
 func newAppServer(opts appServerOpts) *appServer {
@@ -3348,6 +3359,9 @@ func (s *appServer) handleThreadDeliver(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			// The running turn never loads this item, so the pump after that
+			// run wakes the thread for it.
+			s.queuePendingPeer(name, text)
 		} else if err := s.agent.add(item); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -3439,13 +3453,73 @@ func (s *appServer) startAgentRun(text string) bool {
 }
 
 // wakeAttachedThreadForPeer starts a run for a peer message that was just
-// appended to the attached thread. The text carries the peer name in the form
-// parsePeerUserText reads, so the run shows it as a peer message and not as
-// user text. A busy agent keeps the message for the run in flight, and one peer
-// message wakes the thread at most once until the human writes (noteUserTurn),
-// which bounds a chain of agents answering each other to one step. It reports
-// whether a run started.
+// appended to the attached thread, in the [From ...] form parsePeerUserText
+// reads.
 func (s *appServer) wakeAttachedThreadForPeer(name, text, ws, threadID string) bool {
+	return s.wakeAttachedThread(formatPeerUserText(name, text), ws, threadID)
+}
+
+// queuePendingPeer remembers a peer message that reached the attached thread
+// during a run. The journal keeps it for the transcript, but no run has seen
+// it yet.
+func (s *appServer) queuePendingPeer(name, text string) {
+	name = strings.TrimSpace(name)
+	text = strings.TrimSpace(text)
+	if name == "" || text == "" {
+		return
+	}
+	s.mu.Lock()
+	s.peerPending = append(s.peerPending, pendingPeer{name: name, text: text})
+	s.mu.Unlock()
+}
+
+// peerWakeText is the wake text that carries every pending peer message.
+func peerWakeText(peers []pendingPeer) string {
+	lines := make([]string, 0, len(peers))
+	for _, p := range peers {
+		lines = append(lines, formatPeerUserText(p.name, p.text))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// pumpPeerWakes starts one run for peer messages that arrived while the
+// attached thread was busy. Its text carries every message in the [From ...]
+// form, so one run handles them all and none waits for the human. Like a
+// delivery-time wake it stays bounded: one wake per run and per human turn
+// (peerWoken), and a live realtime call keeps its own delivery.
+func (s *appServer) pumpPeerWakes() bool {
+	if s.agent == nil || s.agent.Journal == nil || s.realtimeCallOpen() {
+		return false
+	}
+	threadID := strings.TrimSpace(s.agent.Cfg.ThreadID)
+	if threadID == "" || s.threadBusy(threadID) {
+		return false
+	}
+	s.mu.Lock()
+	peers := s.peerPending
+	s.peerPending = nil
+	s.mu.Unlock()
+	if len(peers) == 0 {
+		return false
+	}
+	if s.wakeAttachedThread(peerWakeText(peers), s.agent.Cfg.WorkspaceID, threadID) {
+		return true
+	}
+	// The thread is busy again or a peer chain waits for the human: keep the
+	// messages for the next idle moment after a human turn.
+	s.mu.Lock()
+	s.peerPending = append(peers, s.peerPending...)
+	s.mu.Unlock()
+	return false
+}
+
+// wakeAttachedThread starts one run for a peer wake text. The text carries the
+// peer name in the form parsePeerUserText reads, so the run shows it as a peer
+// message and not as user text. A busy agent keeps the message for the run in
+// flight, and one peer message wakes the thread at most once until the human
+// writes (noteUserTurn), which bounds a chain of agents answering each other to
+// one step. It reports whether a run started.
+func (s *appServer) wakeAttachedThread(text, ws, threadID string) bool {
 	s.mu.Lock()
 	if s.busy || s.peerWoken || s.agent == nil {
 		s.mu.Unlock()
@@ -3457,7 +3531,7 @@ func (s *appServer) wakeAttachedThreadForPeer(name, text, ws, threadID string) b
 	if wake == nil {
 		wake = s.startAgentRunWake
 	}
-	if wake(formatPeerUserText(name, text), ws, threadID, AgentQueueItem{}) {
+	if wake(text, ws, threadID, AgentQueueItem{}) {
 		return true
 	}
 	// Nothing started (a race with another run or a closed realtime call). Allow
@@ -3724,10 +3798,15 @@ func (s *appServer) pumpAgentWakes() {
 		return
 	}
 	inst := strings.TrimSpace(s.agent.Cfg.AgentInstanceID)
+	if inst != "" && agentWakesHeld(inst) {
+		return
+	}
+	// A peer message that arrived during the last run wakes the attached
+	// thread now that the run is over.
+	if s.pumpPeerWakes() {
+		return
+	}
 	if inst != "" {
-		if agentWakesHeld(inst) {
-			return
-		}
 		now := time.Now()
 		if due, err := dueAgentAlarms(inst, now); err == nil {
 			for _, al := range due {
