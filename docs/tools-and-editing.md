@@ -15,6 +15,12 @@ interactive commands.
 
 Failed tools are rendered as errors (red `✗`), never as a green checkmark.
 
+A command does not fail only because the working directory of the instance was
+removed. It runs in the workspace root instead, the reply names that switch
+once, and the thread stays on the workspace root for later commands
+(REQ-WS-12). Nothing recreates the removed directory, and a path the command
+itself names — `cd missing && …` — stays the command's own error.
+
 ## Reading files
 
 `read_file` reads a whole file (`start_line` and `end_line` both `0`) or an

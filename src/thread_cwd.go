@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -131,6 +132,40 @@ func workspaceRootFrom(ctx context.Context) string {
 	}
 	s, _ := ctx.Value(wsRootKey{}).(string)
 	return strings.TrimSpace(s)
+}
+
+// commandDir is the directory the next command starts in. When the thread's
+// directory is gone (a removed worktree, for example), it falls back to the
+// workspace root, keeps that fallback for later commands, and returns a notice
+// that the caller shows once in the reply. Nothing is created or restored.
+func commandDir(ctx context.Context) (dir, notice string) {
+	slot := cwdSlotFrom(ctx)
+	if slot == nil {
+		return "", ""
+	}
+	dir = strings.TrimSpace(slot.get())
+	if dir == "" || dirExists(dir) {
+		return dir, ""
+	}
+	root := workspaceRootFrom(ctx)
+	if !dirExists(root) {
+		return dir, ""
+	}
+	slot.set(root)
+	return root, fmt.Sprintf("working directory fallback: %s no longer exists; commands start in the workspace root %s", dir, root)
+}
+
+// withFallbackNotice adds the one-time working-directory notice under the first
+// line of a reply. The leading line stays first, so an exec result keeps its
+// exit status and a failed command is still shown as failed.
+func withFallbackNotice(result, notice string) string {
+	if notice == "" {
+		return result
+	}
+	if i := strings.IndexByte(result, '\n'); i >= 0 {
+		return result[:i+1] + notice + "\n" + result[i+1:]
+	}
+	return result + "\n" + notice
 }
 
 func locatePath(root, cwd, path string) string {

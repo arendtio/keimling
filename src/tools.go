@@ -159,10 +159,12 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		command := x.Command
 		var marker string
 		slot := cwdSlotFrom(ctx)
-		if dir := threadDirFrom(ctx); dir != "" {
+		dir, notice := commandDir(ctx)
+		reply := func(s string) string { return withFallbackNotice(s, notice) }
+		if dir != "" {
 			f, ferr := os.CreateTemp("", "keimling-cwd-*")
 			if ferr != nil {
-				return "working directory: " + ferr.Error()
+				return reply("working directory: " + ferr.Error())
 			}
 			marker = f.Name()
 			_ = f.Close()
@@ -191,10 +193,10 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			if binDir != "" {
 				env = append(env, "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			}
-			return interactiveExec(runCtx, shell, command, time.Duration(x.TimeoutSeconds)*time.Second, env...)
+			return reply(interactiveExec(runCtx, shell, command, time.Duration(x.TimeoutSeconds)*time.Second, env...))
 		}
 		cmd := shellCommand(shell, command)
-		if dir := threadDirFrom(ctx); dir != "" {
+		if dir != "" {
 			cmd.Dir = dir
 		}
 		if len(extraEnv) > 0 || binDir != "" {
@@ -214,7 +216,7 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		cmd.Stdout = &output
 		cmd.Stderr = &output
 		if err := cmd.Start(); err != nil {
-			return fmt.Sprintf("start error: %v", err)
+			return reply(startErrorText(shell, dir, err))
 		}
 		trackCommandGroup(cmd.Process.Pid)
 		defer releaseCommandGroup(cmd.Process.Pid)
@@ -226,7 +228,7 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		case <-runCtx.Done():
 			killProcessGroup(cmd.Process.Pid)
 			err = <-done
-			return fmt.Sprintf("exit_status=cancelled (%v); error=%v\n%s", runCtx.Err(), err, output.String())
+			return reply(fmt.Sprintf("exit_status=cancelled (%v); error=%v\n%s", runCtx.Err(), err, output.String()))
 		}
 		exit := 0
 		if err != nil {
@@ -234,10 +236,10 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 			if errors.As(err, &ee) {
 				exit = ee.ExitCode()
 			} else {
-				return fmt.Sprintf("execution error: %v", err)
+				return reply(fmt.Sprintf("execution error: %v", err))
 			}
 		}
-		return fmt.Sprintf("exit_code=%d\n%s", exit, output.String())
+		return reply(fmt.Sprintf("exit_code=%d\n%s", exit, output.String()))
 	case "read_file":
 		var x struct {
 			Path      string `json:"path"`
@@ -423,6 +425,20 @@ func shellCommand(shell, command string) *exec.Cmd {
 		return exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", command)
 	}
 	return exec.Command(shell, "-c", command)
+}
+
+// startErrorText names why a command could not be started. A missing working
+// directory and a shell that cannot be started both end in "no such file or
+// directory", so the cause is looked up instead of passed through unchanged.
+func startErrorText(shell, dir string, err error) string {
+	if dir != "" && !dirExists(dir) {
+		return fmt.Sprintf("start error: working directory %s does not exist", dir)
+	}
+	var pe *os.PathError
+	if errors.As(err, &pe) && pe.Op == "chdir" {
+		return fmt.Sprintf("start error: working directory %s does not exist", pe.Path)
+	}
+	return fmt.Sprintf("start error: shell %s could not be started: %v", shell, err)
 }
 
 func hostOSName() string {

@@ -136,6 +136,12 @@
 
 **Acceptance:** traces REQ-WS-1.
 
+## US-84 — Keep working after the working directory disappeared
+
+**As** an agent, **I want** a command to still run after my working directory was removed, **so that** a cleaned-up worktree does not end my work.
+
+**Acceptance:** traces REQ-WS-12. When the directory is gone, the command runs in the workspace root and the reply says so once. The next command runs there without a second notice and without a failure. A shell that cannot be started is reported as the shell, not as the directory. A `cd` to a missing path inside the command stays the command's own error.
+
 ## US-38 — The agent’s model comes from its definition
 
 **As** a user, **I want** an agent chat to use the model on its definition, **so that** the chat box does not quietly pick a different one.
