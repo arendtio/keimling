@@ -3524,6 +3524,20 @@
     undo.appendChild(back);
   }
 
+  function pruneWorkspaces() {
+    var status = document.getElementById("workspace-prune-status");
+    if (status) status.textContent = "Checking…";
+    return fetch(apiURL("/api/workspaces/prune"), { method: "POST", headers: headers(), body: "{}" })
+      .then(readAPIResult)
+      .then(function (j) {
+        var n = (j && j.count) || 0;
+        if (status) status.textContent = n ? n + " removed" : "Nothing to remove";
+        return loadWorkspaces();
+      })
+      .then(function () { renderWorkspaceManage(); })
+      .catch(function (err) { if (status) status.textContent = String(err); });
+  }
+
   function beginWorkspaceRename(nameEl, actions, ws) {
     var input = document.createElement("input");
     input.type = "text";
@@ -9657,6 +9671,10 @@
     workspaceOpenBtn.addEventListener("click", function () {
       openWorkspacePath(workspacePath && workspacePath.value, workspaceNewName && workspaceNewName.value);
     });
+  }
+  var workspacePruneBtn = document.getElementById("workspace-prune-btn");
+  if (workspacePruneBtn) {
+    workspacePruneBtn.addEventListener("click", function () { pruneWorkspaces(); });
   }
   if (workspacePath) {
     workspacePath.addEventListener("keydown", function (e) {

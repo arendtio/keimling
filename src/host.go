@@ -492,6 +492,7 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/workspaces/hide", auth(h.handleWorkspaceHide))
 	mux.Handle("/api/workspaces/rename", auth(h.handleWorkspaceRename))
 	mux.Handle("/api/workspaces/restore", auth(h.handleWorkspaceRestore))
+	mux.Handle("/api/workspaces/prune", auth(h.handleWorkspacePrune))
 	mux.Handle("/api/agents/recipes", auth(h.handleAgentRecipes))
 	mux.Handle("/api/agents/recipes/update", auth(h.handleAgentRecipeUpdate))
 	mux.Handle("/api/agents/recipes/delete", auth(h.handleAgentRecipeDelete))

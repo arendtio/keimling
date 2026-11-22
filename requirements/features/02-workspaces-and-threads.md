@@ -183,3 +183,12 @@ Fit: with a workspace thread open, Now shows that workspace's name and that thre
 - **Fit criterion:** The instance directory is removed, then a command runs in the workspace root and its reply names the switch. The same command again runs there with no notice and no error. A missing directory and a missing shell produce different messages. A command that removes nothing behaves as before. Nothing creates or restores the removed directory.
 - **Priority:** shall
 - **Status:** confirmed
+### REQ-WS-13 A workspace entry dies with its folder
+
+- **Bin:** explicit requirement
+- **Statement:** A workspace entry whose folder no longer exists shall be removable. It shall not be removed while an agent instance still lists it, while it is the workspace the user is in, or when it is the home workspace. Remove shall drop the entry and Keimling's copy of that workspace's threads and artifacts, because a workspace without a folder has nothing left to show. A folder that exists shall never be dropped by the cleanup. Deleting an agent instance shall run the same cleanup, so a merged worktree does not leave an entry behind.
+- **Origin:** User, 2026-11-22 (quote: "ich habe das Gefühl, dass jetzt jeder Agent immer für sein Feature … noch wieder einen eigenen Workspace kriegt … Ich weiß auch nicht, ob die Workspaces dann wieder weggenommen werden, wenn der Agent beendet wird").
+- **Rationale:** A workspace per worktree is the right scope, but it must end when the worktree ends. Otherwise the menu fills with entries after every feature, and none of them can be opened.
+- **Fit criterion:** A merged worktree is removed from disk. The entry is still listed. The cleanup drops exactly that entry and keeps a workspace whose folder exists, a workspace an instance still lists, the current workspace, and the home workspace. Deleting an agent instance triggers the same cleanup.
+- **Priority:** shall
+- **Status:** confirmed

@@ -446,6 +446,7 @@ func (a *Agent) deleteAgentTool(argsJSON string) string {
 	if err := deleteAgentInstance(meta.ID); err != nil {
 		return "delete_agent error: " + err.Error()
 	}
+	pruneMissingWorkspaces(nil)
 	return "deleted " + meta.Name
 }
 

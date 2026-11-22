@@ -330,6 +330,13 @@ func (h *Host) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// A workspace a developer had for a worktree is a leftover once the folder
+	// and the instance are gone; drop it with the instance.
+	keep := map[string]bool{}
+	if focus := strings.TrimSpace(h.focusWorkspaceID()); focus != "" {
+		keep[focus] = true
+	}
+	pruneMissingWorkspaces(keep)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
 }
