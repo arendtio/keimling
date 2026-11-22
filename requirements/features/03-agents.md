@@ -113,15 +113,15 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Fit criterion:** The user grants an instance a subset of the tools. A run of that instance can call a granted tool and cannot call a tool that was not granted. The user can see, against the tools that exist, which ones this instance may use.
 - **Priority:** shall
 - **Status:** superseded by REQ-AG-5
-- **Open:** What an instance may use before the user has made a choice is not stated. Do not treat "all tools" or "no tools" as the requirement.
+- **Open:** Closed 2026-11-22 by the user: a definition must name its tools when it is created, and an empty list grants nothing. No tool choice never means "all tools".
 
 ### REQ-AG-5 Definition tools, instance workspaces, instance may only narrow tools
 
 - **Bin:** explicit requirement
-- **Statement:** A definition shall say which tools that kind of agent may use. A definition shall not name workspaces. An instance shall choose which existing workspaces it may use. An instance should be able to use fewer of the definition’s tools. An instance shall not gain a tool the definition does not grant. When the instance has not narrowed tools, it uses the definition’s tools.
+- **Statement:** A definition shall say which tools that kind of agent may use, and shall state it when the definition is created. An empty list grants nothing. A definition shall not name workspaces. An instance shall choose which existing workspaces it may use. An instance should be able to use fewer of the definition’s tools. An instance shall not gain a tool the definition does not grant. When the instance has not narrowed tools, it uses the definition’s tools.
 - **Origin:** User, 2026-10-31 (quote: "die Definition, sollte auch grundsätzlich Access Rights zu Tools beispielsweise definieren" and "die Instanz … diese Access Rights für die einzelne Instanz überschreiben" and "welche Workspaces relevant sind … die Agenten-Definition muss jetzt nicht Workspaces enthalten" and "der Zugriff auf bestimmte Tools … einschränkbar … je nachdem, in welchem Kontext").
 - **Rationale:** The definition says what this kind of agent can do. The instance says where it is used, and may be trusted with less in that place. This is the same shape as a thread model that follows settings until it has its own choice.
-- **Fit criterion:** A definition grants tools T. A new instance of it can call a tool in T and cannot call a tool outside T. The user narrows that instance to a subset S of T. The instance can call S and cannot call T−S or anything outside T. Saving the instance with T again makes it follow the definition. The user grants the instance workspaces W1 and W2. It appears in both. The definition has no workspace list.
+- **Fit criterion:** Creating a definition without a tool list is rejected. A definition grants tools T. A new instance of it can call a tool in T and cannot call a tool outside T. The user narrows that instance to a subset S of T. The instance can call S and cannot call T−S or anything outside T. Saving the instance with T again makes it follow the definition. The user grants the instance workspaces W1 and W2. It appears in both. The definition has no workspace list.
 - **Priority:** shall for the definition’s tools, the instance’s workspaces, and the ban on widening. should for the instance narrowing tools.
 - **Status:** confirmed
 
@@ -508,7 +508,7 @@ The earlier text grants an instance workspace and peer access. It does not say t
 
 ## Design notes (not requirements)
 
-Until the user saves tools on a definition, that definition grants every tool. Saving stores the checked tools. An instance with no narrower set uses that definition. Saving the same set again clears the instance override. REQ-AG-2’s unanswered default is this design, not a stakeholder shall.
+A definition must name its tools when it is created; the create call is rejected without a list, and an empty list grants no tools. Saving stores the checked tools. An instance with no narrower set uses that definition. An instance may only narrow, never widen. Saving the definition’s own set again clears the instance override. REQ-AG-2’s unanswered default is decided here: no choice means no tools.
 
 Tool choices are shown as a topic table with a read column and a write column. The stored grant is still the individual tool names. A cell that is only partly granted stays mixed until the user clicks it, so saving does not silently add the rest. An instance cell lists only the tools the definition allows.
 

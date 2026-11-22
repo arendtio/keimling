@@ -8,6 +8,33 @@ import (
 	"testing"
 )
 
+func TestSaveAgentRequiresTools(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
+	got := a.runDefineAgentTool("save_agent", `{"id":"","name":"Blind","instructions":"Nothing."}`)
+	if !strings.Contains(got, "tools required on create") {
+		t.Fatalf("create without tools: %q", got)
+	}
+	if list, err := listAgentRecipes(); err != nil || len(list) != 0 {
+		t.Fatalf("a rejected create must not leave a definition: %v %v", list, err)
+	}
+	none := a.runDefineAgentTool("save_agent", `{"id":"","name":"Blind","instructions":"Nothing.","tools":[]}`)
+	if strings.Contains(none, "error") {
+		t.Fatal(none)
+	}
+	list, err := listAgentRecipes()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("empty tool list is a choice: %v %v", list, err)
+	}
+	if names := recipeToolNames(list[0]); len(names) != 0 {
+		t.Fatalf("an empty choice grants nothing: %v", names)
+	}
+}
+
 func TestDefineAgentToolsAreGrantedLikeOtherTools(t *testing.T) {
 	names := map[string]bool{}
 	for _, tool := range definitions(false) {
@@ -80,7 +107,7 @@ func TestSaveAgentStartsFromTheKnownInstructions(t *testing.T) {
 	if got != defaultAgentInstructions {
 		t.Fatalf("template: %q", got)
 	}
-	created := a.runDefineAgentTool("save_agent", `{"id":"","name":"Reviewer","instructions":""}`)
+	created := a.runDefineAgentTool("save_agent", `{"id":"","name":"Reviewer","instructions":"","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`)
 	if strings.Contains(created, "error") {
 		t.Fatal(created)
 	}
@@ -125,7 +152,7 @@ func TestSpawnAgentQueuesTheFirstTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
-	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Watcher","instructions":"Watch the server."}`)
+	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Watcher","instructions":"Watch the server.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`)
 	if strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
@@ -156,7 +183,7 @@ func TestSpawnAgentUsesTheCallerWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
-	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run."}`)
+	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`)
 	if strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
@@ -211,7 +238,7 @@ func TestSaveAndSpawnTeam(t *testing.T) {
 	}
 	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
 	for _, name := range []string{"Reader", "Writer"} {
-		args, _ := json.Marshal(map[string]string{"id": "", "name": name, "instructions": "Do " + name})
+		args, _ := json.Marshal(map[string]any{"id": "", "name": name, "instructions": "Do " + name, "tools": []string{"message_agent", "list_agents"}})
 		if s := a.runDefineAgentTool("save_agent", string(args)); strings.Contains(s, "error") {
 			t.Fatal(s)
 		}
@@ -296,7 +323,7 @@ func TestSpawnToolSaysTheAgentRunsInTheBackground(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
-	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run."}`); strings.Contains(saved, "error") {
+	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`); strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
 	started := a.runDefineAgentTool("spawn_agent", `{"definition":"Runner","name":""}`)

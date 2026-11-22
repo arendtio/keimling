@@ -26,7 +26,7 @@ func TestSpawnAgentWithPathStartsInThatWorkspace(t *testing.T) {
 	}
 	worktree := t.TempDir()
 	thread := &Agent{Cfg: Config{WorkspaceID: caller.ID}}
-	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Developer","instructions":"Build it."}`)
+	saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Developer","instructions":"Build it.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`)
 	if strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
@@ -79,7 +79,7 @@ func TestSpawnAgentWithoutPathUsesTheCallerWorkspaceOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread := &Agent{Cfg: Config{WorkspaceID: caller.ID}}
-	if saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run."}`); strings.Contains(saved, "error") {
+	if saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`); strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
 	if started := thread.runDefineAgentTool("spawn_agent", `{"definition":"Runner","name":""}`); strings.Contains(started, "error") {
@@ -100,7 +100,7 @@ func TestSpawnAgentWithUnknownPathSpawnsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread := &Agent{Cfg: Config{WorkspaceID: caller.ID}}
-	if saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run."}`); strings.Contains(saved, "error") {
+	if saved := thread.runDefineAgentTool("save_agent", `{"id":"","name":"Runner","instructions":"Run.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`); strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
 	missing := filepath.Join(t.TempDir(), "missing")
@@ -125,7 +125,7 @@ func TestSpawnTeamWithPathStartsEveryInstanceThere(t *testing.T) {
 	worktree := t.TempDir()
 	a := &Agent{Cfg: Config{WorkspaceID: caller.ID}}
 	for _, name := range []string{"Reader", "Writer"} {
-		args, err := json.Marshal(map[string]string{"id": "", "name": name, "instructions": "Do " + name})
+		args, err := json.Marshal(map[string]any{"id": "", "name": name, "instructions": "Do " + name, "tools": []string{"message_agent", "list_agents"}})
 		if err != nil {
 			t.Fatal(err)
 		}

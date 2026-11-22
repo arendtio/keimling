@@ -118,10 +118,10 @@ func TestSpawnTeamLinksEveryMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
-	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Reader","instructions":"Read."}`); strings.Contains(saved, "error") {
+	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Reader","instructions":"Read.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`); strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
-	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Writer","instructions":"Write."}`); strings.Contains(saved, "error") {
+	if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"Writer","instructions":"Write.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`); strings.Contains(saved, "error") {
 		t.Fatal(saved)
 	}
 	if made := a.runDefineAgentTool("save_team", `{"id":"","name":"Crew","definitions":["Reader","Writer"]}`); strings.Contains(made, "error") {
@@ -249,7 +249,7 @@ func TestSpawnTeamReportsAContactThatCannotBeWritten(t *testing.T) {
 	}
 	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
 	for _, name := range []string{"Reader", "Writer"} {
-		if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"`+name+`","instructions":"Do."}`); strings.Contains(saved, "error") {
+		if saved := a.runDefineAgentTool("save_agent", `{"id":"","name":"`+name+`","instructions":"Do.","tools":["exec","read_file","write_file","edit_file","list_agents","message_agent","spawn_agent","save_agent","finish_task","update_plan"]}`); strings.Contains(saved, "error") {
 			t.Fatal(saved)
 		}
 	}

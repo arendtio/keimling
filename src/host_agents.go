@@ -35,6 +35,10 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
+		if body.Tools == nil {
+			http.Error(w, "tools required: pass the tool names this definition may use (GET returns the catalog); an empty list grants no tools", http.StatusBadRequest)
+			return
+		}
 		rec, err := createAgentRecipe(body.Name, body.Instructions)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -486,7 +490,7 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 			})
 		}
 		rec, _ := readAgentRecipe(m.RecipeID)
-		defAll := rec.ID == "" || rec.Tools == nil
+		defAll := rec.ID == ""
 		defAllow := map[string]bool{}
 		if rec.Tools != nil {
 			for _, name := range *rec.Tools {

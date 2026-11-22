@@ -147,9 +147,14 @@ func (a *Agent) instanceToolGrant() []string {
 // instance override. Nil means every tool. A saved instance choice cannot
 // add a tool the definition does not grant.
 func effectiveInstanceTools(m AgentInstanceMeta) []string {
-	var def *[]string
+	// An instance of a definition never gets every tool by default. A definition
+	// without a saved choice grants nothing; the instance cannot widen that.
+	none := []string{}
+	var def *[]string = &none
 	if rec, err := readAgentRecipe(m.RecipeID); err == nil {
-		def = rec.Tools
+		if rec.Tools != nil {
+			def = rec.Tools
+		}
 	}
 	return intersectToolGrants(def, m.Tools)
 }
@@ -158,13 +163,14 @@ func intersectToolGrants(def, inst *[]string) []string {
 	if def == nil && inst == nil {
 		return nil
 	}
+	// A saved but empty choice must stay non-nil: nil means every tool.
 	if inst == nil {
-		out := append([]string(nil), (*def)...)
-		return out
+		out := make([]string, 0, len(*def))
+		return append(out, (*def)...)
 	}
 	if def == nil {
-		out := append([]string(nil), (*inst)...)
-		return out
+		out := make([]string, 0, len(*inst))
+		return append(out, (*inst)...)
 	}
 	out := []string{}
 	for _, n := range *inst {
@@ -195,13 +201,20 @@ func mcpGrantIDs(tools *[]string) (all bool, ids []string) {
 
 func recipeToolNames(r AgentRecipe) []string {
 	if r.Tools == nil {
-		names := make([]string, 0, len(agentToolCatalog()))
-		for _, t := range agentToolCatalog() {
-			names = append(names, t.Name)
-		}
-		return names
+		// A definition without a saved tool choice grants nothing.
+		return []string{}
 	}
 	return append([]string(nil), (*r.Tools)...)
+}
+
+// allAgentToolNames lists the catalog. Used where a caller explicitly wants
+// every tool, for example a migration or a test.
+func allAgentToolNames() []string {
+	names := make([]string, 0, len(agentToolCatalog()))
+	for _, t := range agentToolCatalog() {
+		names = append(names, t.Name)
+	}
+	return names
 }
 
 func cleanToolNames(tools []string) ([]string, error) {

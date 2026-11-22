@@ -133,11 +133,15 @@ func createAgentRecipe(name, instructions string) (AgentRecipe, error) {
 	if instr == "" {
 		instr = defaultAgentInstructions
 	}
+	// A definition never starts with every tool. No choice means no tools; the
+	// caller has to name them (see setRecipeTools and the create routes).
+	none := []string{}
 	r := AgentRecipe{
 		ID:           newRecipeID(),
 		Name:         name,
 		Instructions: instr,
 		Mode:         "auto",
+		Tools:        &none,
 	}
 	if err := writeAgentRecipe(r); err != nil {
 		return AgentRecipe{}, err

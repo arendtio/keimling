@@ -32,6 +32,31 @@ func TestToolGrantNilAllowsAllAndExplicitDenies(t *testing.T) {
 	}
 }
 
+func TestDefinitionWithoutAToolChoiceGrantsNothing(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Unchosen", "No tool choice yet.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := createAgentInstance(recipe, ws.ID, "Unchosen-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{AgentInstanceID: inst.ID}}
+	for _, name := range []string{"exec", "read_file", "message_agent", "spawn_agent"} {
+		if a.instanceToolGranted(name) {
+			t.Fatalf("a definition without a choice must not grant %s", name)
+		}
+	}
+	if got := a.instanceToolGrant(); len(got) != 0 {
+		t.Fatalf("grant = %#v", got)
+	}
+}
+
 func TestSetAgentInstanceAccessGrantsWorkspacesAndTools(t *testing.T) {
 	withTempAgentHomes(t)
 	ws1, err := ensureWorkspaceForRoot(t.TempDir())
@@ -46,6 +71,9 @@ func TestSetAgentInstanceAccessGrantsWorkspacesAndTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := setRecipeTools(recipe.ID, []string{"set_alarm", "message_agent"}); err != nil {
+		t.Fatal(err)
+	}
 	inst, err := createAgentInstance(recipe, ws1.ID, "Cross-1")
 	if err != nil {
 		t.Fatal(err)
@@ -53,12 +81,13 @@ func TestSetAgentInstanceAccessGrantsWorkspacesAndTools(t *testing.T) {
 	if inst.Tools != nil {
 		t.Fatal("a new instance has no saved tool choice")
 	}
-	tools := []string{"set_alarm", "message_agent"}
+	// The instance narrows the definition's choice; that override is stored.
+	tools := []string{"set_alarm"}
 	got, err := setAgentInstanceAccess(inst.ID, []string{ws2.ID, ws1.ID}, &tools)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Workspaces) != 2 || got.Tools == nil || len(*got.Tools) != 2 {
+	if len(got.Workspaces) != 2 || got.Tools == nil || len(*got.Tools) != 1 {
 		t.Fatalf("access: %+v", got)
 	}
 	in2, err := listAgentInstancesForWorkspace(ws2.ID)
@@ -66,8 +95,23 @@ func TestSetAgentInstanceAccessGrantsWorkspacesAndTools(t *testing.T) {
 		t.Fatalf("instance should appear in the second workspace: %+v %v", in2, err)
 	}
 	a := &Agent{Cfg: Config{AgentInstanceID: inst.ID}}
-	if !a.instanceToolGranted("set_alarm") || a.instanceToolGranted("exec") {
+	if !a.instanceToolGranted("set_alarm") || a.instanceToolGranted("message_agent") || a.instanceToolGranted("exec") {
 		t.Fatalf("grant = %#v", a.instanceToolGrant())
+	}
+	// Saving the definition's own set again clears the override.
+	full := []string{"set_alarm", "message_agent"}
+	cleared, err := setAgentInstanceAccess(inst.ID, []string{ws1.ID, ws2.ID}, &full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Tools != nil {
+		t.Fatalf("the definition's own set should clear the override: %+v", cleared)
+	}
+	if !a.instanceToolGranted("message_agent") || !a.instanceToolGranted("set_alarm") {
+		t.Fatalf("grant after clear = %#v", a.instanceToolGrant())
+	}
+	if _, err := setAgentInstanceAccess(inst.ID, []string{ws1.ID, ws2.ID}, &tools); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := setAgentInstanceAccess(inst.ID, nil, &tools); err == nil {
 		t.Fatal("expected at least one workspace")
@@ -189,6 +233,9 @@ func TestAgentPromptNamesItself(t *testing.T) {
 	withTempAgentHomes(t)
 	recipe, err := createAgentRecipe("Pair", "Watch the alarm.")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipeTools(recipe.ID, []string{"create_watch", "list_watches", "cancel_watch", "message_agent", "list_agents", "exec", "read_file", "write_file", "edit_file"}); err != nil {
 		t.Fatal(err)
 	}
 	ws, err := ensureWorkspaceForRoot(t.TempDir())

@@ -27,9 +27,14 @@ func defineAgentTools() []map[string]any {
 		"description": "Definition ids or unique definition names. Empty on update keeps the saved list.",
 		"items":       map[string]any{"type": "string"},
 	}
+	tools := map[string]any{
+		"type":        "array",
+		"description": "Tool names this definition may use (catalog names such as exec, read_file, write_file, message_agent; mcp for every MCP server). Required on create; an empty array grants no tools. Omit on update to keep the saved choice.",
+		"items":       map[string]any{"type": "string"},
+	}
 	return []map[string]any{
 		toolDef("agent_instructions", "Return the instructions a new agent definition starts from. Call this before save_agent when writing or revising a prompt, and start from this text. Pass unused as an empty string.", map[string]any{"unused": str("Pass empty string")}, "unused"),
-		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text.")}, "id", "name", "instructions"),
+		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto, and tools is required: a definition without a tool list grants nothing. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged; an omitted tools list keeps the saved choice. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text."), "tools": tools}, "id", "name", "instructions"),
 		toolDef("spawn_agent", "Start one instance of a definition. definition is an id or a unique name. name empty uses the definition name. path is an optional existing directory that becomes the current workspace of the instance, for example a git worktree; empty uses the workspace this call is running in. task is the first message, or empty when the instance should wait. The instance runs in the background; the view of the user does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "path": str("Existing directory the instance works in (a git worktree), or empty for the workspace of this call"), "task": str("First message for the new instance, or empty.")}, "definition", "name", "task"),
 		toolDef("save_team", "Create a team of agent definitions, or replace the definitions of an existing team. id empty creates. definitions are definition ids or unique names. On update, an empty list keeps the saved definitions.", map[string]any{"id": str("Team id to update, or empty to create"), "name": str("Team name. Required on create. Empty on update keeps the saved name."), "definitions": defs}, "id", "name", "definitions"),
 		toolDef("spawn_team", "Start one instance per definition of a team. team is an id or a unique name. path is an optional existing directory that becomes the current workspace of every instance, for example a git worktree; empty uses the workspace this call is running in. Teammates may message each other. The instances run in the background; the view of the user does not switch to them.", map[string]any{"team": str("Team id or unique team name"), "path": str("Existing directory the instances work in (a git worktree), or empty for the workspace of this call")}, "team"),
@@ -55,9 +60,10 @@ func (a *Agent) runDefineAgentTool(name, args string) string {
 
 func (a *Agent) saveAgentTool(args string) string {
 	var x struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Instructions string `json:"instructions"`
+		ID           string    `json:"id"`
+		Name         string    `json:"name"`
+		Instructions string    `json:"instructions"`
+		Tools        *[]string `json:"tools"`
 	}
 	if err := decodeArgs(args, &x); err != nil {
 		return "save_agent error: " + err.Error()
@@ -67,8 +73,15 @@ func (a *Agent) saveAgentTool(args string) string {
 		if strings.TrimSpace(x.Name) == "" {
 			return "save_agent error: name required"
 		}
+		if x.Tools == nil {
+			return "save_agent error: tools required on create. Pass the tool names this definition may use (for example [\"exec\",\"read_file\"]); an empty list grants no tools."
+		}
 		rec, err := createAgentRecipe(x.Name, x.Instructions)
 		if err != nil {
+			return "save_agent error: " + err.Error()
+		}
+		if rec, err = setRecipeTools(rec.ID, *x.Tools); err != nil {
+			_ = deleteAgentRecipe(rec.ID)
 			return "save_agent error: " + err.Error()
 		}
 		return formatDefinition(rec, true)
@@ -80,6 +93,11 @@ func (a *Agent) saveAgentTool(args string) string {
 	rec, err := updateAgentRecipe(id, x.Name, x.Instructions, replace)
 	if err != nil {
 		return "save_agent error: " + err.Error()
+	}
+	if x.Tools != nil {
+		if rec, err = setRecipeTools(rec.ID, *x.Tools); err != nil {
+			return "save_agent error: " + err.Error()
+		}
 	}
 	return formatDefinition(rec, false)
 }

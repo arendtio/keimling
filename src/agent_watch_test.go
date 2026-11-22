@@ -50,6 +50,9 @@ func TestTimeWatchWithoutACondition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := setRecipeTools(recipe.ID, []string{"create_watch", "list_watches", "cancel_watch", "exec"}); err != nil {
+		t.Fatal(err)
+	}
 	inst, err := createAgentInstance(recipe, ws.ID, "Waker-1")
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +83,9 @@ func TestIntervalWatchRunsTheCommandAndStays(t *testing.T) {
 	}
 	recipe, err := createAgentRecipe("Waker", "Wake.")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipeTools(recipe.ID, []string{"create_watch", "list_watches", "cancel_watch", "exec"}); err != nil {
 		t.Fatal(err)
 	}
 	inst, err := createAgentInstance(recipe, ws.ID, "Waker-1")
@@ -123,6 +129,9 @@ func TestFileWatchWakesOnAChange(t *testing.T) {
 	}
 	recipe, err := createAgentRecipe("Waker", "Wake.")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipeTools(recipe.ID, []string{"create_watch", "list_watches", "cancel_watch", "exec"}); err != nil {
 		t.Fatal(err)
 	}
 	inst, err := createAgentInstance(recipe, ws.ID, "Waker-1")
@@ -181,6 +190,9 @@ func TestDeleteInstanceRemovesOnlyItsWatches(t *testing.T) {
 	}
 	recipe, err := createAgentRecipe("Waker", "Wake.")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipeTools(recipe.ID, []string{"create_watch", "list_watches", "cancel_watch", "exec"}); err != nil {
 		t.Fatal(err)
 	}
 	first, err := createAgentInstance(recipe, ws.ID, "One")
@@ -253,6 +265,9 @@ func TestCommandWatchReportsTheLineThenTheExit(t *testing.T) {
 	}
 	recipe, err := createAgentRecipe("Waker", "Wake.")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipeTools(recipe.ID, []string{"create_watch", "list_watches", "cancel_watch", "exec"}); err != nil {
 		t.Fatal(err)
 	}
 	inst, err := createAgentInstance(recipe, ws.ID, "Waker-1")
