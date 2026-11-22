@@ -717,10 +717,28 @@ func toolOutputFor(history []json.RawMessage, callID string) string {
 	return ""
 }
 
+// realtimeCallKey marks the context of a tool call that came out of a live
+// realtime session. The user is on voice there, so a tool that needs a human
+// decision must not wait for an approval prompt.
+type realtimeCallKey struct{}
+
+func withRealtimeCall(ctx context.Context) context.Context {
+	return context.WithValue(ctx, realtimeCallKey{}, true)
+}
+
+func inRealtimeCall(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	on, _ := ctx.Value(realtimeCallKey{}).(bool)
+	return on
+}
+
 func (a *Agent) runRealtimeTool(ctx context.Context, name, callID, args string) (string, error) {
 	if a == nil {
 		return "", fmt.Errorf("no agent")
 	}
+	ctx = withRealtimeCall(ctx)
 	name = strings.TrimSpace(name)
 	callID = strings.TrimSpace(callID)
 	if name == "" || callID == "" {

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type Verdict struct {
@@ -527,14 +528,16 @@ func gateToolIn(agent bool, mode, name, args string, whitelisted bool, ask map[s
 }
 
 // settleReview turns a review result into allow, ask, or deny.
-// An agent in auto refuses instead of asking.
-func settleReview(agent bool, decision, reason string, reviewErr error) toolGate {
+// An agent in auto refuses a review that asks instead of blocking on the user.
+// When the reviewer itself is unavailable, the human decides if one can be
+// asked; a run with nobody to ask (a live realtime call, a headless run) refuses.
+func settleReview(agent, askHuman bool, decision, reason string, reviewErr error) toolGate {
 	if reviewErr != nil {
 		why := "review unavailable: " + reviewErr.Error()
-		if agent {
-			return toolGate{Deny: true, Reason: why}
+		if askHuman {
+			return toolGate{Ask: true, Reason: why}
 		}
-		return toolGate{Ask: true, Reason: why}
+		return toolGate{Deny: true, Reason: why}
 	}
 	if decision == "approve" {
 		return toolGate{Allow: true}
@@ -548,9 +551,25 @@ func settleReview(agent bool, decision, reason string, reviewErr error) toolGate
 	return toolGate{Ask: true, Reason: reason}
 }
 
+// reviewBackoff is the pause before each retry of a failed reviewer call. A
+// short network hiccup must not end a work plan, so the reviewer is asked again
+// before the caller settles for a refusal.
+var reviewBackoff = []time.Duration{300 * time.Millisecond, 900 * time.Millisecond}
+
+// Review asks the reviewer model and retries a failed call with a short
+// backoff. The last error is returned; a canceled context stops the retries.
 func (c *Client) Review(ctx context.Context, model, policy, tool, args, cwd, purpose string, suspicion *SoftSuspicion, replace bool) (Verdict, error) {
 	rules, user := reviewRequest(policy, tool, args, cwd, purpose, suspicion, replace)
-	return c.reviewJSONDecision(ctx, model, rules, user)
+	verdict, err := c.reviewJSONDecision(ctx, model, rules, user)
+	for attempt := 0; err != nil && attempt < len(reviewBackoff); attempt++ {
+		select {
+		case <-ctx.Done():
+			return verdict, err
+		case <-time.After(reviewBackoff[attempt]):
+		}
+		verdict, err = c.reviewJSONDecision(ctx, model, rules, user)
+	}
+	return verdict, err
 }
 
 func reviewRequest(policy, tool, args, cwd, purpose string, suspicion *SoftSuspicion, replace bool) (string, string) {
