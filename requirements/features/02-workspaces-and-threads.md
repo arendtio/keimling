@@ -2,7 +2,7 @@
 
 ## Intent
 
-Keimling work is organized by **workspace** (a filesystem root + side data) and **thread** (a conversation inside a workspace). Workspaces, their threads, and agent instances run in the one process that serves the UI (REQ-WS-6, REQ-WS-7). A session in a workspace starts in that workspace's directory, and tools are still judged inside or outside that directory (REQ-WS-8). Each thread keeps its own working directory after that (REQ-WS-11).
+Keimling work is organized by **workspace** (a filesystem root + side data) and **thread** (a conversation inside a workspace). Workspaces, their threads, and agent instances run in the one process that serves the UI (REQ-WS-6, REQ-WS-7). A session in a workspace starts in that workspace's directory, and tools are still judged inside or outside that directory (REQ-WS-8). Each thread keeps its own working directory after that (REQ-WS-11). A command still runs when that directory was removed; it falls back to the workspace root and says so once (REQ-WS-12).
 
 No backward compatibility with pre-workspace session paths is required.
 
@@ -171,5 +171,15 @@ Fit: with a workspace thread open, Now shows that workspace's name and that thre
 - **Origin:** User, 2026-11-19 (quote: "das jeder thread seinen eigenes work directory hat, also wenn in einem cthread ein cd ausgeführt wird, betrifft dies nur den jeweiligen thread").
 - **Rationale:** Two threads in one workspace do different jobs. A `cd` in one of them must not move the other. The workspace root stays the start (REQ-WS-8) and the inside-or-outside check. The thread directory is where that thread's commands start.
 - **Fit criterion:** Two threads in one workspace both start at that workspace's root. After a command in thread A changes its directory, the next command in A starts in that directory. The next command in thread B starts in B's directory, which is still the root until B changes its own. A new thread starts at the workspace root.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-WS-12 A command survives a removed working directory
+
+- **Bin:** explicit requirement
+- **Statement:** A command shall still run when the working directory of the instance no longer exists. It runs in the workspace root, and the reply of that call states that switch once. The thread directory shall stay on the workspace root afterwards, so later commands run without a second notice and without a failure. A missing working directory and a shell that cannot be started shall be named as what they are. A path the command itself names stays the command's own error.
+- **Origin:** Spec 017, 2026-11-22. A PM instance failed every command for more than two hours after its worktree was removed: "start error: fork/exec /bin/bash: no such file or directory". That text named neither the directory nor the shell as the cause.
+- **Rationale:** After every merge the chain removes a worktree, so an instance in one meets this case by default. Failing there leaves the instance able to read files but not to work. A `cd` inside the command names a path the caller chose, so it must not fall back.
+- **Fit criterion:** The instance directory is removed, then a command runs in the workspace root and its reply names the switch. The same command again runs there with no notice and no error. A missing directory and a missing shell produce different messages. A command that removes nothing behaves as before. Nothing creates or restores the removed directory.
 - **Priority:** shall
 - **Status:** confirmed
