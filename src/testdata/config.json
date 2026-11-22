@@ -1,0 +1,37 @@
+{
+  "reasoning": "medium",
+  "max_steps": 24,
+  "context_limit": 200000,
+  "active_model_provider_id": "fixture-openai",
+  "model_providers": [
+    {
+      "id": "fixture-openai",
+      "name": "Fixture OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "kind": "openai",
+      "active_model_id": "gpt-fixture",
+      "models": [
+        {
+          "id": "gpt-fixture",
+          "name": "GPT Fixture",
+          "context_limit": 128000,
+          "reasoning": "medium"
+        }
+      ]
+    },
+    {
+      "id": "fixture-local",
+      "name": "Fixture Local",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "kind": "local",
+      "active_model_id": "local-fixture",
+      "models": [
+        {
+          "id": "local-fixture",
+          "name": "Local Fixture",
+          "context_limit": 32768
+        }
+      ]
+    }
+  ]
+}

@@ -12,9 +12,7 @@ import (
 
 func TestSkillOriginHashAndDelete(t *testing.T) {
 	home := t.TempDir()
-	old := os.Getenv("HOME")
-	t.Cleanup(func() { _ = os.Setenv("HOME", old) })
-	_ = os.Setenv("HOME", home)
+	setTestHome(t, home)
 	cwd := t.TempDir()
 
 	dir := writeSkillFixture(t, filepath.Join(home, ".config", "keimling", "skills"), "manage-me", "Manage skill for delete and origin tests when checking updates.", "body")
@@ -56,9 +54,7 @@ func TestCheckSkillUpdate(t *testing.T) {
 	defer srv.Close()
 
 	home := t.TempDir()
-	old := os.Getenv("HOME")
-	t.Cleanup(func() { _ = os.Setenv("HOME", old) })
-	_ = os.Setenv("HOME", home)
+	setTestHome(t, home)
 	cwd := t.TempDir()
 
 	sk, err := InstallSkillFromURL(srv.URL+"/SKILL.md", SkillScopeUser, cwd)
