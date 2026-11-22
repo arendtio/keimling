@@ -425,7 +425,7 @@ func builtinToolNames() []string {
 		"search_history", "read_history", "activate_skill", "read_skill_file",
 		"delegate", "update_plan", "finish_task", "web_search",
 		"agent_instructions", "save_agent", "spawn_agent", "save_team", "spawn_team",
-		"list_agents", "message_agent", "stop_agent", "delete_agent",
+		"list_agents", "message_agent", "stop_agent", "delete_agent", "escalate",
 		"create_watch", "list_watches", "cancel_watch", "change_workspace",
 		"list_credentials", "data_processing", "data_processing_help",
 		"find_tools", "mcp_tools", "builtin_tools",
@@ -449,7 +449,7 @@ func builtinToolChoices(saved map[string]bool) []map[string]any {
 
 func toolNeverAsks(name string) bool {
 	switch name {
-	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "search_history", "read_history", "activate_skill", "read_skill_file", "screen_click", "screen_scroll", "screen_key", "screen_type", "camera_snapshot":
+	case "web_search", "update_plan", "finish_task", "delegate", "change_workspace", "list_watches", "cancel_watch", "list_agents", "allow_peer", "message_agent", "stop_agent", "escalate", "list_credentials", "agent_instructions", "data_processing", "data_processing_help", "find_tools", "mcp_tools", "builtin_tools", "search_history", "read_history", "activate_skill", "read_skill_file", "screen_click", "screen_scroll", "screen_key", "screen_type", "camera_snapshot":
 		return true
 	default:
 		return false

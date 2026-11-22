@@ -353,6 +353,31 @@ label.color-field input[type="color"] {
   justify-content: start;
   align-items: stretch;
 }
+.escalation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.escalation-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.escalation-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.escalation-item p { margin: 0; font-size: 0.85rem; white-space: pre-wrap; }
+.escalation-empty { color: var(--muted, inherit); font-size: 0.85rem; }
 .agent-board-row {
   display: flex;
   flex-direction: column;

@@ -344,6 +344,8 @@ func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message st
 		return a.stopAgentTool(item.Arguments), ""
 	case "delete_agent":
 		return a.deleteAgentTool(item.Arguments), ""
+	case "escalate":
+		return a.escalateTool(item.Arguments), ""
 	case "list_credentials":
 		return a.listCredentialsTool(item.Arguments), ""
 	default:

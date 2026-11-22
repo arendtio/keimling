@@ -8791,7 +8791,7 @@
     if (typeof p.sidebar_width === "number" && p.sidebar_width > 0) {
       saveArtifactWidth(applyArtifactWidth(p.sidebar_width));
     }
-    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
+    var known = { now: 1, agents: 1, escalations: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
     if (known[p.sidebar_tab]) sideTab = p.sidebar_tab;
     if (p.sidebar_open === true) {
       selectSidebar(sideTab);
@@ -8835,7 +8835,7 @@
   }
   function selectSidebar(tab, opts) {
     opts = opts || {};
-    var known = { now: 1, agents: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
+    var known = { now: 1, agents: 1, escalations: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
     if (tab === "chapters" && !composerNarrow.matches) tab = "now";
     if (!known[tab]) tab = "now";
     sideTab = tab;
@@ -8856,6 +8856,7 @@
     persistSidebarLayout();
     if (opts.skipFetch || !connected) return;
     if (tab === "agents") loadAgentBoard();
+    if (tab === "escalations") loadEscalations();
     if (tab === "now") {
       renderSidePerf();
       loadAgentBoard();
@@ -9464,6 +9465,45 @@
       var editor = document.getElementById("theme-editor");
       if (editor) editor.hidden = true;
     });
+  }
+
+  function renderEscalations(list) {
+    var mount = document.getElementById("escalation-list");
+    if (!mount) return;
+    mount.textContent = "";
+    if (!list.length) {
+      var empty = document.createElement("li");
+      empty.className = "escalation-empty";
+      empty.textContent = "Nothing raised.";
+      mount.appendChild(empty);
+      return;
+    }
+    list.forEach(function (e) {
+      var li = document.createElement("li");
+      li.className = "escalation-item";
+      var head = document.createElement("div");
+      head.className = "escalation-head";
+      var who = document.createElement("strong");
+      who.textContent = e.agent_name || e.agent_id || "agent";
+      var when = document.createElement("span");
+      when.className = "hint";
+      when.textContent = e.created_at ? new Date(e.created_at).toLocaleString() : "";
+      head.appendChild(who);
+      head.appendChild(when);
+      var body = document.createElement("p");
+      body.textContent = e.text || "";
+      li.appendChild(head);
+      li.appendChild(body);
+      mount.appendChild(li);
+    });
+  }
+
+  function loadEscalations() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/escalations"), { headers: headers() })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || r.status); return j; }); })
+      .then(function (j) { renderEscalations((j && j.escalations) || []); })
+      .catch(function () { renderEscalations([]); });
   }
 
   function loadAgentBoard() {

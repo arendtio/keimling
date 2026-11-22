@@ -516,6 +516,16 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-43 The supervisor can raise an escalation for the human
+
+- **Bin:** explicit requirement
+- **Statement:** An agent instance shall be able to raise one escalation entry: its instance id, its name, a text, and the time. The entries shall be listed in a sidebar tab named Escalations, newest first. In this setup only the supervisor definition shall grant the tool. A call without an agent instance or with an empty text shall be refused and shall write nothing. The entries shall survive a restart and shall not be editable from the tab.
+- **Origin:** User, 2026-11-22 (quote: "der Supervisor ein Tool hat, über das er eskalieren kann … und dieses Tool würde ich sagen, dass wir es in der Sidebar mit anzeigen als eigenen Tab … Eskalations").
+- **Rationale:** A blocked role needs a place that is not the chat: the chat scrolls, escalations must stay visible until someone acts. The tab also names who raised it, which the chat does not.
+- **Fit criterion:** The supervisor raises an entry; the Escalations tab shows agent name, time, and text, newest first. A developer without the grant cannot call the tool. An empty text raises nothing. After a restart the entry is still listed.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 A definition must name its tools when it is created; the create call is rejected without a list, and an empty list grants no tools. Saving stores the checked tools. An instance with no narrower set uses that definition. An instance may only narrow, never widen. Saving the definition’s own set again clears the instance override. REQ-AG-2’s unanswered default is decided here: no choice means no tools.

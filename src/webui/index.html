@@ -1040,6 +1040,7 @@
             <button type="button" data-side="chapters" aria-selected="false">Chapters</button>
             <button type="button" data-side="now" aria-selected="true">Now</button>
             <button type="button" data-side="agents" aria-selected="false">Agents</button>
+            <button type="button" data-side="escalations" aria-selected="false">Escalations</button>
             <button type="button" data-side="artifacts" aria-selected="false">Artifacts</button>
             <button type="button" data-side="context" aria-selected="false">Context</button>
             <button type="button" data-side="connections" aria-selected="false">Connections</button>
@@ -1114,6 +1115,13 @@
             <h2>Agents</h2>
             <p class="hint">Who is running, paused, or waiting. Open one to use its chat. Focus and Fullscreen enlarge this page.</p>
             <div id="agent-board" class="agent-board"></div>
+          </section>
+        </div>
+        <div id="side-escalations" class="side-panel" data-side="escalations" hidden>
+          <section class="side-block">
+            <h2>Escalations</h2>
+            <p class="hint">What an agent raised for you: what is blocked, what it tried, what it needs. Only the supervisor raises these.</p>
+            <ul id="escalation-list" class="escalation-list"></ul>
           </section>
         </div>
         <div id="side-artifacts" class="side-panel" data-side="artifacts" hidden>
