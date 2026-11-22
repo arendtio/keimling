@@ -35,9 +35,9 @@ const (
 )
 
 // auxiliarySetting maps one task to its own flag and to the saved setting it
-// follows. This switch is the only place that decides it: giving the approval
-// review its own model later is one case here plus one settings field, and no
-// call site changes.
+// follows. This switch is the only place that decides it. Every task reads the
+// shared auxiliary_model; a task that ever needs its own saved field stays a
+// one-line change here plus that field, with no call site touched.
 func (c Config) auxiliarySetting(task auxiliaryTask) (flagValue, saved string) {
 	switch task {
 	case auxReview:

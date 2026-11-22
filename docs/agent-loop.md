@@ -144,9 +144,10 @@ set with `--auxiliary-model`.
 - A saved value applies to the next side task without a restart and to later
   runs. It does not rewrite a chat call.
 - Precedence is explicit flag first (`--review-model`, `--autopilot-model`,
-  `--delegate-fast-model`), then `auxiliary_model`, then the chat model. The
-  balanced and deep delegates keep `--delegate-balanced-model` and
-  `--delegate-deep-model`.
+  `--delegate-fast-model`), then `auxiliary_model`, then the chat model. One
+  field serves all five tasks: the approval review has no separate saved model,
+  and the only per-task overrides are those flags. The balanced and deep
+  delegates keep `--delegate-balanced-model` and `--delegate-deep-model`.
 - A saved auxiliary model that no configured provider offers never stops
   startup or a run: the task falls back to the chat model and the transcript
   says so once.
