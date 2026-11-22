@@ -46,7 +46,7 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 	defer term.Restore(int(os.Stdin.Fd()), raw)
 	fmt.Println("[Interactive terminal attached; Ctrl+C interrupts child]")
 	if err := cmd.Start(); err != nil {
-		return "start error: " + err.Error()
+		return startErrorText(shell, cmd.Dir, err)
 	}
 	trackCommandGroup(cmd.Process.Pid)
 	defer releaseCommandGroup(cmd.Process.Pid)

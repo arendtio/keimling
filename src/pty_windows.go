@@ -26,7 +26,7 @@ func interactiveExec(ctx context.Context, shell, command string, timeout time.Du
 	setProcessGroup(cmd)
 	fmt.Println("[Interactive console attached]")
 	if err := cmd.Start(); err != nil {
-		return "start error: " + err.Error()
+		return startErrorText(shell, cmd.Dir, err)
 	}
 	trackCommandGroup(cmd.Process.Pid)
 	defer releaseCommandGroup(cmd.Process.Pid)
