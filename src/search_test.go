@@ -18,7 +18,7 @@ func TestBraveSearchUsesSubscriptionToken(t *testing.T) {
 		_, _ = w.Write([]byte(`{"web":{"results":[{"title":"Docs","url":"https://example.com/a","description":"A page"}]}}`))
 	}))
 	defer srv.Close()
-	text, err := runSearch(context.Background(), searchConfig{Kind: "brave", URL: srv.URL, APIKey: "brave-key"}, "keimling")
+	text, err := runSearch(context.Background(), searchConfig{Kind: "brave", URL: srv.URL, APIKey: "brave-key"}, "aux-model", "keimling")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestURLSearchPlacesQuery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[{"title":"Hit","url":"https://example.com/b","content":"snip"}]}`))
 	}))
 	defer srv.Close()
-	text, err := runSearch(context.Background(), searchConfig{Kind: "url", URL: srv.URL + "/search?q={query}", APIKey: "url-key"}, "hello world")
+	text, err := runSearch(context.Background(), searchConfig{Kind: "url", URL: srv.URL + "/search?q={query}", APIKey: "url-key"}, "aux-model", "hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestURLSearchPlacesQuery(t *testing.T) {
 }
 
 func TestSearchOffDoesNotCall(t *testing.T) {
-	_, err := runSearch(context.Background(), searchConfig{}, "q")
+	_, err := runSearch(context.Background(), searchConfig{}, "aux-model", "q")
 	if err == nil || !strings.Contains(err.Error(), "off") {
 		t.Fatalf("%v", err)
 	}

@@ -80,7 +80,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 			if agentRun {
 				purpose = a.Cfg.AgentInstructions
 			}
-			verdict, e := a.Client.Review(ctx, a.Cfg.ReviewModel, a.Cfg.ApprovalPolicy, item.Name, item.Arguments, cwd, purpose, sus, a.Cfg.ApprovalPolicyReplace)
+			verdict, e := a.approvalReview(ctx, item.Name, item.Arguments, cwd, purpose, sus)
 			why := verdict.Reason
 			if e == nil {
 				if sus != nil && why == "" {

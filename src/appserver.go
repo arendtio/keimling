@@ -1776,7 +1776,7 @@ func (s *appServer) handleSkillsSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web search is off", http.StatusServiceUnavailable)
 		return
 	}
-	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, body.Query)
+	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, s.agent.auxiliaryModel(""), body.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -1882,10 +1882,7 @@ func (s *appServer) handleSkillsReview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model client unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	model := strings.TrimSpace(s.agent.Cfg.ReviewModel)
-	if model == "" {
-		model = s.agent.Cfg.Model
-	}
+	model := s.agent.auxiliaryModel(s.agent.Cfg.ReviewModel)
 	review, err := ReviewSkillPreview(r.Context(), client, model, prev)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -2080,6 +2077,7 @@ type agentSettings struct {
 	MCPParallel                *int            `json:"mcp_parallel,omitempty"`
 	ContextLimit               *int            `json:"context_limit,omitempty"`
 	VoiceModel                 string          `json:"voice_model,omitempty"`
+	AuxiliaryModel             *string         `json:"auxiliary_model,omitempty"`
 	VoiceProviderID            *string         `json:"voice_provider_id,omitempty"`
 	RealtimeModel              string          `json:"realtime_model,omitempty"`
 	RealtimeProviderID         *string         `json:"realtime_provider_id,omitempty"`
@@ -2138,6 +2136,7 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"mcp_parallel":                  mcpParallelLimit(s.agent.Cfg.MCPParallel),
 		"context_limit":                 limit,
 		"voice_model":                   s.agent.Cfg.VoiceModel,
+		"auxiliary_model":               s.agent.Cfg.AuxiliaryModel,
 		"voice_provider_id":             s.agent.Cfg.VoiceProviderID,
 		"realtime_model":                s.agent.Cfg.RealtimeModel,
 		"realtime_provider_id":          s.agent.Cfg.RealtimeProviderID,
@@ -2308,6 +2307,9 @@ func (s *appServer) applySettings(body agentSettings) error {
 			return fmt.Errorf("mcp_parallel must be positive")
 		}
 		cfg.MCPParallel = *body.MCPParallel
+	}
+	if body.AuxiliaryModel != nil {
+		cfg.AuxiliaryModel = strings.TrimSpace(*body.AuxiliaryModel)
 	}
 	if body.ContextLimit != nil {
 		if *body.ContextLimit < 1000 {
@@ -2807,6 +2809,7 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 		fc.Features.ArtifactProxy = cfg.ArtifactProxy
 		fc.Reasoning = cfg.Reasoning
 		fc.VoiceModel = cfg.VoiceModel
+		fc.AuxiliaryModel = cfg.AuxiliaryModel
 		fc.VoiceProviderID = cfg.VoiceProviderID
 		fc.RealtimeModel = cfg.RealtimeModel
 		fc.RealtimeProviderID = cfg.RealtimeProviderID

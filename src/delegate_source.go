@@ -27,7 +27,7 @@ func delegateSourceBudget(limit int) int {
 }
 
 func (a *Agent) runDelegateSource(ctx context.Context, args DelegateArgs) (string, error) {
-	model, effort, err := delegateProfile(a.Cfg, args.Profile)
+	model, effort, err := a.delegateProfile(args.Profile)
 	if err != nil {
 		return "", err
 	}

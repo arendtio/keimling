@@ -36,10 +36,10 @@ func (a *Agent) searchWeb(ctx context.Context, query string) (string, error) {
 	if a == nil || a.Cfg.DisableExternal || !a.Cfg.Web || !a.Cfg.Search.enabled() {
 		return "", fmt.Errorf("web search is off")
 	}
-	return runSearch(ctx, a.Cfg.Search, query)
+	return runSearch(ctx, a.Cfg.Search, a.auxiliaryModel(""), query)
 }
 
-func runSearch(ctx context.Context, s searchConfig, query string) (string, error) {
+func runSearch(ctx context.Context, s searchConfig, model, query string) (string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return "", fmt.Errorf("search query is empty")
@@ -56,7 +56,7 @@ func runSearch(ctx context.Context, s searchConfig, query string) (string, error
 			}
 			c.BaseURL = nu
 		}
-		return c.SearchWeb(ctx, query)
+		return c.SearchWeb(ctx, model, query)
 	}
 	endpoint, err := searchEndpoint(s, query)
 	if err != nil {

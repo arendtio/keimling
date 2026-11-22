@@ -20,6 +20,7 @@ func TestExternalWebSearchOnlyUsesExternalClient(t *testing.T) {
 			t.Errorf("wrong key: %q", got)
 		}
 		var payload struct {
+			Model string `json:"model"`
 			Tools []struct {
 				Type string `json:"type"`
 			} `json:"tools"`
@@ -30,13 +31,16 @@ func TestExternalWebSearchOnlyUsesExternalClient(t *testing.T) {
 		if len(payload.Tools) != 1 || payload.Tools[0].Type != "web_search" {
 			t.Error("missing server-side OpenAI search tool")
 		}
+		if payload.Model != "external-search-model" {
+			t.Errorf("search model %q", payload.Model)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"Result https://example.com"}]}]}`))
 	}))
 	defer srv.Close()
 	external := NewClient("external-only-key")
 	external.BaseURL = srv.URL + "/v1"
-	text, err := external.SearchWeb(context.Background(), "Linux news")
+	text, err := external.SearchWeb(context.Background(), "external-search-model", "Linux news")
 	if err != nil || !strings.Contains(text, "example.com") || calls != 1 {
 		t.Fatalf("result=%q err=%v calls=%d", text, err, calls)
 	}

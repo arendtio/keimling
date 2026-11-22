@@ -16,13 +16,14 @@ import (
 
 func TestDelegateProfiles(t *testing.T) {
 	c := Config{DelegateFast: "small", DelegateBalanced: "regular", DelegateDeep: "large"}
+	agent := &Agent{Cfg: c}
 	for _, test := range []struct{ p, m, e string }{{"fast", "small", "low"}, {"balanced", "regular", "medium"}, {"deep", "large", "high"}} {
-		m, e, err := delegateProfile(c, test.p)
+		m, e, err := agent.delegateProfile(test.p)
 		if err != nil || m != test.m || e != test.e {
 			t.Fatalf("%s: %s %s %v", test.p, m, e, err)
 		}
 	}
-	if _, _, err := delegateProfile(c, "unknown"); err == nil {
+	if _, _, err := agent.delegateProfile("unknown"); err == nil {
 		t.Fatal("unknown profile accepted")
 	}
 }
