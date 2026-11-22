@@ -45,6 +45,8 @@ make run ARGS='…'
 
 Default tests/CI use **nogui** (no WebKit). Do not invent new lifecycle commands without updating `commands.md`.
 
+Go tests run with `-timeout 400s`; a test that waits on a stream bounds the wait itself, so a stall fails in seconds instead of hanging the run.
+
 ## Architecture map (code)
 
 | Area | Key files |
