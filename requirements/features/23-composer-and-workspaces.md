@@ -91,3 +91,13 @@ The records below are the stakeholder ask for a less crowded surface. Which cont
 - **Fit criterion:** With the writing page at the bottom of a narrow window, opening More shows File, Screen, Download last recording, Transcribe audio file, Reduce context, and Follow thinking, each clickable. The menu sits by the Plus control and paints over the chat. On a wide window, More still opens from the plus under the field.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-CW-10 A draft stays with the chat it was typed in
+
+- **Bin:** explicit requirement
+- **Statement:** The composer shall keep a draft with the chat it was typed in. An agent chat and a workspace thread shall not show each other draft. Opening a chat again shall show the draft that was left there, and sending shall clear it. The draft shall live in the client only and shall not survive a reload.
+- **Origin:** User, 2026-11-22 (paraphrase: a draft typed in an agent chat appears in a workspace thread and the other way round, and it can be lost when switching).
+- **Rationale:** An agent chat is an instance, not a thread, so a draft keyed by thread alone lands in the wrong chat. A draft is unfinished writing and belongs where it was written.
+- **Fit criterion:** Typing in an agent chat and then opening a workspace thread shows an empty field, and returning to the agent chat shows the typed text. The same holds from a thread to an agent chat. Two chats whose ids match keep separate drafts. Sending clears the draft for that chat. Reloading the page starts with an empty field.
+- **Priority:** shall
+- **Status:** confirmed
