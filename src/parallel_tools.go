@@ -73,12 +73,12 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 			sus = &hit
 			a.println("◌ Soft rule", hit.ID, "— reviewer checking for false positive…")
 		}
-		if agentPurposeClears(agentRun, a.Cfg.Mode, a.Cfg.AgentInstructions, item.Name, item.Arguments) {
+		if agentPurposeClears(agentRun, a.Cfg.Mode, a.reviewPurpose(), item.Name, item.Arguments) {
 			g = toolGate{Allow: true}
 		} else {
 			purpose := ""
 			if agentRun {
-				purpose = a.Cfg.AgentInstructions
+				purpose = a.reviewPurpose()
 			}
 			verdict, e := a.approvalReview(ctx, item.Name, item.Arguments, cwd, purpose, sus)
 			why := verdict.Reason

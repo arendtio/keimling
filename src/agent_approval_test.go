@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -203,5 +205,102 @@ func TestMCPToolAllowRoundTrip(t *testing.T) {
 	}
 	if mcpToolAlwaysAllowed("", "mcp__allow-demo__list") {
 		t.Fatal("cleared mark should ask again")
+	}
+}
+
+func TestCallCommandsReadsFilePaths(t *testing.T) {
+	if got := callCommands("write_file", `{"path":"src/a.go","content":"x"}`); len(got) != 1 || got[0] != "src/a.go" {
+		t.Fatalf("write_file: %v", got)
+	}
+	if got := callCommands("edit_file", `{"path":" src/b.go ","old_string":"a","new_string":"b"}`); len(got) != 1 || got[0] != "src/b.go" {
+		t.Fatalf("edit_file: %v", got)
+	}
+	for _, args := range []string{`{"path":""}`, `{}`, `{"content":"x"}`, `not json`} {
+		if got := callCommands("write_file", args); got != nil {
+			t.Fatalf("write_file %s: %v", args, got)
+		}
+		if got := callCommands("edit_file", args); got != nil {
+			t.Fatalf("edit_file %s: %v", args, got)
+		}
+	}
+}
+
+func TestPurposeAllowsANamedFilePath(t *testing.T) {
+	job := "Read the diff and fix it." + "\n\nERLAUBTE PFADE:\n- src/policy.go\n- src/agent_approval_test.go"
+	write := `{"path":"src/policy.go","content":"package main\n"}`
+	if !agentPurposeClears(true, "auto", job, "write_file", write) {
+		t.Fatal("a named file was not allowed")
+	}
+	edit := `{"path":"src/agent_approval_test.go","old_string":"a","new_string":"b"}`
+	if !agentPurposeClears(true, "auto", job, "edit_file", edit) {
+		t.Fatal("a named edit was not allowed")
+	}
+	other := `{"path":"src/main.go","content":"package main\n"}`
+	if agentPurposeClears(true, "auto", job, "write_file", other) {
+		t.Fatal("an unnamed file was allowed")
+	}
+	inside := `{"path":"/data/work/keimling-wt/011/src/policy.go","content":"package main\n"}`
+	if !agentPurposeClears(true, "auto", job, "write_file", inside) {
+		t.Fatal("an absolute path inside the job was not allowed")
+	}
+	elsewhere := `{"path":"/etc/policy.go","content":"x"}`
+	if agentPurposeClears(true, "auto", job, "write_file", elsewhere) {
+		t.Fatal("a bare file name allowed another directory")
+	}
+	if agentPurposeClears(true, "auto", "Rewrite the code.", "write_file", write) {
+		t.Fatal("a vague job allowed the write")
+	}
+	if agentPurposeClears(true, "ask", job, "write_file", write) {
+		t.Fatal("ask mode skipped the question")
+	}
+	if agentPurposeClears(false, "auto", job, "write_file", write) {
+		t.Fatal("a workspace thread was granted the job")
+	}
+}
+
+func TestAgentPurposeKeepsTheRolePromptAndAddsTheTask(t *testing.T) {
+	role := "You are a focused Keimling agent."
+	job := "Fix the reviewer purpose." + "\n\nERLAUBTE PFADE:\n- src/policy.go"
+	got := agentPurpose(role, job)
+	if !strings.HasPrefix(got, role) || !strings.Contains(got, "AUFTRAG:") || !strings.Contains(got, "src/policy.go") {
+		t.Fatalf("purpose: %q", got)
+	}
+	if agentPurpose(role, "") != role {
+		t.Fatal("a thread without a task lost the role prompt")
+	}
+	long := agentPurpose(role, strings.Repeat("x", agentPurposeTaskLimit+50))
+	if strings.Contains(long, strings.Repeat("x", agentPurposeTaskLimit+1)) {
+		t.Fatal("a long task was not cut")
+	}
+	if !strings.HasPrefix(long, role+"\n\nAUFTRAG:\n") {
+		t.Fatal("a long task lost the role prompt")
+	}
+}
+
+func TestReviewPurposeJoinsRolePromptAndFirstTask(t *testing.T) {
+	steering, _ := json.Marshal(map[string]any{"role": "user", "content": "[User steering during ongoing task] hurry"})
+	task, _ := json.Marshal(map[string]any{"role": "user", "content": "Fix the reviewer purpose.\nERLAUBTE PFADE:\n- src/policy.go"})
+	later, _ := json.Marshal(map[string]any{"role": "user", "content": "another message"})
+	a := &Agent{Cfg: Config{AgentInstanceID: "agent-1", AgentInstructions: "ROLE-PROMPT"}}
+	a.History = []json.RawMessage{steering, task, later}
+	got := a.reviewPurpose()
+	if !strings.HasPrefix(got, "ROLE-PROMPT") || !strings.Contains(got, "Fix the reviewer purpose.") {
+		t.Fatalf("purpose: %q", got)
+	}
+	if strings.Contains(got, "another message") {
+		t.Fatalf("a later message became the task: %q", got)
+	}
+	if p := (&Agent{Cfg: Config{AgentInstructions: "ROLE-PROMPT"}}).reviewPurpose(); p != "" {
+		t.Fatalf("a workspace thread got a purpose: %q", p)
+	}
+	taskRow, _ := json.Marshal(map[string]any{"role": "user", "content": "Journaled task."})
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	journalLine, _ := json.Marshal(map[string]any{"type": "item", "item": json.RawMessage(taskRow)})
+	if err := os.WriteFile(session, append(journalLine, 10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &Agent{Cfg: Config{AgentInstanceID: "agent-2", AgentInstructions: "ROLE-PROMPT", SessionPath: session}}
+	if p := b.reviewPurpose(); !strings.HasPrefix(p, "ROLE-PROMPT") || !strings.Contains(p, "Journaled task.") {
+		t.Fatalf("journal purpose: %q", p)
 	}
 }

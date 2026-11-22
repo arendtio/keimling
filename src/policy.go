@@ -603,19 +603,22 @@ func agentPurposeClears(agent bool, mode, purpose, name, args string) bool {
 	return agent && mode == "auto" && purposeAllowsCall(purpose, name, args)
 }
 
-// purposeAllowsCall reports whether every command this call will run is written
-// in the confirmed job. A vague job and a command the job does not contain stay
-// with the reviewer.
+// purposeAllowsCall reports whether every string this call acts on is written in
+// the confirmed job, as a command or as a file path. A vague job and a call the
+// job does not contain stay with the reviewer.
 func purposeAllowsCall(purpose, name, args string) bool {
 	purpose = strings.TrimSpace(purpose)
 	if purpose == "" {
 		return false
 	}
-	cmds := callCommands(name, args)
-	if len(cmds) == 0 {
+	targets := callCommands(name, args)
+	if len(targets) == 0 {
 		return false
 	}
-	for _, cmd := range cmds {
+	if pathTool(name) {
+		return purposeAllowsPaths(purpose, targets)
+	}
+	for _, cmd := range targets {
 		cmd = strings.TrimSpace(cmd)
 		if !specificCommand(cmd) || !strings.Contains(purpose, cmd) {
 			return false
@@ -641,6 +644,17 @@ func callCommands(name, args string) []string {
 			return nil
 		}
 		return []string{strings.TrimSpace(x.Command)}
+	case "write_file", "edit_file":
+		var x struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(args), &x) != nil {
+			return nil
+		}
+		if strings.TrimSpace(x.Path) == "" {
+			return nil
+		}
+		return []string{strings.TrimSpace(x.Path)}
 	case "create_watch":
 		var x struct {
 			Command string `json:"command"`
@@ -732,4 +746,105 @@ func (c *Client) reviewJSONDecision(ctx context.Context, model, instructions, us
 		}
 	}
 	return Verdict{}, fmt.Errorf("invalid reviewer response")
+}
+
+// agentPurposeTaskLimit caps the task text after the role prompt in the review
+// purpose, so a long job cannot push the reviewer prompt out of view.
+const agentPurposeTaskLimit = 4000
+
+// agentPurpose is the job text the reviewer sees for an agent in auto: the role
+// prompt, word for word, followed by the task the user started the instance
+// with. The task is data for the reviewer, like the role prompt.
+func agentPurpose(role, task string) string {
+	var parts []string
+	if role = strings.TrimSpace(role); role != "" {
+		parts = append(parts, role)
+	}
+	if task = strings.TrimSpace(task); task != "" {
+		if runes := []rune(task); len(runes) > agentPurposeTaskLimit {
+			task = strings.TrimSpace(string(runes[:agentPurposeTaskLimit]))
+		}
+		parts = append(parts, "AUFTRAG:\n"+task)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// firstUserTask is the task that opened a thread: its first user message that
+// is not an internal label such as steering or an autopilot nudge.
+func firstUserTask(events []json.RawMessage) string {
+	for _, raw := range events {
+		var v struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(raw, &v) != nil || v.Role != "user" {
+			continue
+		}
+		var text string
+		if json.Unmarshal(v.Content, &text) != nil {
+			continue
+		}
+		if isHumanChapterTurn(text) {
+			return strings.TrimSpace(text)
+		}
+	}
+	return ""
+}
+
+// reviewPurpose is the purpose this agent review sees. It joins the definition
+// instructions with the task that opened the instance thread, so a named action
+// can be told from an unrelated one. A workspace thread has no such grant and
+// gets an empty purpose.
+func (a *Agent) reviewPurpose() string {
+	if a == nil || strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
+		return ""
+	}
+	task := firstUserTask(a.History)
+	if task == "" && strings.TrimSpace(a.Cfg.SessionPath) != "" {
+		// Compaction can drop the first row; the journal still holds it.
+		if events, err := originalEvents(a.Cfg.SessionPath); err == nil {
+			task = firstUserTask(events)
+		}
+	}
+	return agentPurpose(a.Cfg.AgentInstructions, task)
+}
+
+// pathTool reports whether callCommands returns file paths for this tool.
+func pathTool(name string) bool {
+	return name == "write_file" || name == "edit_file"
+}
+
+// purposeAllowsPaths reports whether the confirmed job names every file this
+// call would write or edit.
+func purposeAllowsPaths(purpose string, files []string) bool {
+	for _, file := range files {
+		if !purposeNamesPath(purpose, file) {
+			return false
+		}
+	}
+	return true
+}
+
+// purposeNamesPath reports whether the confirmed job names this file path. A
+// path has no command form, so the rule for commands does not fit: the job may
+// write the whole path, as an allowed-paths block does, or a shorter form that
+// keeps the directory, such as src/policy.go for an absolute path inside the
+// workspace. A file name alone does not name a path somewhere else.
+func purposeNamesPath(purpose, file string) bool {
+	p := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(file)), "./")
+	if p == "" || p == "." || p == "/" {
+		return false
+	}
+	hay := filepath.ToSlash(purpose)
+	if strings.Contains(hay, p) {
+		return true
+	}
+	parts := strings.Split(p, "/")
+	for i := 1; i < len(parts); i++ {
+		rest := strings.Join(parts[i:], "/")
+		if strings.Contains(rest, "/") && strings.Contains(hay, rest) {
+			return true
+		}
+	}
+	return false
 }
