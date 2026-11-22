@@ -897,7 +897,7 @@ func printStatus(a *Agent) {
 	if shown == "" {
 		shown = a.Cfg.Model
 	}
-	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Side tasks: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", shown, a.auxiliaryModel(a.Cfg.ReviewModel), a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
+	fmt.Printf("\n\033[1mSession\033[0m\n  Model: %s | Side tasks: %s\n  Mode: %s | Autopilot: %v | Web: %v | Max steps: %d\n", shown, a.auxiliaryModel(auxReview), a.Cfg.Mode, a.Cfg.Autopilot, a.Cfg.Web, a.Cfg.MaxSteps)
 	fmt.Printf("  Compaction: model %s | endpoint %s\n", a.compactionModel(), a.Client.BaseURL)
 	fmt.Printf("  Context budget: used %d / %d (%.1f%%) · remaining %d (%.1f%%) · source %s\n", b.Used, b.Limit, b.UsedPct, b.Remaining, b.RemainingPct, b.Source)
 	if b.Warn {

@@ -44,27 +44,30 @@ func replyServer(t *testing.T, text string) (*httptest.Server, func() []string) 
 
 func TestAuxiliaryModelPrecedence(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		flag       string
-		configured string
-		chat       string
-		runChat    string
-		want       string
+		name    string
+		task    auxiliaryTask
+		cfg     Config
+		runChat string
+		want    string
 	}{
-		{"flag beats everything", "flag-model", "aux-model", "chat-model", "run-model", "flag-model"},
-		{"blank flag is not a choice", "   ", "aux-model", "chat-model", "", "aux-model"},
-		{"configured beats the chat model", "", "aux-model", "chat-model", "", "aux-model"},
-		{"configured beats the run chat model", "", "aux-model", "chat-model", "run-model", "aux-model"},
-		{"empty configured uses the chat model", "", "", "chat-model", "", "chat-model"},
-		{"empty configured uses the run chat model", "", "", "chat-model", "run-model", "run-model"},
+		{"review flag beats the setting", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model", ReviewModel: "flag-model"}, "", "flag-model"},
+		{"autopilot flag beats the setting", auxPilot, Config{Model: "chat-model", AuxiliaryModel: "aux-model", PilotModel: "flag-model"}, "", "flag-model"},
+		{"fast delegate flag beats the setting", auxDelegate, Config{Model: "chat-model", AuxiliaryModel: "aux-model", DelegateFast: "flag-model"}, "", "flag-model"},
+		{"blank flag is not a choice", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model", ReviewModel: "  "}, "", "aux-model"},
+		{"the setting beats the chat model", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "aux-model"},
+		{"the setting beats the run chat model", auxFilter, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "run-model", "aux-model"},
+		{"empty uses the chat model", auxSearch, Config{Model: "chat-model"}, "", "chat-model"},
+		{"empty uses the run chat model", auxPilot, Config{Model: "chat-model"}, "run-model", "run-model"},
+		{"the review flag stays with the review", auxFilter, Config{Model: "chat-model", ReviewModel: "flag-model"}, "", "chat-model"},
+		{"the review flag does not move the search", auxSearch, Config{Model: "chat-model", ReviewModel: "flag-model"}, "", "chat-model"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			a := &Agent{Cfg: Config{AuxiliaryModel: test.configured, Model: test.chat}}
+			a := &Agent{Cfg: test.cfg}
 			if test.runChat != "" {
 				target := chatTarget{Model: test.runChat}
 				a.runChat = &target
 			}
-			if got := a.auxiliaryModel(test.flag); got != test.want {
+			if got := a.auxiliaryModel(test.task); got != test.want {
 				t.Fatalf("got %q, want %q", got, test.want)
 			}
 		})
@@ -94,7 +97,7 @@ func TestAuxiliaryModelUnknownFallsBackAndLogsOnce(t *testing.T) {
 		Emit: func(kind, text string) { mu.Lock(); lines = append(lines, text); mu.Unlock() },
 	}
 	for i := 0; i < 3; i++ {
-		if got := a.auxiliaryModel(""); got != "chat-model" {
+		if got := a.auxiliaryModel(auxFilter); got != "chat-model" {
 			t.Fatalf("unknown model must fall back to the chat model, got %q", got)
 		}
 	}
@@ -103,7 +106,8 @@ func TestAuxiliaryModelUnknownFallsBackAndLogsOnce(t *testing.T) {
 	if len(lines) != 1 || !strings.Contains(lines[0], "ghost-model") {
 		t.Fatalf("expected one fallback notice, got %#v", lines)
 	}
-	if got := a.auxiliaryModel("ghost-flag"); got != "ghost-flag" {
+	a.Cfg.ReviewModel = "ghost-flag"
+	if got := a.auxiliaryModel(auxReview); got != "ghost-flag" {
 		t.Fatalf("an explicit flag is not validated, got %q", got)
 	}
 }
@@ -142,7 +146,7 @@ func TestAuxiliaryModelSettingsRoundTrip(t *testing.T) {
 	if err != nil || fc.AuxiliaryModel != "" {
 		t.Fatalf("stored %q, err %v", fc.AuxiliaryModel, err)
 	}
-	if got := a.auxiliaryModel(""); got != "chat-model" {
+	if got := a.auxiliaryModel(auxReview); got != "chat-model" {
 		t.Fatalf("cleared setting must use the chat model, got %q", got)
 	}
 }

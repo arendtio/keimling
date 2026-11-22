@@ -1776,7 +1776,7 @@ func (s *appServer) handleSkillsSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web search is off", http.StatusServiceUnavailable)
 		return
 	}
-	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, s.agent.auxiliaryModel(""), body.Query)
+	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, s.agent.auxiliaryModel(auxSearch), body.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -1882,7 +1882,7 @@ func (s *appServer) handleSkillsReview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model client unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	model := s.agent.auxiliaryModel(s.agent.Cfg.ReviewModel)
+	model := s.agent.auxiliaryModel(auxReview)
 	review, err := ReviewSkillPreview(r.Context(), client, model, prev)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

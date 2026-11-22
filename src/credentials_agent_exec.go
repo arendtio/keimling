@@ -33,7 +33,7 @@ func (a *Agent) runExecWithCredentials(ctx context.Context, argsJSON string) str
 		for _, id := range plan.Placeholders {
 			summaries = append(summaries, id)
 		}
-		model := a.auxiliaryModel(a.Cfg.ReviewModel)
+		model := a.auxiliaryModel(auxReview)
 		verdict, rerr := a.Client.reviewExecSecretExfil(ctx, model, plan.Command, plan.EnvNames, summaries)
 		if rerr != nil {
 			return "credential exfil review failed (fail-closed): " + rerr.Error()

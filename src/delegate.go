@@ -31,7 +31,7 @@ type delegateImage struct {
 func (a *Agent) delegateProfile(profile string) (model, effort string, err error) {
 	switch profile {
 	case "fast":
-		return a.auxiliaryModel(a.Cfg.DelegateFast), "low", nil
+		return a.auxiliaryModel(auxDelegate), "low", nil
 	case "balanced":
 		return a.Cfg.DelegateBalanced, "medium", nil
 	case "deep":

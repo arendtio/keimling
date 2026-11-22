@@ -36,7 +36,7 @@ func (a *Agent) searchWeb(ctx context.Context, query string) (string, error) {
 	if a == nil || a.Cfg.DisableExternal || !a.Cfg.Web || !a.Cfg.Search.enabled() {
 		return "", fmt.Errorf("web search is off")
 	}
-	return runSearch(ctx, a.Cfg.Search, a.auxiliaryModel(""), query)
+	return runSearch(ctx, a.Cfg.Search, a.auxiliaryModel(auxSearch), query)
 }
 
 func runSearch(ctx context.Context, s searchConfig, model, query string) (string, error) {

@@ -16,20 +16,59 @@ import (
 //  1. an explicit flag (--review-model, --autopilot-model, --delegate-fast-model),
 //  2. auxiliary_model from config.json (--auxiliary-model),
 //  3. the chat model of this run or thread.
+// Every task passes its own marker; auxiliarySetting is the one table that
+// maps a task to the setting it reads, so a task can get its own field later.
 //
 // A saved auxiliary model that no configured provider offers is ignored: the
 // task falls back to the chat model and says so once.
 
-// auxiliaryModel is the model one side task uses. override is that task's own
-// flag value; empty means the flag was not set or the task has no flag.
-func (a *Agent) auxiliaryModel(override string) string {
+// auxiliaryTask names one side task. The marker keeps the "which model does
+// this task read" decision out of the call sites.
+type auxiliaryTask int
+
+const (
+	auxReview auxiliaryTask = iota
+	auxFilter
+	auxPilot
+	auxDelegate
+	auxSearch
+)
+
+// auxiliarySetting maps one task to its own flag and to the saved setting it
+// follows. This switch is the only place that decides it: giving the approval
+// review its own model later is one case here plus one settings field, and no
+// call site changes.
+func (c Config) auxiliarySetting(task auxiliaryTask) (flagValue, saved string) {
+	switch task {
+	case auxReview:
+		return c.ReviewModel, c.AuxiliaryModel
+	case auxPilot:
+		return c.PilotModel, c.AuxiliaryModel
+	case auxDelegate:
+		return c.DelegateFast, c.AuxiliaryModel
+	case auxFilter, auxSearch:
+		return "", c.AuxiliaryModel
+	default:
+		return "", c.AuxiliaryModel
+	}
+}
+
+// auxiliaryModel is the model one side task uses. Precedence, highest first:
+//  1. the task's own flag (--review-model, --autopilot-model, --delegate-fast-model),
+//  2. auxiliary_model from config.json (--auxiliary-model),
+//  3. the chat model of this run or thread.
+//
+// A saved model that no configured provider offers is ignored: the task falls
+// back to the chat model and says so once.
+func (a *Agent) auxiliaryModel(task auxiliaryTask) string {
 	if a == nil {
 		return ""
 	}
-	if m := strings.TrimSpace(override); m != "" {
+	flagValue, configured := a.Cfg.auxiliarySetting(task)
+	if m := strings.TrimSpace(flagValue); m != "" {
 		return m
 	}
-	configured := strings.TrimSpace(a.Cfg.AuxiliaryModel)
+	configured = strings.TrimSpace(configured)
 	if configured == "" {
 		return a.auxiliaryChatModel()
 	}
@@ -88,11 +127,11 @@ func (a *Agent) noteAuxiliaryFallback(configured, fallback string) {
 
 // approvalReview is the automatic approval review on the side-task model.
 func (a *Agent) approvalReview(ctx context.Context, tool, args, cwd, purpose string, sus *SoftSuspicion) (Verdict, error) {
-	return a.Client.Review(ctx, a.auxiliaryModel(a.Cfg.ReviewModel), a.Cfg.ApprovalPolicy, tool, args, cwd, purpose, sus, a.Cfg.ApprovalPolicyReplace)
+	return a.Client.Review(ctx, a.auxiliaryModel(auxReview), a.Cfg.ApprovalPolicy, tool, args, cwd, purpose, sus, a.Cfg.ApprovalPolicyReplace)
 }
 
 // pilotReview is one autopilot supervision call on the side-task model.
 // The worker keeps the same instruction and history it always had.
 func (a *Agent) pilotReview(ctx context.Context, message, report string) (PilotDecision, error) {
-	return a.Client.Pilot(ctx, a.auxiliaryModel(a.Cfg.PilotModel), a.Cfg.PilotReasoning, message, report, a.autopilotPrompt(), a.modelInput())
+	return a.Client.Pilot(ctx, a.auxiliaryModel(auxPilot), a.Cfg.PilotReasoning, message, report, a.autopilotPrompt(), a.modelInput())
 }

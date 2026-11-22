@@ -21,7 +21,7 @@ func (a *Agent) maybeGenerateThreadTitle(ctx context.Context, seed string) {
 	if err == nil && !isProvisionalThreadTitle(meta.Title) {
 		return
 	}
-	model := a.auxiliaryModel(a.Cfg.DelegateFast)
+	model := a.auxiliaryModel(auxDelegate)
 	if model == "" {
 		model = a.compactionModel()
 	}
