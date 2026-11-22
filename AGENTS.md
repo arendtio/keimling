@@ -69,6 +69,7 @@ Default tests/CI use **nogui** (no WebKit). Do not invent new lifecycle commands
 - GUI prefs / connections: gui-prefs + `connections.json` (client book vs server bookmarks)
 - Sessions / workspaces: under `~/.local/state/keimling/` (or `/data` in Docker)
 - Auth for HTTP: `--access-secret` / `KEIMLING_SECRET`
+- Tests never read the productive config directory: `TestMain` points `XDG_CONFIG_HOME` at a temp dir and seeds it from the checked-in fixture `src/testdata/config.json`. Fixtures live under `src/testdata/`.
 
 Settings changes that must survive restart go through `persistAgentConfig` → `fileConfig` (not memory-only).
 

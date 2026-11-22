@@ -9,7 +9,7 @@ import (
 
 func TestNewSkillStaysOutUntilEnabled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	cfgPath := filepath.Join(home, "config.json")
 	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)

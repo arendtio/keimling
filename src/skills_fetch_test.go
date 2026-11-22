@@ -93,9 +93,7 @@ func TestInstallSkillFromURLUsesBundle(t *testing.T) {
 	defer srv.Close()
 
 	home := t.TempDir()
-	old := os.Getenv("HOME")
-	t.Cleanup(func() { _ = os.Setenv("HOME", old) })
-	_ = os.Setenv("HOME", home)
+	setTestHome(t, home)
 	cwd := t.TempDir()
 
 	sk, err := InstallSkillFromURL(srv.URL+"/SKILL.md", SkillScopeUser, cwd)

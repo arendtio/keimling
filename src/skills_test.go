@@ -40,9 +40,7 @@ func TestParseSkillValidAndInvalid(t *testing.T) {
 func TestSkillRegistryPrecedence(t *testing.T) {
 	cwd := t.TempDir()
 	home := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
-	_ = os.Setenv("HOME", home)
+	setTestHome(t, home)
 
 	proj := filepath.Join(cwd, ".keimling", "skills")
 	user := filepath.Join(home, ".config", "keimling", "skills")
@@ -116,9 +114,7 @@ func TestInstallSkillFromPath(t *testing.T) {
 	srcRoot := t.TempDir()
 	src := writeSkillFixture(t, srcRoot, "install-me", "Installable skill description for fixture copy.", "# Installed")
 	home := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	t.Cleanup(func() { _ = os.Setenv("HOME", oldHome) })
-	_ = os.Setenv("HOME", home)
+	setTestHome(t, home)
 
 	sk, err := InstallSkillFromPath(src, SkillScopeUser, t.TempDir())
 	if err != nil {

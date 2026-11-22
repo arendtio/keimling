@@ -141,3 +141,4 @@ Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses th
 - Default `make check` / `make test` use **nogui** so CI and headless hosts need no WebKit.
 - Desktop GUI builds need system WebView (WebKitGTK / WKWebView / WebView2).
 - Do not add new lifecycle commands without updating this file.
+- Tests never read the productive config directory (`~/.config/keimling`): `TestMain` isolates `XDG_CONFIG_HOME` in a temp dir and copies the fixture `src/testdata/config.json` there. Fixtures belong under `src/testdata/`.

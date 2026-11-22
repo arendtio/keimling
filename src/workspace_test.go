@@ -3,7 +3,16 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+)
+
+// testConfigHome and testConfigDir are the isolated config location of the test
+// process, set by TestMain. config_isolation_test.go checks the resolved paths
+// against them.
+var (
+	testConfigHome string
+	testConfigDir  string
 )
 
 func TestMain(m *testing.M) {
@@ -12,9 +21,50 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("XDG_DATA_HOME", dir)
+	cfgHome, err := os.MkdirTemp("", "keimling-test-config-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_CONFIG_HOME", cfgHome)
+	if runtime.GOOS == "windows" {
+		// configHome prefers the OS config dir on Windows, which is %AppData%.
+		os.Setenv("AppData", cfgHome)
+	}
+	testConfigHome, testConfigDir = cfgHome, filepath.Join(cfgHome, "keimling")
+	seedTestConfig(testConfigDir)
+	// spendConfigFile is resolved at package init, before this function runs.
+	spendConfigFile = filepath.Join(testConfigDir, "config.json")
 	code := m.Run()
 	_ = os.RemoveAll(dir)
+	_ = os.RemoveAll(cfgHome)
 	os.Exit(code)
+}
+
+// setTestHome points HOME and XDG_CONFIG_HOME at home, so config paths resolve
+// inside the test area instead of the productive config directory.
+func setTestHome(t *testing.T, home string) {
+	t.Helper()
+	oldHome, oldCfg := os.Getenv("HOME"), os.Getenv("XDG_CONFIG_HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+		_ = os.Setenv("XDG_CONFIG_HOME", oldCfg)
+	})
+	_ = os.Setenv("HOME", home)
+	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+}
+
+// seedTestConfig copies the checked-in config fixture into the test config
+// directory. Without the fixture the tests run against an empty config
+// directory instead of failing.
+func seedTestConfig(dir string) {
+	b, err := os.ReadFile(filepath.Join("testdata", "config.json"))
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600)
 }
 
 func TestWorkspaceIDForRootStable(t *testing.T) {
