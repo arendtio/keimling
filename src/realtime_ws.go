@@ -305,10 +305,9 @@ func (s *appServer) handleRealtimeSpeaker(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "audio/wav")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if _, err := w.Write(wavStreamHeader(24000, 24000*2*60*60)); err != nil {
-		return
-	}
-	flusher.Flush()
+	// Register the pipe before the header reaches the window: it starts pulling
+	// audio as soon as the header arrives, and audio that lands while no pipe is
+	// registered is gone, so the player would wait for bytes that never come.
 	p := &speakerPipe{ch: make(chan []byte, 512), stop: make(chan struct{})}
 	s.speakerMu.Lock()
 	old := s.speaker
@@ -324,6 +323,10 @@ func (s *appServer) handleRealtimeSpeaker(w http.ResponseWriter, r *http.Request
 		}
 		s.speakerMu.Unlock()
 	}()
+	if _, err := w.Write(wavStreamHeader(24000, 24000*2*60*60)); err != nil {
+		return
+	}
+	flusher.Flush()
 	for {
 		select {
 		case <-r.Context().Done():

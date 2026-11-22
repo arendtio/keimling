@@ -11,6 +11,9 @@ ifneq ($(strip $(GIT_DIRTY)),)
 endif
 LDFLAGS := -s -w -X main.buildVersion=$(GIT_VERSION)
 ARGS   ?=
+# A stalled test must fail the run, not hold it for the default 10m; a full run
+# needs well under this bound, so a real hang is the only way to reach it.
+TEST_TIMEOUT ?= 400s
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 
@@ -57,7 +60,7 @@ build-nogui:
 	cd $(PKG) && CGO_ENABLED=0 go build -trimpath -ldflags='$(LDFLAGS)' -tags nogui -o ../$(BINARY) .
 
 test:
-	cd $(PKG) && CGO_ENABLED=0 go test -tags nogui ./...
+	cd $(PKG) && CGO_ENABLED=0 go test -tags nogui -timeout $(TEST_TIMEOUT) ./...
 
 vet:
 	cd $(PKG) && CGO_ENABLED=0 go vet -tags nogui ./...

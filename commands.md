@@ -66,7 +66,7 @@ cd src && CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
 | --- | --- |
 | `make fmt` | `gofmt -l -w` on `./src` |
 | `make vet` | `go vet -tags nogui` |
-| `make test` | `go test -tags nogui ./...` |
+| `make test` | `go test -tags nogui -timeout 400s ./...` |
 | `make check` | `fmt` + `vet` + `test` |
 | `node --test src/webui/tests/*.test.js` | Embedded UI transcript and session regression tests (requires Node.js) |
 
@@ -139,6 +139,7 @@ Comparison uses `scenarios/checkpoint.json` when it exists. Otherwise it uses th
 ## Notes
 
 - Default `make check` / `make test` use **nogui** so CI and headless hosts need no WebKit.
+- Go tests run with `-timeout 400s` (`TEST_TIMEOUT` in the `Makefile`): a full run needs well under that, so a stalled test fails the run instead of holding it for the default 10 minutes. A test that waits on a stream bounds that wait itself.
 - Desktop GUI builds need system WebView (WebKitGTK / WKWebView / WebView2).
 - Do not add new lifecycle commands without updating this file.
 - Tests never read the productive config directory (`~/.config/keimling`): `TestMain` isolates `XDG_CONFIG_HOME` in a temp dir and copies the fixture `src/testdata/config.json` there. Fixtures belong under `src/testdata/`.
