@@ -115,6 +115,7 @@ func (a *Agent) spawnAgentTool(args string) string {
 		"name":         strings.TrimSpace(x.Name),
 		"path":         strings.TrimSpace(x.Path),
 		"workspace_id": ws,
+		"spawner_id":   a.spawnerInstanceID(),
 	})
 	if err == nil {
 		return formatHostSpawn("spawn_agent", started, body) + queueInstanceTask(instanceIDFromHost(body), x.Task) + spawnBackgroundNote
@@ -126,7 +127,47 @@ func (a *Agent) spawnAgentTool(args string) string {
 	if err != nil {
 		return "spawn_agent error: " + err.Error()
 	}
+	if err := linkSpawnedInstances(a.spawnerInstanceID(), []AgentInstanceMeta{inst}); err != nil {
+		rollbackSpawn([]AgentInstanceMeta{inst})
+		return "spawn_agent error: " + err.Error()
+	}
 	return formatInstance(inst, false) + queueInstanceTask(inst.ID, x.Task) + spawnBackgroundNote
+}
+
+// spawnerInstanceID is the agent instance that runs this call. A workspace
+// thread has none: its spawns link only the instances they create.
+func (a *Agent) spawnerInstanceID() string {
+	if a == nil {
+		return ""
+	}
+	return strings.TrimSpace(a.Cfg.AgentInstanceID)
+}
+
+// linkSpawnedInstances connects every instance of one spawn with the others and
+// the spawning agent with each of them. The contact is written before a task is
+// queued, so a new instance can answer its spawner straight away. An error here
+// fails the spawn: an instance that cannot answer is not delivered silently.
+func linkSpawnedInstances(spawnerID string, created []AgentInstanceMeta) error {
+	for i := range created {
+		for j := i + 1; j < len(created); j++ {
+			if err := linkAgentInstances(created[i].ID, created[j].ID); err != nil {
+				return fmt.Errorf("contact %s and %s: %w", created[i].ID, created[j].ID, err)
+			}
+		}
+	}
+	spawnerID = strings.TrimSpace(spawnerID)
+	if spawnerID == "" {
+		return nil
+	}
+	for _, inst := range created {
+		if inst.ID == spawnerID {
+			continue
+		}
+		if err := linkAgentInstances(spawnerID, inst.ID); err != nil {
+			return fmt.Errorf("contact %s and %s: %w", spawnerID, inst.ID, err)
+		}
+	}
+	return nil
 }
 
 // spawnBackgroundNote tells the calling model where the new instance ran to.
@@ -217,6 +258,7 @@ func (a *Agent) spawnTeamTool(args string) string {
 		"id":           team.ID,
 		"path":         strings.TrimSpace(x.Path),
 		"workspace_id": ws,
+		"spawner_id":   a.spawnerInstanceID(),
 	})
 	if err == nil {
 		return formatHostSpawn("spawn_team", started, body) + spawnBackgroundNote
@@ -224,10 +266,10 @@ func (a *Agent) spawnTeamTool(args string) string {
 	if err != errNoHost {
 		return "spawn_team error: " + err.Error()
 	}
-	return spawnTeamLocal(team, ws, x.Path) + spawnBackgroundNote
+	return a.spawnTeamLocal(team, ws, x.Path) + spawnBackgroundNote
 }
 
-func spawnTeamLocal(team AgentTeam, ws, path string) string {
+func (a *Agent) spawnTeamLocal(team AgentTeam, ws, path string) string {
 	created := make([]AgentInstanceMeta, 0, len(team.DefinitionIDs))
 	for _, defID := range team.DefinitionIDs {
 		rec, err := readAgentRecipe(defID)
@@ -240,15 +282,9 @@ func spawnTeamLocal(team AgentTeam, ws, path string) string {
 		}
 		created = append(created, inst)
 	}
-	for i := range created {
-		for j := range created {
-			if i == j {
-				continue
-			}
-			if err := addAgentInstancePeer(created[i].ID, created[j].ID); err != nil {
-				return "spawn_team error: " + err.Error()
-			}
-		}
+	if err := linkSpawnedInstances(a.spawnerInstanceID(), created); err != nil {
+		rollbackSpawn(created)
+		return "spawn_team error: " + err.Error()
 	}
 	var b strings.Builder
 	for _, inst := range created {
