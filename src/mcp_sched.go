@@ -266,7 +266,7 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 		cwd, _ := os.Getwd()
 		purpose := ""
 		if agentRun {
-			purpose = a.Cfg.AgentInstructions
+			purpose = a.reviewPurpose()
 		}
 		raw, _ := json.Marshal(map[string]any{"tools": listed})
 		verdict, e := a.approvalReview(ctx, "data_processing", string(raw), cwd, purpose, nil)

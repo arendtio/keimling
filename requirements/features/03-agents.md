@@ -447,10 +447,10 @@ The earlier text grants an instance workspace and peer access. It does not say t
 ### REQ-AG-36 Auto allows a call the confirmed purpose already names
 
 - **Bin:** explicit requirement
-- **Statement:** When an agent runs in auto, a tool call whose concrete action is named in the job the user confirmed shall be allowed. The check shall see the command inside a watch, not only the tool name. A job that does not name the action shall not allow it. A call that names a different command or target shall not be allowed by that job.
+- **Statement:** When an agent runs in auto, a tool call whose concrete action is named in the job the user confirmed shall be allowed. The check shall see the command inside a watch, not only the tool name. A job that does not name the action shall not allow it. The job shall be the definition instructions followed by the task the user started the instance with, cut to 4000 characters. A file write or edit shall be checked by its path. A call that names a different command or target shall not be allowed by that job.
 - **Origin:** User, 2026-11-07 (quote: "wenn die Befehle dem Zweck entsprechen, dann kann der Auto-Modus es automatisch freigeben" and "dafür muss er sich aber natürlich auch angucken, was da bei CreateWatch genau ausgeführt wird" and "die transitiven Freigaben noch nicht zuverlässig genug funktionieren").
 - **Rationale:** The user already confirmed the job by starting the agent. Asking again, and then refusing because an agent cannot wait, blocks the job that was just confirmed.
-- **Fit criterion:** An agent in auto whose job names `ping -c 1 -W 2 192.168.0.101` is allowed to create a watch that runs that command, with no review and no refusal. A watch whose command is not in that job is still reviewed. A vague job does not allow the ping. A workspace thread gets no such grant.
+- **Fit criterion:** An agent in auto whose job names `ping -c 1 -W 2 192.168.0.101` is allowed to create a watch that runs that command, with no review and no refusal. A watch whose command is not in that job is still reviewed. A vague job does not allow the ping. A workspace thread gets no such grant. An agent whose task names a path such as `src/policy.go` is allowed to write or edit that file; the purpose contains the instructions word for word, followed by an `AUFTRAG:` section with the first task.
 - **Priority:** shall
 - **Status:** confirmed
 
