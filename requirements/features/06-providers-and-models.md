@@ -23,8 +23,9 @@ remote catalogs.
   `context_length` + pricing; OpenAI-compatible often only ids) and fill the
   edit form — catalogs are not persisted wholesale. The request uses the URL
   and key in the open provider form. See REQ-PM-5. LiteLLM also reads
-  `/model/info` with that same key for context, price, and vision. See
-  REQ-PM-8.
+  `GET {root}/model_group/info` (the model groups the key may call, with
+  context, price, and vision) and `GET {root}/model/info` (deployments with
+  `model_info`, which adds audio input) with that same key. See REQ-PM-8.
 - The form asks for USD per million tokens and stores USD per token. See
   REQ-PM-9.
 - Compaction/context uses the **active model’s** `context_limit` when set;
@@ -121,10 +122,10 @@ remote catalogs.
 
 ## REQ-PM-8 Prefill fills context, price, and senses when the catalog reports them
 
-- **Statement:** When a provider catalog reports a context length, a prompt price, a completion price, or image or audio input, prefill shall put those into the model form. A field the catalog does not report shall stay as the form already has it. For a LiteLLM provider, that richer info shall be read with the same key as the model list.
+- **Statement:** When a provider catalog reports a context length, a prompt price, a completion price, or image or audio input, prefill shall put those into the model form. A field the catalog does not report shall stay as the form already has it. For a LiteLLM provider, that richer info shall be read with the same key as the model list, from `GET /model_group/info` and `GET /model/info`; this applies even when the proxy URL was not recognised as LiteLLM (for example `http://127.0.0.1:4000/v1` with kind auto), and a LiteLLM endpoint that is absent or refused shall not stop the plain `/v1/models` list from loading.
 - **Origin:** User, 2026-11-20 (quote: "Modelle habe, die eigentlich Vision Capability haben … über den Light LLM Proxy mit Keimling aber anscheinend nicht erkannt" and "wenn wir Modelle abrufen … nicht die Kontextlänge und die Kosten unbedingt mit abruft"). Same day, the user said to use the normal key for LiteLLM when that key can read the info.
-- **Rationale:** The model id is only half of the form. Context, price, and seeing are what they otherwise look up by hand, and other clients already get them from the proxy.
-- **Fit criterion:** An OpenRouter catalog entry with context, prices, and image input fills those form fields. A LiteLLM model list that only has ids, plus model info that reports vision, context, and prices, fills those fields from the same key. When model info is refused, the ids still load and vision stays off. A catalog entry without a price leaves the price field unchanged.
+- **Rationale:** The model id is only half of the form. Context, price, and seeing are what they otherwise look up by hand, and other clients already get them from the proxy. `/model_group/info` is the endpoint the proxy documents for the models a key actually calls, and `/v1/models` on LiteLLM carries no price and no vision flag.
+- **Fit criterion:** An OpenRouter catalog entry with context, prices, and image input fills those form fields. A LiteLLM `/model_group/info` row with a float `max_input_tokens`, token prices, a description, and `supports_vision` fills context, both prices, the display name, and seeing. A `/model/info` row with `supports_audio_input` fills hearing. When both management routes are refused, the `/v1/models` ids still load and vision stays off. A catalog entry without a price leaves the price field unchanged. An OpenRouter provider probes neither LiteLLM route.
 - **Priority:** shall
 - **Status:** confirmed
 

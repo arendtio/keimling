@@ -158,7 +158,7 @@
           <p id="prov-edit-management-hint" class="hint" hidden>Reads the OpenRouter account total. Chat still uses the API key. Leave blank to keep.</p>
 
           <p class="settings-section-title">Models</p>
-          <p class="hint">Favorites for this provider. One is the default (used when this provider is active). Prefill fills fields from the upstream catalog — catalogs are not stored.</p>
+          <p class="hint">Favorites for this provider. One is the default (used when this provider is active). Prefill fills fields from the upstream catalog — catalogs are not stored. On a LiteLLM proxy it also reads /model_group/info and /model/info for context, price, vision, and audio.</p>
           <ul id="prov-model-list" class="profile-list" aria-label="Provider models"></ul>
           <button type="button" id="prov-model-new" class="ghost wide">Add model…</button>
           <div id="prov-model-editor" class="profile-editor nested" hidden>

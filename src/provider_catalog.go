@@ -26,20 +26,38 @@ type catalogModel struct {
 
 func fetchProviderModelCatalog(ctx context.Context, baseURL, apiKey, kind string) ([]catalogModel, error) {
 	models, err := fetchOpenAIModelList(ctx, baseURL, apiKey)
-	if detectProviderKind(baseURL, kind) != "litellm" {
+	root, probe := liteLLMCatalogRoot(baseURL, kind)
+	if !probe {
 		return models, err
 	}
-	info, infoErr := fetchLiteLLMModelInfo(ctx, baseURL, apiKey)
-	if err != nil && (infoErr != nil || len(info) == 0) {
+	// A LiteLLM proxy publishes per-model metadata on two management routes:
+	// GET /model_group/info lists the model groups this key may call, and
+	// GET /model/info lists the deployments with their model_info. Both are
+	// optional: a plain OpenAI-compatible server answers 404 and the catalog
+	// stays the /v1/models list.
+	groups, _ := fetchLiteLLMModelGroupInfo(ctx, root, apiKey)
+	info, _ := fetchLiteLLMModelInfo(ctx, root, apiKey)
+	extra := mergeCatalogModels(groups, info)
+	if err != nil {
+		if len(extra) > 0 {
+			return extra, nil
+		}
 		return nil, err
 	}
-	if err != nil {
-		return info, nil
+	return mergeCatalogModels(models, extra), nil
+}
+
+// liteLLMCatalogRoot reports the proxy root to ask for LiteLLM model metadata.
+// OpenRouter is excluded so its catalog stays the /v1/models response alone.
+func liteLLMCatalogRoot(baseURL, kind string) (string, bool) {
+	if detectProviderKind(baseURL, kind) == "openrouter" {
+		return "", false
 	}
-	if infoErr != nil || len(info) == 0 {
-		return models, nil
+	root := providerRootURL(baseURL)
+	if root == "" {
+		return "", false
 	}
-	return mergeCatalogModels(models, info), nil
+	return root, true
 }
 
 func fetchOpenAIModelList(ctx context.Context, baseURL, apiKey string) ([]catalogModel, error) {
@@ -79,12 +97,13 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 	out := make([]catalogModel, 0, len(doc.Data))
 	for _, raw := range doc.Data {
 		var row struct {
-			ID            string  `json:"id"`
-			Name          string  `json:"name"`
-			ContextLength float64 `json:"context_length"`
-			ContextWindow float64 `json:"context_window"`
-			MaxTokens     float64 `json:"max_model_len"`
-			Pricing       *struct {
+			ID             string  `json:"id"`
+			Name           string  `json:"name"`
+			ContextLength  float64 `json:"context_length"`
+			ContextWindow  float64 `json:"context_window"`
+			MaxInputTokens float64 `json:"max_input_tokens"`
+			MaxTokens      float64 `json:"max_model_len"`
+			Pricing        *struct {
 				Prompt     json.RawMessage `json:"prompt"`
 				Completion json.RawMessage `json:"completion"`
 			} `json:"pricing"`
@@ -110,6 +129,9 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 			m.ContextLimit = int(row.ContextLength)
 		case row.ContextWindow > 0:
 			m.ContextLimit = int(row.ContextWindow)
+		case row.MaxInputTokens > 0:
+			// LiteLLM /v1/models reports the group's input limit here.
+			m.ContextLimit = int(row.MaxInputTokens)
 		case row.MaxTokens > 0:
 			m.ContextLimit = int(row.MaxTokens)
 		}
@@ -188,12 +210,27 @@ func mergeCatalogModels(base, extra []catalogModel) []catalogModel {
 	return base
 }
 
-func fetchLiteLLMModelInfo(ctx context.Context, baseURL, apiKey string) ([]catalogModel, error) {
-	root := providerRootURL(baseURL)
-	if root == "" {
-		return nil, nil
+func fetchLiteLLMModelInfo(ctx context.Context, root, apiKey string) ([]catalogModel, error) {
+	b, err := getLiteLLMJSON(ctx, root, "/model/info", apiKey)
+	if err != nil || len(b) == 0 {
+		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/model/info", nil)
+	return parseLiteLLMModelInfo(b)
+}
+
+func fetchLiteLLMModelGroupInfo(ctx context.Context, root, apiKey string) ([]catalogModel, error) {
+	b, err := getLiteLLMJSON(ctx, root, "/model_group/info", apiKey)
+	if err != nil || len(b) == 0 {
+		return nil, err
+	}
+	return parseLiteLLMModelGroupInfo(b)
+}
+
+// getLiteLLMJSON reads one LiteLLM management route. An empty result means the
+// route does not exist here or this key may not read it; that is not an error,
+// because most OpenAI-compatible servers have neither route.
+func getLiteLLMJSON(ctx context.Context, root, path, apiKey string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -214,17 +251,63 @@ func fetchLiteLLMModelInfo(ctx context.Context, baseURL, apiKey string) ([]catal
 		return nil, nil
 	}
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("litellm model info HTTP %d", res.StatusCode)
+		return nil, fmt.Errorf("litellm %s HTTP %d", path, res.StatusCode)
 	}
-	return parseLiteLLMModelInfo(b)
+	return b, nil
 }
 
+// parseLiteLLMModelGroupInfo reads GET /model_group/info: one row per model
+// group with the fields the proxy serves on /chat/completions.
+func parseLiteLLMModelGroupInfo(b []byte) ([]catalogModel, error) {
+	var doc struct {
+		Data []struct {
+			ModelGroup     string   `json:"model_group"`
+			Description    string   `json:"description"`
+			MaxInputTokens float64  `json:"max_input_tokens"`
+			InputCost      *float64 `json:"input_cost_per_token"`
+			OutputCost     *float64 `json:"output_cost_per_token"`
+			SupportsVision bool     `json:"supports_vision"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, err
+	}
+	out := make([]catalogModel, 0, len(doc.Data))
+	for _, row := range doc.Data {
+		id := strings.TrimSpace(row.ModelGroup)
+		if id == "" {
+			continue
+		}
+		m := catalogModel{ID: id, SeesImages: row.SupportsVision}
+		if name := strings.TrimSpace(row.Description); name != "" && len(name) <= 120 {
+			m.Name = name
+		}
+		if row.MaxInputTokens > 0 {
+			m.ContextLimit = int(row.MaxInputTokens)
+		}
+		// 0.0 is the proxy's placeholder for "no price known"; leaving it empty
+		// lets /model/info supply the real rate.
+		if row.InputCost != nil && *row.InputCost > 0 {
+			m.PromptPrice = strconv.FormatFloat(*row.InputCost, 'g', -1, 64)
+		}
+		if row.OutputCost != nil && *row.OutputCost > 0 {
+			m.CompletionPrice = strconv.FormatFloat(*row.OutputCost, 'g', -1, 64)
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// parseLiteLLMModelInfo reads GET /model/info: one row per deployment with
+// model_name and model_info. model_info carries the per-token prices, the token
+// limits, and the capability flags, including audio input which /model_group/info
+// does not report.
 func parseLiteLLMModelInfo(b []byte) ([]catalogModel, error) {
 	var doc struct {
 		Data []struct {
 			ModelName string `json:"model_name"`
 			ModelInfo struct {
-				MaxInputTokens int      `json:"max_input_tokens"`
+				MaxInputTokens float64  `json:"max_input_tokens"`
 				InputCost      *float64 `json:"input_cost_per_token"`
 				OutputCost     *float64 `json:"output_cost_per_token"`
 				SupportsVision bool     `json:"supports_vision"`
@@ -243,7 +326,7 @@ func parseLiteLLMModelInfo(b []byte) ([]catalogModel, error) {
 		}
 		m := catalogModel{ID: id, SeesImages: row.ModelInfo.SupportsVision, HearsAudio: row.ModelInfo.SupportsAudio}
 		if row.ModelInfo.MaxInputTokens > 0 {
-			m.ContextLimit = row.ModelInfo.MaxInputTokens
+			m.ContextLimit = int(row.ModelInfo.MaxInputTokens)
 		}
 		if row.ModelInfo.InputCost != nil && *row.ModelInfo.InputCost >= 0 {
 			m.PromptPrice = strconv.FormatFloat(*row.ModelInfo.InputCost, 'g', -1, 64)
