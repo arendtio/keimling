@@ -526,6 +526,16 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
+### REQ-AG-44 Tool schemas are strict and list every parameter as required
+
+- **Bin:** explicit requirement
+- **Statement:** Every built-in tool schema shall be sent with `strict: true` and shall list every property of every object in `required` with `additionalProperties: false`. A parameter whose absence would have meant "use the default" shall still be sent by the model; the tool description shall say so and shall name the value that means "not used" (for example an empty string or `null` where the schema allows it).
+- **Origin:** User, 2026-11-22 (quote: "wir haben mehrere Tool-Definitionen, wo optionale Parameter drin definiert sind, die aber als strict markiert sind, und das funktioniert wohl nicht miteinander. Das heißt, ich möchte, dass alle optionalen Parameter mandatory werden").
+- **Rationale:** A strict schema with an optional property is rejected by a proxy such as LiteLLM before the request reaches the model, so one optional field costs the whole turn.
+- **Fit criterion:** A walk over `definitions` finds no object whose property is missing from `required` and no schema that allows extra properties. `save_agent` receives `tools` as an array or `null`; the three tools that used to omit `path` or `tools` state the value that means "keep" or "workspace of this call". A proxy that validates strict schemas accepts the request.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 
 A definition must name its tools when it is created; the create call is rejected without a list, and an empty list grants no tools. Saving stores the checked tools. An instance with no narrower set uses that definition. An instance may only narrow, never widen. Saving the definition’s own set again clears the instance override. REQ-AG-2’s unanswered default is decided here: no choice means no tools.
