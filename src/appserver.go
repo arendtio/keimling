@@ -3588,6 +3588,11 @@ func (s *appServer) noteUserTurn() {
 // startAgentRunWake starts a run of the shell agent for a queued wake. It
 // reports the watch it handled once that run ends.
 func (s *appServer) startAgentRunWake(text, ws, threadID string, item AgentQueueItem) bool {
+	// Lazy MCP tools do not survive a restart. A resumed thread gets back the
+	// ones it used before, so its plan does not hit a missing tool.
+	if s.agent != nil {
+		s.agent.preloadMCPTools()
+	}
 	if s.realtimeCallOpen() {
 		if s.injectRealtimeWake(text) {
 			s.finishThreadWake(ws, threadID, item)

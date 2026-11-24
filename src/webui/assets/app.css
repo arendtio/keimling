@@ -378,6 +378,9 @@ label.color-field input[type="color"] {
 }
 .escalation-item p { margin: 0; font-size: 0.85rem; white-space: pre-wrap; }
 .escalation-empty { color: var(--muted, inherit); font-size: 0.85rem; }
+.escalation-done { opacity: 0.6; }
+.escalation-actions { display: flex; justify-content: flex-end; }
+.escalation-actions button { padding: 0.2rem 0.6rem; font-size: 0.78rem; }
 .agent-board-row {
   display: flex;
   flex-direction: column;

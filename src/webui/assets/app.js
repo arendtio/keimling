@@ -3209,13 +3209,23 @@
     agentState = s || "idle";
     var wasRun = prev === "running" || prev === "compacting" || prev === "awaiting_approval";
     var isRun = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
-    if (isRun && !wasRun) beginRunFolds();
+    if (isRun && !wasRun) {
+      beginRunFolds();
+      lastRunActivityAt = Date.now();
+    }
     if (wasRun && agentState === "idle") {
       closeSideRun();
       collapseRunFolds();
     }
     stateEl.textContent = agentState;
     stateEl.className = "state " + agentState;
+    if (agentState === "running" && lastRunActivityAt) {
+      var quietMin = Math.floor((Date.now() - lastRunActivityAt) / 60000);
+      if (quietMin >= 3) {
+        stateEl.textContent = "running · " + quietMin + " min quiet";
+        stateEl.title = "No output for " + quietMin + " minutes. Stop the run if it is stuck.";
+      }
+    }
     // Keep the indicator next to new output; hide when idle to free vertical space.
     if (agentStatus) {
       var show = agentState === "running" || agentState === "awaiting_approval" || agentState === "compacting";
@@ -5055,6 +5065,11 @@
       return;
     }
     var tools = checkedToolNames(document.getElementById("agent-def-create-tools"));
+    // An empty list is a real choice and grants nothing. Say so before saving,
+    // so nobody wonders later why the agent cannot act.
+    if (!tools.length && typeof confirm === "function" && !confirm("No tool is checked. This definition will grant no tools at all. Save anyway?")) {
+      return;
+    }
     var createModel = document.getElementById("agent-def-model");
     var model = createModel ? String(createModel.value || "").trim() : "";
     var createMode = document.getElementById("agent-def-mode");
@@ -6851,6 +6866,9 @@
               var payload = {};
               try { payload = JSON.parse(data); } catch (e) {}
               // Agent "line" events are for CLI attach; GUI uses structured message/tool.
+              if (ev === "message" || ev === "thinking" || ev === "tool" || ev === "progress" || ev === "status") {
+                lastRunActivityAt = Date.now();
+              }
               if (ev === "ready") noteBackendStarted(payload);
               if (ev === "message") handleStructuredMessage(payload);
               if (ev === "thinking") handleThinking(payload);
@@ -6949,6 +6967,7 @@
         if (ctrl.signal.aborted) return;
         appendLive("\n[events] " + e + "\n");
         watchBackendRestart();
+        watchQuietRun();
       });
     es = { close: function () { ctrl.abort(); } };
   }
@@ -6971,6 +6990,15 @@
   // is gone. A new start time means the backend was replaced: the page reloads
   // and picks up the new process. The same process means only the stream broke,
   // so it reconnects. A backend that stays down keeps the browser on the page.
+  // Keeps the "running · N min quiet" label honest without new server events.
+  var quietRunTimer = null;
+  function watchQuietRun() {
+    if (quietRunTimer || typeof setInterval !== "function") return;
+    quietRunTimer = setInterval(function () {
+      if (agentState === "running") setState(agentState);
+    }, 20000);
+  }
+
   function watchBackendRestart() {
     if (backendPoll) return;
     backendPoll = setInterval(function () {
@@ -9570,7 +9598,7 @@
     }
     list.forEach(function (e) {
       var li = document.createElement("li");
-      li.className = "escalation-item";
+      li.className = "escalation-item" + (e.done ? " escalation-done" : "");
       var head = document.createElement("div");
       head.className = "escalation-head";
       var who = document.createElement("strong");
@@ -9584,15 +9612,41 @@
       body.textContent = e.text || "";
       li.appendChild(head);
       li.appendChild(body);
+      var actions = document.createElement("div");
+      actions.className = "escalation-actions";
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "ghost";
+      toggle.textContent = e.done ? "Reopen" : "Done";
+      toggle.addEventListener("click", function () { setEscalationDone(e.id, !e.done); });
+      actions.appendChild(toggle);
+      li.appendChild(actions);
       mount.appendChild(li);
     });
+  }
+
+  function setEscalationDone(id, done) {
+    return fetch(apiURL("/api/escalations/done"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id, done: !!done }),
+    })
+      .then(readAPIResult)
+      .then(function () { return loadEscalations(); })
+      .catch(function (err) { appendLive("\n[escalations] " + err + "\n"); });
   }
 
   function loadEscalations() {
     if (!connected) return Promise.resolve();
     return fetch(apiURL("/api/escalations"), { headers: headers() })
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || r.status); return j; }); })
-      .then(function (j) { renderEscalations((j && j.escalations) || []); })
+      .then(function (j) {
+        var list = (j && j.escalations) || [];
+        renderEscalations(list);
+        var open = list.filter(function (e) { return !e.done; }).length;
+        var btn = document.querySelector('#sidebar-tabs button[data-side="escalations"]');
+        if (btn) btn.textContent = open ? "Escalations (" + open + ")" : "Escalations";
+      })
       .catch(function () { renderEscalations([]); });
   }
 
@@ -10914,6 +10968,9 @@
   var assistantLive = "";
   var assistantSaved = false;
   var userLive = "";
+  // Last time the server said something while a run was open. A run that sits
+  // silent is shown as such instead of a plain "running".
+  var lastRunActivityAt = 0;
   // A sent message is shown at once; the server echo of the same line must not
   // add a second copy. Text plus time is the guard.
   var lastUserEchoText = "";

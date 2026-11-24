@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +21,10 @@ type Escalation struct {
 	AgentName string    `json:"agent_name"`
 	Text      string    `json:"text"`
 	CreatedAt time.Time `json:"created_at"`
+	// Done marks an entry the human has worked off. It stays in the file so the
+	// history stays complete.
+	Done   bool      `json:"done,omitempty"`
+	DoneAt time.Time `json:"done_at,omitempty"`
 }
 
 func escalationPath() string {
@@ -87,6 +92,79 @@ func listEscalations(limit int) []Escalation {
 		out = out[:limit]
 	}
 	return out
+}
+
+// markEscalationDone sets or clears the done flag of one entry. The file is
+// rewritten as a whole: it is a short list, and every line stays one entry.
+func markEscalationDone(id string, done bool) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("id required")
+	}
+	list := listEscalations(0)
+	found := false
+	for i := range list {
+		if list[i].ID != id {
+			continue
+		}
+		found = true
+		list[i].Done = done
+		if done {
+			list[i].DoneAt = time.Now().UTC()
+		} else {
+			list[i].DoneAt = time.Time{}
+		}
+	}
+	if !found {
+		return fmt.Errorf("unknown escalation %q", id)
+	}
+	var b strings.Builder
+	for _, e := range list {
+		line, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	return os.WriteFile(escalationPath(), []byte(b.String()), 0o600)
+}
+
+// handleEscalationDone takes {"id": "esc-…", "done": true|false}.
+func (h *Host) handleEscalationDone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID   string `json:"id"`
+		Done *bool  `json:"done"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	done := true
+	if body.Done != nil {
+		done = *body.Done
+	}
+	if err := markEscalationDone(body.ID, done); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": strings.TrimSpace(body.ID), "done": done, "open": openEscalations()})
+}
+
+// openEscalations counts the entries nobody has worked off yet.
+func openEscalations() int {
+	n := 0
+	for _, e := range listEscalations(0) {
+		if !e.Done {
+			n++
+		}
+	}
+	return n
 }
 
 // handleEscalations serves the list the sidebar shows.

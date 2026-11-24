@@ -320,6 +320,26 @@ func createAgentInstance(recipe AgentRecipe, workspaceID, name string) (AgentIns
 	if name == "" {
 		name = recipe.Name
 	}
+	// A name has to identify one instance in its workspace: list_agents and
+	// message_agent accept names, and "matches more than one instance" on a
+	// duplicate is a dead end. A taken name gets the next free number instead
+	// of turning the start into an error.
+	if same, err := listAgentInstancesForWorkspace(workspaceID); err == nil {
+		taken := map[string]bool{}
+		for _, m := range same {
+			taken[strings.ToLower(strings.TrimSpace(m.Name))] = true
+		}
+		if taken[strings.ToLower(name)] {
+			base := name
+			for n := 2; n < 100; n++ {
+				candidate := fmt.Sprintf("%s %d", base, n)
+				if !taken[strings.ToLower(candidate)] {
+					name = candidate
+					break
+				}
+			}
+		}
+	}
 	id := newAgentInstanceID()
 	if err := os.MkdirAll(agentInstanceThreadDir(id), 0o700); err != nil {
 		return AgentInstanceMeta{}, err

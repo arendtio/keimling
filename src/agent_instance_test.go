@@ -176,13 +176,18 @@ func TestResolveWorkspaceAgentMentions(t *testing.T) {
 	if err != nil || ambiguous || len(got) != 1 || got[0].ID != long.ID {
 		t.Fatalf("longer name: %+v %v %v", got, ambiguous, err)
 	}
-	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Entertainer 4 hello", nil)
-	if err != nil || !ambiguous || len(got) != 0 {
-		t.Fatalf("shared name needs a choice: %+v %v %v", got, ambiguous, err)
+	// A taken name gets the next free number, so two instances never share one
+	// and a name always identifies exactly one instance.
+	if ada2.Name != "Entertainer 4 2" {
+		t.Fatalf("duplicate name should be numbered: %q", ada2.Name)
 	}
-	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Entertainer 4 hello", []agentMentionPick{{ID: ada2.ID, Name: "Entertainer 4"}})
+	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Entertainer 4 2 hello", nil)
 	if err != nil || ambiguous || len(got) != 1 || got[0].ID != ada2.ID {
-		t.Fatalf("picked id: %+v %v %v", got, ambiguous, err)
+		t.Fatalf("numbered name: %+v %v %v", got, ambiguous, err)
+	}
+	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "@Entertainer 4 hello", nil)
+	if err != nil || ambiguous || len(got) != 1 || got[0].ID != ada.ID {
+		t.Fatalf("the exact name wins: %+v %v %v", got, ambiguous, err)
 	}
 	got, ambiguous, err = resolveWorkspaceAgentMentions(ws.ID, "mail me at a@Entertainer 4", []agentMentionPick{{ID: ada.ID}})
 	if err != nil || ambiguous || len(got) != 0 {

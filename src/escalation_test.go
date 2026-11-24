@@ -104,3 +104,42 @@ func TestEscalationsSkipABrokenLine(t *testing.T) {
 		t.Fatalf("list = %+v", list)
 	}
 }
+
+func TestEscalationCanBeMarkedDone(t *testing.T) {
+	withTempAgentHomes(t)
+	first, err := addEscalation("agent-1", "One", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addEscalation("agent-2", "Two", "second"); err != nil {
+		t.Fatal(err)
+	}
+	if openEscalations() != 2 {
+		t.Fatalf("open = %d", openEscalations())
+	}
+	if err := markEscalationDone(first.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if openEscalations() != 1 {
+		t.Fatalf("open after done = %d", openEscalations())
+	}
+	list := listEscalations(0)
+	var got *Escalation
+	for i := range list {
+		if list[i].ID == first.ID {
+			got = &list[i]
+		}
+	}
+	if got == nil || !got.Done || got.DoneAt.IsZero() {
+		t.Fatalf("entry = %+v", got)
+	}
+	if err := markEscalationDone(first.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if openEscalations() != 2 {
+		t.Fatalf("open after undo = %d", openEscalations())
+	}
+	if err := markEscalationDone("esc-missing", true); err == nil {
+		t.Fatal("unknown id should fail")
+	}
+}
