@@ -66,6 +66,56 @@ func (a *Agent) presentToolStart(name, args string) {
 	a.cliWrite(banner)
 }
 
+// presentToolReview tells GUI and CLI that a call is with the approval review
+// and has not started yet. The card shows this state until the gate decides.
+func (a *Agent) presentToolReview(name, args string) {
+	if quietTool(name) {
+		return
+	}
+	a.emitJSON("tool", map[string]any{
+		"phase":     "review",
+		"name":      name,
+		"command":   toolCommandLabel(name, args),
+		"input":     args,
+		"thread_id": a.Cfg.ThreadID,
+	})
+}
+
+// presentToolAsk tells the GUI that the call waits for a human now, so the card
+// does not look like it is already running.
+func (a *Agent) presentToolAsk(name, args string) {
+	if quietTool(name) {
+		return
+	}
+	a.emitJSON("tool", map[string]any{
+		"phase":     "ask",
+		"name":      name,
+		"command":   toolCommandLabel(name, args),
+		"input":     args,
+		"thread_id": a.Cfg.ThreadID,
+	})
+}
+
+// presentToolGo tells the GUI that the gate passed and the call starts now, so
+// the time spent in review can be shown apart from the time the call runs.
+func (a *Agent) presentToolGo(name, args string) {
+	if quietTool(name) {
+		return
+	}
+	a.emitJSON("tool", map[string]any{
+		"phase":     "go",
+		"name":      name,
+		"command":   toolCommandLabel(name, args),
+		"input":     args,
+		"thread_id": a.Cfg.ThreadID,
+	})
+}
+
+// quietTool has no card of its own: its effect is the plan or the finish line.
+func quietTool(name string) bool {
+	return name == "finish_task" || name == "update_plan"
+}
+
 // presentToolResult publishes tool output to GUI and CLI.
 // When filtered is true, result is the model-facing text and raw is the full shell output.
 // When filtered is false, result is the single display output and raw should be empty.

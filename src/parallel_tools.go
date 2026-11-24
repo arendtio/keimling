@@ -80,6 +80,7 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 			if agentRun {
 				purpose = a.reviewPurpose()
 			}
+			a.presentToolReview(item.Name, item.Arguments)
 			verdict, e := a.approvalReview(ctx, item.Name, item.Arguments, cwd, purpose, sus)
 			why := verdict.Reason
 			if e == nil {
@@ -105,11 +106,16 @@ func (a *Agent) beginToolCall(ctx context.Context, reader *bufio.Reader, item It
 	}
 	allowed := g.Allow
 	if g.Ask {
+		a.presentToolAsk(item.Name, item.Arguments)
 		var err error
 		allowed, err = a.waitApproval(ctx, reader, item.Name, toolCommandLabel(item.Name, item.Arguments), reason, renderApprovalPreview(item.Name, item.Arguments))
 		if err != nil {
 			return toolAdmit{}, err
 		}
+	}
+	if allowed {
+		// The gate is done for this call; a parallel wave starts right after.
+		a.presentToolGo(item.Name, item.Arguments)
 	}
 	return toolAdmit{Allowed: allowed, Deny: g.Deny, Reason: reason}, nil
 }

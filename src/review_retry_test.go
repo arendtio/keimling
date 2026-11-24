@@ -139,3 +139,66 @@ func TestReviewOutageAsksTheHumanUnlessNobodyCanAnswer(t *testing.T) {
 		t.Fatalf("yolo never reviews, so an outage cannot refuse it: %+v", g)
 	}
 }
+
+// The card shows the review before the gate passes, and the run only after it.
+func TestReviewedCallEmitsReviewThenGo(t *testing.T) {
+	defer shortenReviewBackoff(t)()
+	c := reviewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeReviewVerdict(w, "approve", "routine work")
+	})
+	var phases []string
+	a := &Agent{
+		Client: c,
+		Cfg:    Config{Mode: "auto", AgentInstanceID: "agent-1", ThreadID: "th-1"},
+		Emit: func(kind, text string) {
+			var m map[string]any
+			if kind != "tool" || json.Unmarshal([]byte(text), &m) != nil {
+				return
+			}
+			if name, _ := m["name"].(string); name == "mcp__demo__echo" {
+				phase, _ := m["phase"].(string)
+				phases = append(phases, phase)
+			}
+		},
+	}
+	adm, err := a.beginToolCall(context.Background(), nil, Item{Name: "mcp__demo__echo", CallID: "call-1", Arguments: `{}`})
+	if err != nil || !adm.Allowed {
+		t.Fatalf("admit=%+v err=%v", adm, err)
+	}
+	if strings.Join(phases, ",") != "start,review,go" {
+		t.Fatalf("phases=%v", phases)
+	}
+}
+
+// A review that asks refuses an agent run, and no go phase follows.
+func TestRefusedCallEmitsReviewWithoutGo(t *testing.T) {
+	defer shortenReviewBackoff(t)()
+	c := reviewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeReviewVerdict(w, "ask", "touches the network")
+	})
+	var phases []string
+	a := &Agent{
+		Client: c,
+		Cfg:    Config{Mode: "auto", AgentInstanceID: "agent-1", ThreadID: "th-1"},
+		Emit: func(kind, text string) {
+			var m map[string]any
+			if kind != "tool" || json.Unmarshal([]byte(text), &m) != nil {
+				return
+			}
+			if name, _ := m["name"].(string); name == "mcp__demo__echo" {
+				phase, _ := m["phase"].(string)
+				phases = append(phases, phase)
+			}
+		},
+	}
+	adm, err := a.beginToolCall(context.Background(), nil, Item{Name: "mcp__demo__echo", CallID: "call-2", Arguments: `{}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adm.Allowed || !adm.Deny {
+		t.Fatalf("admit=%+v", adm)
+	}
+	if strings.Join(phases, ",") != "start,review" {
+		t.Fatalf("phases=%v", phases)
+	}
+}

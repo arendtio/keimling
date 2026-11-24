@@ -5278,6 +5278,13 @@
     return box;
   }
 
+  function formatReviewTime(ms) {
+    var s = Number(ms) / 1000;
+    if (!isFinite(s) || s <= 0) return "";
+    if (s < 10) return s.toFixed(1) + "s";
+    return Math.round(s) + "s";
+  }
+
   function toolCard(m) {
     var name = m.name || "tool";
     var cmd = m.command || m.text || name;
@@ -5294,13 +5301,17 @@
     var status = m.status || (m.pending ? "pending" : (m.ok === false ? "failed" : "ran"));
     if (status === "failed") wrap.className += " failed";
     if (status === "stopped") wrap.className += " stopped";
+    if (m.reviewing) wrap.className += " reviewing";
     var ranLabel = status === "failed" ? "Failed" : status === "stopped" ? "Stopped" : "Ran";
+    if (m.pending) ranLabel = m.reviewing ? "Reviewing" : m.waiting ? "Awaiting approval" : "Running";
+    var reviewNote = formatReviewTime(m.reviewMs);
     var summary = document.createElement("summary");
     var rest = toolSummaryRest(name, cmd);
     summary.innerHTML =
       '<span class="tool-line-ran">' + ranLabel + "</span>" +
       '<span class="tool-line-name">' + esc(name) + "</span>" +
       (rest ? '<code class="tool-line-cmd">' + esc(rest) + "</code>" : "") +
+      (reviewNote ? '<span class="tool-line-review" title="Time in the approval review">checked ' + reviewNote + "</span>" : "") +
       (filtered ? '<span class="tool-line-funnel" title="Output filtered for model">▽</span>' : "") +
       (m.pending ? '<span class="tool-line-pending">…</span>' : "");
     wrap.appendChild(summary);
@@ -5309,7 +5320,8 @@
     stack.className = "tool-stack";
     stack.appendChild(toolBox("tool-box-cmd", "Input", esc(inputBody)));
 
-    var outputHTML = fullBody ? window.ansiToHtml(fullBody) : esc(m.pending ? "Running…" : "—");
+    var pendingText = m.reviewing ? "Waiting for the approval review…" : m.waiting ? "Waiting for your approval…" : "Running…";
+    var outputHTML = fullBody ? window.ansiToHtml(fullBody) : esc(m.pending ? pendingText : "—");
     if (filtered && filteredBody) {
       var fold = document.createElement("details");
       fold.className = "tool-output-fold";
@@ -5397,7 +5409,7 @@
   function messageSig(m) {
     if (!m) return "";
     if (m.role === "tool_group") {
-      return ["tool", m.name || "", m.command || "", m.input || "", m.pending ? "1" : "0", m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
+      return ["tool", m.name || "", m.command || "", m.input || "", m.pending ? "1" : "0", m.reviewing ? "1" : "0", m.waiting ? "1" : "0", String(m.reviewMs || 0), m.status || "", m.result || "", m.raw || "", m.filtered ? "1" : "0"].join("\u0001");
     }
     return [m.role || "", m.text || "", m.name || "", (m.files || []).join(","), m.streaming ? "1" : "0", m.collapsed ? "1" : "0", m.line || 0, m.branch_line || 0, m.branch_index || 0, m.branch_count || 0].join("\u0001");
   }
@@ -6187,6 +6199,14 @@
     noteGrowthMessage(payload);
   }
 
+  function pendingToolCard(name) {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      var m = messages[i];
+      if (m.role === "tool_group" && m.pending && m.name === (name || "tool")) return m;
+    }
+    return null;
+  }
+
   function handleStructuredTool(payload) {
     if (payload && payload.thread_id && payload.thread_id !== currentThreadID) return;
     if (!eventsForThisView()) return;
@@ -6203,8 +6223,46 @@
         result: "",
         raw: "",
         pending: true,
+        reviewing: false,
+        reviewMs: 0,
       });
       // Collapsed by default (no approval) — avoids expand/collapse scroll jump.
+      paintTranscript();
+      return;
+    }
+    if (payload.phase === "review") {
+      // The call is with the approval review and has not started yet.
+      var rev = pendingToolCard(payload.name);
+      if (!rev) return;
+      rev.reviewing = true;
+      rev.reviewAt = Date.now();
+      rev.reviewMs = 0;
+      paintTranscript();
+      return;
+    }
+    if (payload.phase === "ask") {
+      // The gate wants a human; the call has not started.
+      var asking = pendingToolCard(payload.name);
+      if (!asking) return;
+      if (asking.reviewAt) {
+        asking.reviewMs = Date.now() - asking.reviewAt;
+        asking.reviewAt = 0;
+      }
+      asking.reviewing = false;
+      asking.waiting = true;
+      paintTranscript();
+      return;
+    }
+    if (payload.phase === "go") {
+      // The gate passed; the call starts now.
+      var started = pendingToolCard(payload.name);
+      if (!started) return;
+      if (started.reviewAt) {
+        started.reviewMs = Date.now() - started.reviewAt;
+        started.reviewAt = 0;
+      }
+      started.reviewing = false;
+      started.waiting = false;
       paintTranscript();
       return;
     }
@@ -6223,11 +6281,19 @@
       raw: payload.filtered ? (payload.raw || "") : "",
       filtered: !!payload.filtered,
       pending: false,
+      reviewing: false,
+      waiting: false,
       ok: payload.ok,
       status: status,
     };
     for (var i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "tool_group" && messages[i].pending && messages[i].name === resultMsg.name) {
+        // Keep the time spent in review, so the card can show it apart from the run.
+        if (messages[i].reviewAt) {
+          resultMsg.reviewMs = Date.now() - messages[i].reviewAt;
+        } else {
+          resultMsg.reviewMs = messages[i].reviewMs || 0;
+        }
         messages[i] = resultMsg;
         paintTranscript();
         return;

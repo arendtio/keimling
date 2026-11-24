@@ -1781,6 +1781,22 @@ button.wide { width: 100%; max-width: 100%; }
   letter-spacing: 0.04em;
   font-size: 0.7rem;
 }
+.tool-line.reviewing .tool-line-ran {
+  color: var(--accent);
+}
+.tool-line.reviewing .tool-line-pending {
+  animation: tool-review-pulse 1.2s ease-in-out infinite;
+}
+.tool-line-review {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+@keyframes tool-review-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
 .tool-line.failed .tool-line-ran,
 .tool-line.stopped .tool-line-ran {
   color: var(--danger);

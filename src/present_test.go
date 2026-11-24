@@ -72,6 +72,49 @@ func TestPresentToolEventsCarryThreadID(t *testing.T) {
 	}
 }
 
+func TestPresentToolReviewAndGoPhases(t *testing.T) {
+	var phases []string
+	var names []string
+	a := &Agent{
+		Emit: func(kind, text string) {
+			var m map[string]any
+			if kind != "tool" || json.Unmarshal([]byte(text), &m) != nil {
+				return
+			}
+			phase, _ := m["phase"].(string)
+			name, _ := m["name"].(string)
+			phases = append(phases, phase)
+			names = append(names, name)
+		},
+	}
+	args := `{"command":"git push"}`
+	a.presentToolStart("exec", args)
+	a.presentToolReview("exec", args)
+	a.presentToolGo("exec", args)
+	a.presentToolAsk("exec", args)
+	want := []string{"start", "review", "go", "ask"}
+	if strings.Join(phases, ",") != strings.Join(want, ",") {
+		t.Fatalf("phases=%v", phases)
+	}
+	for i, name := range names {
+		if name != "exec" {
+			t.Fatalf("name %d = %q", i, name)
+		}
+	}
+}
+
+// The plan and the finish line have no tool card, so they get no phase events.
+func TestPresentToolPhasesSkipQuietTools(t *testing.T) {
+	var count int
+	a := &Agent{Emit: func(kind, text string) { count++ }}
+	a.presentToolReview("update_plan", `{}`)
+	a.presentToolGo("finish_task", `{}`)
+	a.presentToolAsk("update_plan", `{}`)
+	if count != 0 {
+		t.Fatalf("events=%d", count)
+	}
+}
+
 func TestPresentFinish(t *testing.T) {
 	var payload map[string]any
 	a := &Agent{

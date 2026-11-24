@@ -124,3 +124,26 @@ The name may be bold.
 Origin: User, 2026-11-12 (quote: "Ich habe das gefühl da steht die der Methodenname immer zweimal. aber einmal würde reichen. Fett gedruck ist ok.").
 
 Fit: A call shown as `RAN mcp_tools mcp_tools {"query":…}` shows `RAN` and `mcp_tools` once, then the arguments. The same for `mcp__Operations__project_status`.
+
+### REQ-VE-14 A call under review says so, and its review time stays visible
+
+While a call waits for the automatic approval review, its tool line shall say
+`Reviewing` instead of looking like a running call. When the gate passes, the
+line shall say `Running`, and when the gate asks a human it shall say
+`Awaiting approval`. After the gate decides, the closed line shall show how long
+the review took (`checked 2.3s`), so review time and run time can be compared.
+This is progress, not transcript: after a reload the line shows the state the
+stored events carry, without the measured time.
+
+Origin: User, 2026-11-23 (quote: "dass man dann an der Oberfläche gar nicht sieht, wie viel Zeit eigentlich mit der Prüfung vergeht … dass man einmal sehen kann, okay, jetzt läuft gerade die Prüfung durch und okay, jetzt läuft der Befehl eigentlich erst los").
+
+Rationale: In auto mode the review is a model call, and its latency was spent
+in silence. A call that looks running while it only waits for a reviewer hides
+where the time goes.
+
+Fit: In auto mode an `exec` that goes to the reviewer shows `REVIEWING exec …`
+on the card while the review runs, then `RUNNING`, and after the result the
+closed line shows `checked` with the review duration; the run itself is not
+included. A call refused by the reviewer shows `FAILED` with the same duration.
+A call that asks the human reads `AWAITING APPROVAL` until it is answered. A
+call that never went to the reviewer shows no `checked` note.

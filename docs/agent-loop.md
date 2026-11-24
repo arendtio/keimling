@@ -89,6 +89,10 @@ names the affected path, and file edits show the old/new preview above the
 `Approve? [Y/n]` prompt. Approval reasons are specific, for example
 `modifying existing file` or `write outside working directory`.
 
+While the review model decides, the tool card reads `Reviewing`, and the card
+shows the measured review time once the gate is done, so review time and run
+time stay apart. A call waiting for a human reads `Awaiting approval`.
+
 A failed review call is retried twice with a short pause before it counts as an
 outage. On an outage the call becomes a question to the user. A live realtime
 call and a run with nobody to answer refuse instead, so an unattended run still
