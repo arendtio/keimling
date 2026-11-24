@@ -90,6 +90,20 @@ func prepare(id, specSetup string) (*prepared, error) {
 	case "column-table":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, columnTablePrior(), 0o600)
+	case "plan-and-report":
+		notes := filepath.Join(root, "notes")
+		if err = os.MkdirAll(notes, 0o700); err == nil {
+			files := map[string]string{
+				"alpha.txt": "ALPHA-CODE: A-17\nOwner: Ada\n",
+				"beta.txt":  "BETA-CODE: B-42\nOwner: Bo\n",
+				"gamma.txt": "GAMMA-CODE: G-09\nOwner: Cy\n",
+			}
+			for name, body := range files {
+				if err = os.WriteFile(filepath.Join(notes, name), []byte(body), 0o600); err != nil {
+					break
+				}
+			}
+		}
 	case "service-table":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, serviceTablePrior(), 0o600)

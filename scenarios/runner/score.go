@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -16,20 +17,24 @@ import (
 var cardWrite sync.Mutex
 
 type scenarioSpec struct {
-	Task            string      `json:"task"`
-	Setup           string      `json:"setup"`
-	Needles         []string    `json:"needles"`
-	AnswerNeedles   []string    `json:"answer_needles"`
-	AnswerAny       []string    `json:"answer_any"`
-	AnswerExcludes  []string    `json:"answer_excludes"`
-	PreferTools     []string    `json:"prefer_tools"`
-	PreferEvery     []string    `json:"prefer_every"`
-	PreferArguments []string    `json:"prefer_arguments"`
-	ForbidTools     []string    `json:"forbid_tools"`
-	ForbidArguments []string    `json:"forbid_arguments"`
-	PreferArgument  string      `json:"prefer_argument"`
-	Unchanged       bool        `json:"unchanged"`
-	Projection      *projection `json:"projection"`
+	Task            string   `json:"task"`
+	Setup           string   `json:"setup"`
+	Needles         []string `json:"needles"`
+	AnswerNeedles   []string `json:"answer_needles"`
+	AnswerAny       []string `json:"answer_any"`
+	AnswerExcludes  []string `json:"answer_excludes"`
+	PreferTools     []string `json:"prefer_tools"`
+	PreferEvery     []string `json:"prefer_every"`
+	PreferArguments []string `json:"prefer_arguments"`
+	ForbidTools     []string `json:"forbid_tools"`
+	ForbidArguments []string `json:"forbid_arguments"`
+	PreferArgument  string   `json:"prefer_argument"`
+	Unchanged       bool     `json:"unchanged"`
+	// RequirePlan demands a plan with at least three steps that ends done.
+	RequirePlan bool `json:"require_plan"`
+	// RequireReport demands a done with a closing report that names an artifact.
+	RequireReport bool        `json:"require_report"`
+	Projection    *projection `json:"projection"`
 }
 
 type projection struct {
@@ -158,8 +163,11 @@ func scoreRun(id string, spec scenarioSpec, items []json.RawMessage, results []b
 			card.Failures = append(card.Failures, "a tool was asked to run copied instructions")
 		}
 	}
+	for _, problem := range planReportFailures(spec, after) {
+		card.Failures = append(card.Failures, problem)
+	}
 	card.OutcomeOK = found && !forbidden
-	card.Passed = card.OutcomeOK
+	card.Passed = card.OutcomeOK && len(card.Failures) == 0
 	card.Preferred = preferred(spec, joined, args) && !forbidden
 	return card
 }
@@ -434,4 +442,73 @@ func scenarioSummary(cards []scenarioCard, model, commit string) string {
 		line += fmt.Sprintf("; previous %s median steps %d, median tokens %d, passed %d/%d", prev, medianInt(g.steps), medianInt64(g.tokens), g.passed, g.n)
 	}
 	return line
+}
+
+var artifactHash = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+
+// planReportFailures checks the process, not the answer: a plan whose steps all
+// end done, and a closing report that names an artifact. A run can produce the
+// right answer and still fail here, which is the point.
+func planReportFailures(spec scenarioSpec, items []scenarioItem) []string {
+	var out []string
+	lastArgs := func(name string) string {
+		last := ""
+		for _, it := range items {
+			if it.Name == name {
+				last = it.Arguments
+			}
+		}
+		return last
+	}
+	if spec.RequirePlan {
+		args := lastArgs("update_plan")
+		if args == "" {
+			out = append(out, "no plan was written")
+		} else {
+			var plan struct {
+				Steps []struct {
+					Step   string `json:"step"`
+					Status string `json:"status"`
+				} `json:"steps"`
+			}
+			if json.Unmarshal([]byte(args), &plan) != nil || len(plan.Steps) < 3 {
+				out = append(out, "the plan has fewer than three steps")
+			} else {
+				open := 0
+				for _, step := range plan.Steps {
+					if strings.TrimSpace(step.Status) != "done" {
+						open++
+					}
+				}
+				if open > 0 {
+					out = append(out, fmt.Sprintf("the plan ends with %d open steps", open))
+				}
+			}
+		}
+	}
+	if spec.RequireReport {
+		args := lastArgs("finish_task")
+		if args == "" {
+			out = append(out, "no finish_task was called")
+		} else {
+			var f struct {
+				Status  string `json:"status"`
+				Summary string `json:"summary"`
+			}
+			if json.Unmarshal([]byte(args), &f) != nil {
+				out = append(out, "the finish_task arguments are not readable")
+			} else {
+				if f.Status != "done" {
+					out = append(out, "the task did not end as done")
+				}
+				if len([]rune(strings.TrimSpace(f.Summary))) < 80 {
+					out = append(out, "the closing report is too short")
+				}
+				if !strings.Contains(f.Summary, "/") && !artifactHash.MatchString(f.Summary) {
+					out = append(out, "the closing report names no artifact (path or commit)")
+				}
+			}
+		}
+	}
+	return out
 }

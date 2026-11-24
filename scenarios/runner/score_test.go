@@ -497,3 +497,35 @@ func out(text string) string {
 	b, _ := json.Marshal(text)
 	return `{"type":"function_call_output","output":` + string(b) + `}`
 }
+
+func TestPlanReportFailuresDemandAFinishedPlanAndAReport(t *testing.T) {
+	spec := scenarioSpec{RequirePlan: true, RequireReport: true}
+	plan := `{"steps":[{"step":"read the notes","status":"done"},{"step":"write codes.txt","status":"done"},{"step":"write report.md","status":"done"}]}`
+	report := `{"status":"done","summary":"Zwei Dateien geschrieben: summary/codes.txt und summary/report.md, Codes A-17, B-42, G-09 geprueft, nichts offen."}`
+	items := []scenarioItem{{Name: "update_plan", Arguments: plan}, {Name: "finish_task", Arguments: report}}
+	if failures := planReportFailures(spec, items); len(failures) != 0 {
+		t.Fatalf("a finished plan with a report must pass: %v", failures)
+	}
+
+	open := []scenarioItem{
+		{Name: "update_plan", Arguments: `{"steps":[{"step":"read the notes","status":"done"},{"step":"write codes.txt","status":"pending"},{"step":"write report.md","status":"pending"}]}`},
+		{Name: "finish_task", Arguments: report},
+	}
+	failures := planReportFailures(spec, open)
+	if len(failures) != 1 || !strings.Contains(failures[0], "2 open steps") {
+		t.Fatalf("open steps: %v", failures)
+	}
+
+	noReport := []scenarioItem{
+		{Name: "update_plan", Arguments: plan},
+		{Name: "finish_task", Arguments: `{"status":"done","summary":"done"}`},
+	}
+	failures = planReportFailures(spec, noReport)
+	if len(failures) != 2 {
+		t.Fatalf("short report without an artifact: %v", failures)
+	}
+
+	if failures := planReportFailures(scenarioSpec{}, noReport); len(failures) != 0 {
+		t.Fatalf("without the flags nothing is demanded: %v", failures)
+	}
+}
