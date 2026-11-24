@@ -73,6 +73,52 @@ func TestGuiPrefsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGuiPrefsToleratesDamagedFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.json")
+	path := guiPrefsPath(cfg)
+	// A valid value followed by a stray tail, as found in the field.
+	body := "{\n  \"bg_dark\": \"#112233\",\n  \"growth_logo\": false\n}\n\": 1136\n}\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readGuiPrefs(cfg)
+	if err != nil {
+		t.Fatalf("damaged tail must not fail: %v", err)
+	}
+	if got.BgDark != "#112233" || got.GrowthLogo == nil || *got.GrowthLogo {
+		t.Fatalf("%#v", got)
+	}
+	if _, err := os.Stat(path + ".corrupt"); !os.IsNotExist(err) {
+		t.Fatal("recoverable file must not be moved aside")
+	}
+
+	// Unreadable from the first byte: defaults, and the file is kept for inspection.
+	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = readGuiPrefs(cfg)
+	if err != nil {
+		t.Fatalf("unreadable file must not fail: %v", err)
+	}
+	if got.BgDark != "" {
+		t.Fatalf("%#v", got)
+	}
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Fatalf("damaged file must be kept: %v", err)
+	}
+	if err := writeGuiPrefs(cfg, guiPrefs{BgDark: "#445566"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = readGuiPrefs(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BgDark != "#445566" {
+		t.Fatalf("%#v", got)
+	}
+}
+
 func TestApplyGuiPrefsConnect(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.json")

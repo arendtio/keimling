@@ -711,6 +711,9 @@
         return;
       }
       var x = t * nSeg;
+      // Firefox reports a first-frame timestamp that can precede performance.now()
+      // taken when scheduling, which would index points[-1].
+      if (!(x >= 0)) x = 0;
       var i = Math.min(nSeg - 1, Math.floor(x));
       var u = growthEase(x - i);
       growthPose = {

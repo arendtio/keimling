@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -159,8 +160,12 @@ func readGuiPrefs(configPath string) (guiPrefs, error) {
 	if err != nil {
 		return p, err
 	}
-	if err := json.Unmarshal(b, &p); err != nil {
-		return p, err
+	// Decode one JSON value and ignore trailing bytes: an interrupted or
+	// hand-edited file must not turn every /api/gui-prefs request into a 500.
+	if err := json.NewDecoder(bytes.NewReader(b)).Decode(&p); err != nil {
+		// Unreadable even at the start: keep it for inspection, start from defaults.
+		_ = os.Rename(path, path+".corrupt")
+		return guiPrefs{}, nil
 	}
 	p.Connect = strings.TrimSpace(p.Connect)
 	p.AccessSecret = strings.TrimSpace(p.AccessSecret)
