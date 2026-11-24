@@ -184,7 +184,7 @@ func openRuntimeAgent(configPath, workspaceID, agentInstanceID string) (*Agent, 
 		Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(),
 		Credentials: NewCredentialBroker(configPath),
 	}
-	a.Client.Spend = recordCloudSpend
+	a.Client.Spend = agentSpendHook(a)
 	a.Cfg.ConversationMode = a.Cfg.Mode
 	a.applyDefinitionApproval()
 	if ch, chErr := loadCharter(sessPath); chErr == nil {

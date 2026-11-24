@@ -593,7 +593,7 @@ func main() {
 	defer journal.Close()
 	c := Config{Model: *model, CompactionModel: *compactionModel, Mode: *mode, Key: key, SessionPath: *session, VoiceModel: *voiceModel, VoiceProviderID: voiceProviderID, RealtimeModel: strings.TrimSpace(fc.RealtimeModel), RealtimeProviderID: realtimeProviderID, RealtimeVoice: strings.TrimSpace(fc.RealtimeVoice), HasModelProvider: len(fc.ModelProviders) > 0, DisableExternal: *disableExternal, Search: fc.Search, Web: *web, CompactParallel: *compactParallel, MaxSteps: *steps, ContextLimit: *ctxLimit, MCPParallel: mcpParallelLimit(fc.MCPParallel), ReviewModel: *reviewModel, ApprovalPolicy: policyText, ApprovalPolicyReplace: policyReplace, ToolAsk: fc.Features.ToolAsk, ArtifactProxy: fc.Features.ArtifactProxy, Reasoning: *reasoning, BaseURL: resolvedURL, DelegateFast: *delegateFast, DelegateBalanced: *delegateBalanced, DelegateDeep: *delegateDeep, Autopilot: *pilot, AutopilotInstructions: strings.TrimSpace(fc.Features.AutopilotInstructions), ExternalClient: externalClient, PilotModel: *pilotModel, PilotReasoning: *pilotReasoning, ConfigPath: *configPath, PublicURL: strings.TrimRight(strings.TrimSpace(*publicURL), "/"), WorkspaceID: ws.ID, WorkspaceRoot: ws.Root, ThreadID: threadID, AgentInstanceID: agentInstanceID, AgentInstructions: agentInstructions, AllowedWorkspaces: allowedWorkspaces}
 	a := &Agent{Cfg: c, Client: NewClient(key), Journal: journal, History: journal.History, Shares: newFileShareHub(), Skills: LoadSkillRegistry(""), MCP: NewMCPManager(), Credentials: NewCredentialBroker(*configPath)}
-	a.Client.Spend = recordCloudSpend
+	a.Client.Spend = agentSpendHook(a)
 	a.Cfg.ConversationMode = a.Cfg.Mode
 	a.Cfg.AuxiliaryModel = strings.TrimSpace(*auxiliaryModel)
 	a.applyDefinitionApproval()

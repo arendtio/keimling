@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,6 +49,10 @@ type spendRecord struct {
 	OutputTokens int64    `json:"output_tokens"`
 	USD          *float64 `json:"usd,omitempty"`
 	Priced       bool     `json:"priced"`
+	// AgentID and ThreadID name who caused the call. Empty for the human's own
+	// chat and for helper calls, so old records stay valid.
+	AgentID  string `json:"agent_id,omitempty"`
+	ThreadID string `json:"thread_id,omitempty"`
 }
 
 // spendBudgetRecord is one real provider budget fetch, not a cache hit.
@@ -84,6 +89,56 @@ func appendSpendJSONL(dir, prefix string, at time.Time, line []byte) error {
 // line. A ledger write must never break a chat, so errors only log.
 func recordCloudSpend(rec spendRecord) {
 	recordModelSpend(spendDir(), rec)
+}
+
+// agentSpendHook stamps the caller on each record, so a limit can be enforced
+// per agent later. A nil agent keeps the plain hook.
+func agentSpendHook(a *Agent) func(spendRecord) {
+	if a == nil {
+		return recordCloudSpend
+	}
+	return func(rec spendRecord) {
+		if rec.AgentID == "" {
+			rec.AgentID = strings.TrimSpace(a.Cfg.AgentInstanceID)
+		}
+		if rec.ThreadID == "" {
+			rec.ThreadID = strings.TrimSpace(a.Cfg.ThreadID)
+		}
+		recordCloudSpend(rec)
+	}
+}
+
+// agentSpendToday sums the priced calls of one agent for the current UTC day.
+// An unreadable or missing ledger means nothing has been spent.
+func agentSpendToday(agentID string) float64 {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return 0
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	path := filepath.Join(spendDir(), spendRecordPrefix+"-"+day[:7]+".jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	total := 0.0
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		var rec spendRecord
+		if json.Unmarshal(sc.Bytes(), &rec) != nil {
+			continue
+		}
+		if rec.AgentID != agentID || rec.USD == nil {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, rec.Time); err == nil && t.UTC().Format("2006-01-02") != day {
+			continue
+		}
+		total += *rec.USD
+	}
+	return total
 }
 
 // recordModelSpend prices and appends one model response. Without a known
@@ -484,4 +539,34 @@ func parseSpendDays(gran string, raw string) int {
 		return spendDays(gran, 0)
 	}
 	return spendDays(gran, n)
+}
+
+// agentSpendLimitError refuses the next turn once an instance has used up the
+// daily cap of its definition. A chat or an instance without a cap is never
+// refused.
+func agentSpendLimitError(a *Agent) error {
+	if a == nil {
+		return nil
+	}
+	id := strings.TrimSpace(a.Cfg.AgentInstanceID)
+	if id == "" {
+		return nil
+	}
+	m, err := readAgentInstanceMeta(id)
+	if err != nil {
+		return nil
+	}
+	rec, err := readAgentRecipe(m.RecipeID)
+	if err != nil || rec.SpendLimitUSD == nil {
+		return nil
+	}
+	limit := *rec.SpendLimitUSD
+	if limit <= 0 {
+		return nil
+	}
+	spent := agentSpendToday(id)
+	if spent < limit {
+		return nil
+	}
+	return fmt.Errorf("spend limit reached: $%.2f of $%.2f used today. Raise the limit in the definition or wait for tomorrow", spent, limit)
 }

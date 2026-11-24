@@ -2440,7 +2440,7 @@ func (s *appServer) applySettings(body agentSettings) error {
 		if s.agent.Client == nil {
 			s.agent.Client = NewClient(k)
 			s.agent.Client.BaseURL = cfg.BaseURL
-			s.agent.Client.Spend = recordCloudSpend
+			s.agent.Client.Spend = agentSpendHook(s.agent)
 		} else {
 			s.agent.Client.APIKey = k
 		}
@@ -3421,6 +3421,9 @@ func (s *appServer) acceptAgentText(text, from, kind, view string) (queued bool,
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return false, fmt.Errorf("text required")
+	}
+	if err := agentSpendLimitError(s.agent); err != nil {
+		return false, err
 	}
 	s.noteUserTurn()
 	inst := ""

@@ -20,6 +20,9 @@ type AgentRecipe struct {
 	Mode string `json:"mode,omitempty"`
 	// ReviewPrompt replaces the factory review prompt when set.
 	ReviewPrompt string `json:"review_prompt,omitempty"`
+	// SpendLimitUSD caps what one instance of this definition may spend per UTC
+	// day. Nil or zero means no cap.
+	SpendLimitUSD *float64 `json:"spend_limit_usd,omitempty"`
 	// Tools is nil until the definition saves a tool choice. Nil grants every tool.
 	Tools      *[]string `json:"tools,omitempty"`
 	Skills     []string  `json:"skills,omitempty"`
