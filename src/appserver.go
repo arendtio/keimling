@@ -3084,6 +3084,7 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Text        string   `json:"text"`
+		ThreadID    string   `json:"thread_id"`
 		Attachments []string `json:"attachments"`
 		To          []struct {
 			ID   string `json:"id"`
@@ -3172,7 +3173,14 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no model provider is configured", http.StatusConflict)
 		return
 	}
-	queued, err := s.acceptAgentText(text, "user", "message")
+	target := strings.TrimSpace(body.ThreadID)
+	if target != "" {
+		if _, err := readThreadMeta(s.agent.Cfg.WorkspaceID, target); err != nil {
+			http.Error(w, "unknown thread", http.StatusBadRequest)
+			return
+		}
+	}
+	queued, err := s.acceptAgentText(text, "user", "message", target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -3405,7 +3413,11 @@ func (s *appServer) handleThreadDeliver(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
-func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err error) {
+// acceptAgentText takes one human message. view is the thread the human is
+// looking at; empty falls back to the view this process tracks. Naming it
+// keeps two open chats apart: the message lands where it was typed, not where
+// another window happens to point.
+func (s *appServer) acceptAgentText(text, from, kind, view string) (queued bool, err error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return false, fmt.Errorf("text required")
@@ -3419,7 +3431,10 @@ func (s *appServer) acceptAgentText(text, from, kind string) (queued bool, err e
 		_ = setAgentWakesHeld(inst, false)
 	}
 	if inst == "" && s.agent != nil && strings.TrimSpace(s.agent.Cfg.WorkspaceID) != "" {
-		view := s.viewedThread()
+		view = strings.TrimSpace(view)
+		if view == "" {
+			view = s.viewedThread()
+		}
 		run := s.agent.Cfg.ThreadID
 		s.mu.Lock()
 		busy := s.busy

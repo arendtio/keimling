@@ -384,7 +384,7 @@ func TestAcceptAgentTextSteersWhenBusy(t *testing.T) {
 	srv.busy = true
 	srv.mu.Unlock()
 
-	queued, err := srv.acceptAgentText("please pivot", "user", "message")
+	queued, err := srv.acceptAgentText("please pivot", "user", "message", "")
 	if err != nil || !queued {
 		t.Fatalf("steer: queued=%v err=%v", queued, err)
 	}

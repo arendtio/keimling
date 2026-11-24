@@ -10754,7 +10754,7 @@
     fetch(apiURL("/api/message"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ text: text, to: picks, attachments: files.map(function (f) { return f.id; }) }),
+      body: JSON.stringify({ text: text, to: picks, thread_id: currentThreadID || "", attachments: files.map(function (f) { return f.id; }) }),
     })
       .then(function (r) {
         return r.text().then(function (t) {
