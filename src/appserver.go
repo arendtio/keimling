@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -339,7 +340,24 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	} else if events, err := originalEvents(path); err == nil && len(events) > 0 {
 		uiHistory = events
 	}
-	msgs := sessionMessages(uiHistory, 120)
+	// The transcript keeps the tail by default. A reader who wants the start of a
+	// long session asks for a larger limit; the total lets the UI say how much is
+	// missing instead of silently cutting it.
+	msgLimit := 120
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			msgLimit = n
+			if msgLimit > 5000 {
+				msgLimit = 5000
+			}
+		}
+	}
+	allMsgs := sessionMessages(uiHistory, 1<<30)
+	msgTotal := len(allMsgs)
+	msgs := allMsgs
+	if len(msgs) > msgLimit {
+		msgs = msgs[len(msgs)-msgLimit:]
+	}
 	annotateBranchMessages(path, msgs, branchLines)
 	if background {
 		if queued, err := peekThreadMessages(s.agent.Cfg.WorkspaceID, viewID); err == nil {
@@ -399,6 +417,7 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		"agent_instance_id":     s.agent.Cfg.AgentInstanceID,
 		"lines":                 sessionTranscript(uiHistory, 200),
 		"messages":              msgs,
+		"messages_total":        msgTotal,
 		"chapters":              sessionChaptersFor(path),
 		"working_state":         sessionWorkingState(path),
 		"busy":                  s.threadBusy(threadID),

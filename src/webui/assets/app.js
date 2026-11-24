@@ -6721,6 +6721,13 @@
     applyModelChrome(j);
     modeEl.textContent = j.mode || "—";
     var incoming = j.messages || [];
+    var total = Number(j.messages_total || 0);
+    if (total > incoming.length && incoming.length) {
+      var missing = total - incoming.length;
+      if (!incoming[0] || incoming[0].role !== "system" || String(incoming[0].text || "").indexOf("earlier messages") < 0) {
+        incoming = [{ role: "system", text: missing + " earlier messages are not shown." }].concat(incoming);
+      }
+    }
     var nextKey = sessionViewKey(j);
     var sameView = shownViewKey !== "" && nextKey === shownViewKey;
     if (!sameView) activeChapter = null;
@@ -6798,7 +6805,7 @@
   function loadSession() {
     sessionEpoch += 1;
     var epoch = sessionEpoch;
-    return fetch(apiURL("/api/session"), { headers: headers() }).then(function (r) {
+    return fetch(apiURL("/api/session?limit=600"), { headers: headers() }).then(function (r) {
       return r.json().then(function (j) {
         if (epoch !== sessionEpoch) return;
         if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
@@ -10814,6 +10821,8 @@
         }
         renderAttachRow();
         messages.push({ role: "user", text: text, files: files.map(function (f) { return f.name; }) });
+        lastUserEchoText = String(text || "").trim();
+        lastUserEchoAt = Date.now();
         noteGrowthMessage({ role: "user" });
         if (j && j.queued) {
           messages.push({
@@ -10894,6 +10903,10 @@
   var assistantLive = "";
   var assistantSaved = false;
   var userLive = "";
+  // A sent message is shown at once; the server echo of the same line must not
+  // add a second copy. Text plus time is the guard.
+  var lastUserEchoText = "";
+  var lastUserEchoAt = 0;
   var callLimitTimer = 0;
   var callTransport = "";
   var callCapCtx = null;
@@ -11333,6 +11346,10 @@
     if (itemID) callUserSaved[itemID] = true;
     var last = messages[messages.length - 1];
     if (last && last.role === "user" && last.live && String(last.text || "").trim() === text && last.liveDone) return;
+    if (lastUserEchoText && lastUserEchoText === text && Date.now() - lastUserEchoAt < 5000) {
+      lastUserEchoText = "";
+      return;
+    }
     userLive = "";
     showCallLine("user", text, true);
     persistCallLine("user", text);
