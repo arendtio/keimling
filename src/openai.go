@@ -100,6 +100,10 @@ type Item struct {
 }
 
 func toolDef(name, desc string, props map[string]any, required ...string) map[string]any {
+	if required == nil {
+		// A strict schema must send an array, never null, even with no parameter.
+		required = []string{}
+	}
 	return map[string]any{"type": "function", "name": name, "description": desc, "parameters": map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}, "strict": true}
 }
 func definitions(web bool, extra ...[]map[string]any) []map[string]any {

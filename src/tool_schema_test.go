@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -57,5 +58,54 @@ func TestToolDefinitionsAreStrictComplete(t *testing.T) {
 	}
 	if len(all) > 0 {
 		t.Fatalf("tool schemas are not strict-complete: %s", strings.Join(all, "; "))
+	}
+}
+
+// A strict JSON schema carries `required` as an array. Encoding a nil slice
+// writes null, which a proxy rejects even for a tool without parameters.
+func TestToolSchemasMarshalRequiredAsArray(t *testing.T) {
+	for _, tool := range definitions(true) {
+		name, _ := tool["name"].(string)
+		b, err := json.Marshal(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Parameters struct {
+				Required json.RawMessage `json:"required"`
+				Type     string          `json:"type"`
+			} `json:"parameters"`
+		}
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		req := strings.TrimSpace(string(doc.Parameters.Required))
+		if doc.Parameters.Type != "object" || !strings.HasPrefix(req, "[") {
+			t.Fatalf("%s type=%s required=%s", name, doc.Parameters.Type, req)
+		}
+	}
+}
+
+// The camera tool takes no parameter. It still needs an object schema with an
+// empty properties map and an empty required array.
+func TestCameraToolSchemaHasNoParameters(t *testing.T) {
+	var found bool
+	for _, tool := range cameraToolDefs() {
+		if tool["name"] != "camera_snapshot" {
+			continue
+		}
+		found = true
+		params, _ := tool["parameters"].(map[string]any)
+		props, _ := params["properties"].(map[string]any)
+		required, ok := params["required"].([]string)
+		if !ok || len(props) != 0 || len(required) != 0 {
+			t.Fatalf("parameters=%v", params)
+		}
+		if strict, _ := tool["strict"].(bool); !strict {
+			t.Fatal("camera_snapshot is not strict")
+		}
+	}
+	if !found {
+		t.Fatal("camera_snapshot missing")
 	}
 }
