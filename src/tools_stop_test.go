@@ -3,7 +3,10 @@
 package main
 
 import (
+	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -54,7 +57,44 @@ func TestStopKillsCommandLeftInBackground(t *testing.T) {
 		if syscall.Kill(-pgid, 0) != nil {
 			return
 		}
+		// A killed child whose parent is gone becomes a zombie until the
+		// reaper collects it. A zombie keeps the process group visible but
+		// is not a running command.
+		if !processGroupHasLiveMember(pgid) {
+			return
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("background command still running after stop")
+}
+
+// processGroupHasLiveMember reports whether any process in the group is more
+// than a zombie. Reads /proc, so it is Linux-only; other systems fall back to
+// the plain group check.
+func processGroupHasLiveMember(pgid int) bool {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return true
+	}
+	for _, e := range entries {
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		// stat: pid (comm) state ppid pgrp ...
+		fields := strings.Fields(string(b))
+		if len(fields) < 5 {
+			continue
+		}
+		if fields[2] == "Z" {
+			continue
+		}
+		if fields[4] == strconv.Itoa(pgid) {
+			return true
+		}
+	}
+	return false
 }

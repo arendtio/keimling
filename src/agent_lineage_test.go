@@ -59,7 +59,10 @@ func TestSpawnerSeesAndControlsItsChildAnywhere(t *testing.T) {
 	}
 }
 
-func TestAChildCannotControlItsParent(t *testing.T) {
+// Control follows reach, not the spawn line: whoever may talk to an instance,
+// or works beside it, may stop and delete it. The team relies on that (the
+// optimizer removes developers it did not start).
+func TestControlFollowsReach(t *testing.T) {
 	parent, recipe := lineageFixture(t, "Lead")
 	child, err := createAgentInstanceForPath(recipe, parent.CurrentWorkspace, "", "Child", parent.ID)
 	if err != nil {
@@ -70,9 +73,22 @@ func TestAChildCannotControlItsParent(t *testing.T) {
 	if !strings.Contains(listed, parent.ID) || !strings.Contains(listed, "relation=parent") {
 		t.Fatalf("the child must see its spawner:\n%s", listed)
 	}
-	got := kid.stopAgentTool(`{"instance_id":"` + parent.ID + `"}`)
-	if !strings.Contains(got, "was not started by you") {
-		t.Fatalf("a child must not stop its parent: %q", got)
+	if got := kid.stopAgentTool(`{"instance_id":"` + parent.ID + `"}`); !strings.Contains(got, "stopped") {
+		t.Fatalf("an instance in my workspace is reachable: %q", got)
+	}
+
+	// An instance in another workspace that is neither a contact nor in my
+	// workspace cannot even be resolved.
+	otherWS, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	far, err := createAgentInstance(recipe, otherWS.ID, "Far")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kid.stopAgentTool(`{"instance_id":"` + far.ID + `"}`); !strings.Contains(got, "unknown agent") {
+		t.Fatalf("out of reach: %q", got)
 	}
 }
 

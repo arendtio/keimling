@@ -73,6 +73,11 @@ function makeVoice() {
     },
     navigator: { mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop() { stopped++; } }] }) } },
     FormData: FormDataMock,
+    // The slice under test reads and sets a few names app.js declares above it.
+    voiceWorking: false,
+    composerMobile: false,
+    voiceDiscard() {},
+    syncDictateChrome() {},
     fetch(url, options) { requests.push({ url, options }); return Promise.resolve(nextResponse); },
     headers: () => ({ "Content-Type": "application/json", Authorization: "Bearer test" }),
     apiURL: p => p,

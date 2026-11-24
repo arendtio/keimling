@@ -16,6 +16,10 @@ func withTempAgentHomes(t *testing.T) (cleanup func()) {
 	_ = os.MkdirAll(data, 0o700)
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_DATA_HOME", data)
+	// A test never talks to the running app: its registry would answer for
+	// instances the test created in its own temporary home.
+	t.Setenv("KEIMLING_HOST", "")
+	t.Setenv("KEIMLING_SECRET", "")
 	return func() {}
 }
 

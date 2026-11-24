@@ -474,10 +474,18 @@ func (a *Agent) controllableAgentArg(argsJSON, tool string) (AgentInstanceMeta, 
 	if selfID == "" {
 		return meta, nil
 	}
-	if meta.Spawner == selfID {
+	self, err := readAgentInstanceMeta(selfID)
+	if err != nil {
+		return AgentInstanceMeta{}, fmt.Errorf("%s error: %s", tool, err.Error())
+	}
+	// Everyone who may talk to an instance, or work beside it in the same
+	// workspace, may stop and delete it. In the team that means the dispatcher
+	// creates the developers and the optimizer removes them after reading their
+	// chats; both reach them, so both may.
+	if meta.Spawner == selfID || meta.ID == self.Spawner || agentsMayContact(self, meta) || sharesAWorkspace(self, meta) {
 		return meta, nil
 	}
-	return AgentInstanceMeta{}, fmt.Errorf("%s error: %s was not started by you", tool, meta.Name)
+	return AgentInstanceMeta{}, fmt.Errorf("%s error: %s is out of reach: not a contact and not in your workspace", tool, meta.Name)
 }
 
 func (a *Agent) deliverThreadMessage(self AgentInstanceMeta, workspaceID, threadID, title, text string) string {
