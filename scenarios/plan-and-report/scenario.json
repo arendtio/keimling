@@ -1,9 +1,19 @@
 {
-  "task": "Lies die drei Dateien notes/alpha.txt, notes/beta.txt und notes/gamma.txt. Schreibe dann summary/codes.txt mit den drei Codes (eine Zeile je Code) und summary/report.md, das jeden Code mit seiner Datei nennt. Prüfe am Ende, dass beide Dateien existieren, und berichte.",
+  "task": "Lege zuerst mit update_plan einen Plan mit mindestens drei Schritten an (Dateien lesen, codes.txt schreiben, report.md schreiben, pruefen) und halte die Schritte waehrend der Arbeit aktuell. Lies dann notes/alpha.txt, notes/beta.txt und notes/gamma.txt. Schreibe summary/codes.txt mit den drei Codes (eine Zeile je Code) und summary/report.md, das jeden Code mit seiner Datei nennt. Pruefe am Ende, dass beide Dateien existieren. Beende den Lauf mit finish_task(status=done) und einem Abschlussbericht, der beide Pfade und das Ergebnis nennt.",
   "setup": "plan-and-report",
-  "answer_needles": ["A-17", "B-42", "G-09"],
-  "prefer_tools": ["read_file", "write_file"],
-  "prefer_every": ["update_plan", "finish_task"],
+  "answer_needles": [
+    "A-17",
+    "B-42",
+    "G-09"
+  ],
+  "prefer_tools": [
+    "read_file",
+    "write_file"
+  ],
+  "prefer_every": [
+    "update_plan",
+    "finish_task"
+  ],
   "require_plan": true,
   "require_report": true
 }
