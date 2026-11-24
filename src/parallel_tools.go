@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -306,6 +307,23 @@ func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message st
 			return e.Error(), ""
 		} else if f.Status != "done" && f.Status != "blocked" {
 			return "invalid status", ""
+		}
+		if f.Status == "done" {
+			// A plan is not finished because one step is. refuse the end while
+			// steps are open, so the list stays the truth.
+			open := make([]string, 0, len(a.Plan))
+			for _, step := range a.Plan {
+				if strings.TrimSpace(step.Status) != "done" {
+					open = append(open, step.Step)
+				}
+			}
+			if len(open) > 0 {
+				return "finish_task error: " + strconv.Itoa(len(open)) + " plan steps are not done (" + strings.Join(open, "; ") + "). Finish them, update the plan, or report blocked", ""
+			}
+			// A done without a report is a claim without evidence.
+			if len([]rune(strings.TrimSpace(f.Summary))) < 30 {
+				return "finish_task error: a done needs a closing report in summary: what changed, the artifact (path or commit), what you verified, and what stays open", ""
+			}
 		}
 		a.TaskDone = f.Status == "done"
 		a.TaskBlocked = f.Status == "blocked"

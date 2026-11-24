@@ -85,6 +85,19 @@ Settings changes that must survive restart go through `persistAgentConfig` → `
 - **Busy input:** while the agent runs, GUI may **queue/steer** text (and voice→transcript); Interrupt stops the run.
 - **Exec tool UI:** collapsed by default; expanded = Command / Raw / Filtered (filtered only when actually filtered).
 
+## Working a plan
+
+- A multi-step task gets a plan (`update_plan`) with milestones a reader could check. Three to seven is
+  the useful size; more means the work is not thought through.
+- A milestone is done when its **artifact exists**: a file path, a commit, a test output. "Understood",
+  "analysed", "concept written" without a path is not done.
+- Keep the plan current: update a step when its status changes, not after every command, and never mark
+  the plan finished while a step is open. `finish_task(done)` refuses exactly that.
+- A finished plan ends with a **closing report** in `finish_task(summary)`: what changed, the artifacts
+  (paths or commits), what was verified and how, what stays open. The tool refuses a bare "done".
+- If a claim was not checked, say so. An unchecked claim is a guess and belongs in "open", not in the
+  report as a result.
+
 ## Requirements workflow
 
 Product intent and acceptance criteria live in `requirements/`. Prefer updating those when behaviour changes meaningfully; `docs/` explains the system for humans.
