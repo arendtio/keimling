@@ -6824,6 +6824,9 @@
     fetch(apiURL("/events"), { headers: headers(), signal: ctrl.signal })
       .then(function (r) {
         if (!r.ok) throw new Error("events " + r.status);
+        // A fresh stream is the moment to trust the server again: a run that
+        // ended while this tab was disconnected never sent its idle event.
+        loadSession().catch(function () {});
         var reader = r.body.getReader();
         var dec = new TextDecoder();
         var buf = "";
@@ -10745,6 +10748,7 @@
     clearLive();
     closeMentionMenu();
     var wasBusy = agentState === "running" || agentState === "compacting" || agentState === "awaiting_approval";
+    var sentFrom = currentThreadID;
     var otherThread = backgroundBusy;
     var picks = currentAgentInstanceID ? [] : mentionPicks.slice();
     fetch(apiURL("/api/message"), {
@@ -10773,7 +10777,11 @@
           var shown = currentThreadID;
           var fromID = (j && j.thread_id) || "";
           if (!fromID || fromID === "main") fromID = workspaceThreadID || currentThreadID;
-          if (fromID && fromID !== "main") {
+          // A message the user typed in this chat is never a reason to move the
+          // view to another chat. That silent switch is what looked like the
+          // reply landing in the wrong transcript.
+          var movedChat = !!(fromID && fromID !== "main" && sentFrom && sentFrom !== "main" && fromID !== sentFrom);
+          if (fromID && fromID !== "main" && !movedChat) {
             currentThreadID = fromID;
             workspaceThreadID = fromID;
           }
@@ -10784,6 +10792,9 @@
           j.delivered.forEach(function (d) {
             messages.push({ role: "peer", name: "To " + (d.name || d.id), text: bodyText, files: sentFiles });
           });
+          if (movedChat) {
+            messages.push({ role: "system", text: "This message was recorded in another chat (" + (threadTitle || fromID) + "), not here." });
+          }
           renderThread();
           scrollTranscriptToEnd();
           setState(agentState);
