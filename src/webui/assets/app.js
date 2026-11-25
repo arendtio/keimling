@@ -4228,6 +4228,11 @@
       if (!connected) return;
       loadAgents({ poll: true });
       if (sideTab === "agents" || sideTab === "now") loadAgentBoard();
+      if (artifactPane && !artifactPane.hidden) {
+        loadApprovals();
+        if (sideTab === "gateways") loadGateways();
+        if (sideTab === "escalations") loadEscalations();
+      }
     }, 2000);
   }
 
@@ -8912,7 +8917,7 @@
     if (typeof p.sidebar_width === "number" && p.sidebar_width > 0) {
       saveArtifactWidth(applyArtifactWidth(p.sidebar_width));
     }
-    var known = { now: 1, agents: 1, escalations: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
+    var known = { now: 1, agents: 1, escalations: 1, gateways: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
     if (known[p.sidebar_tab]) sideTab = p.sidebar_tab;
     if (p.sidebar_open === true) {
       selectSidebar(sideTab);
@@ -8956,7 +8961,7 @@
   }
   function selectSidebar(tab, opts) {
     opts = opts || {};
-    var known = { now: 1, agents: 1, escalations: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
+    var known = { now: 1, agents: 1, escalations: 1, gateways: 1, artifacts: 1, context: 1, connections: 1, instructions: 1, chapters: 1 };
     if (tab === "chapters" && !composerNarrow.matches) tab = "now";
     if (!known[tab]) tab = "now";
     sideTab = tab;
@@ -8978,9 +8983,11 @@
     if (opts.skipFetch || !connected) return;
     if (tab === "agents") loadAgentBoard();
     if (tab === "escalations") loadEscalations();
+    if (tab === "gateways") loadGateways();
     if (tab === "now") {
       renderSidePerf();
       loadAgentBoard();
+      loadApprovals();
     }
     if (tab === "now" || tab === "context") refreshSideContext({ report: tab === "context" });
     if (tab === "artifacts") {
@@ -9602,6 +9609,10 @@
     list.forEach(function (e) {
       var li = document.createElement("li");
       li.className = "escalation-item" + (e.done ? " escalation-done" : "");
+      var open = document.createElement("button");
+      open.type = "button";
+      open.className = "escalation-open";
+      open.title = e.agent_id ? "Open this agent" : "";
       var head = document.createElement("div");
       head.className = "escalation-head";
       var who = document.createElement("strong");
@@ -9613,8 +9624,12 @@
       head.appendChild(when);
       var body = document.createElement("p");
       body.textContent = e.text || "";
-      li.appendChild(head);
-      li.appendChild(body);
+      open.appendChild(head);
+      open.appendChild(body);
+      open.addEventListener("click", function () {
+        if (e.agent_id) attachAgent(e.agent_id);
+      });
+      li.appendChild(open);
       var actions = document.createElement("div");
       actions.className = "escalation-actions";
       var toggle = document.createElement("button");
@@ -9651,6 +9666,191 @@
         if (btn) btn.textContent = open ? "Escalations (" + open + ")" : "Escalations";
       })
       .catch(function () { renderEscalations([]); });
+  }
+
+  function openApproval(item) {
+    if (!item) return;
+    if (item.kind === "agent" && item.ref) {
+      attachAgent(item.ref);
+      return;
+    }
+    if (item.kind === "workspace" && item.ref) {
+      if (item.ref === currentWorkspaceID && !currentAgentInstanceID && item.thread_id) {
+        switchThread(item.thread_id);
+        return;
+      }
+      switchWorkspace(item.ref);
+    }
+  }
+
+  function decideApproval(item, allow) {
+    if (!item) return;
+    var url = item.worker ? "/api/approvals/decide" : "/api/approve";
+    var body = item.worker
+      ? { worker: item.worker, thread_id: item.thread_id || "", allow: !!allow }
+      : { thread_id: item.thread_id || "", allow: !!allow };
+    return fetch(apiURL(url), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
+      .then(readAPIResult)
+      .then(function () { return loadApprovals(); })
+      .catch(function (err) { appendLive("\n[approvals] " + err + "\n"); });
+  }
+
+  function renderApprovals(list) {
+    var mount = document.getElementById("now-approvals");
+    var empty = document.getElementById("now-approvals-empty");
+    if (!mount) return;
+    mount.textContent = "";
+    list = list || [];
+    if (empty) empty.hidden = list.length > 0;
+    var btn = document.querySelector('#sidebar-tabs button[data-side="now"]');
+    if (btn) btn.textContent = list.length ? "Now (" + list.length + ")" : "Now";
+    list.forEach(function (item) {
+      var li = document.createElement("li");
+      li.className = "escalation-item";
+      var open = document.createElement("button");
+      open.type = "button";
+      open.className = "escalation-open";
+      var head = document.createElement("div");
+      head.className = "escalation-head";
+      var who = document.createElement("strong");
+      who.textContent = item.name || item.ref || "waiting";
+      var tool = document.createElement("span");
+      tool.className = "hint";
+      tool.textContent = item.tool || "approval";
+      head.appendChild(who);
+      head.appendChild(tool);
+      var body = document.createElement("p");
+      body.textContent = item.reason || item.command || "Needs a decision.";
+      open.appendChild(head);
+      open.appendChild(body);
+      open.addEventListener("click", function () { openApproval(item); });
+      var actions = document.createElement("div");
+      actions.className = "escalation-actions";
+      var allow = document.createElement("button");
+      allow.type = "button";
+      allow.textContent = "Allow";
+      allow.addEventListener("click", function (ev) { ev.stopPropagation(); decideApproval(item, true); });
+      var deny = document.createElement("button");
+      deny.type = "button";
+      deny.className = "ghost";
+      deny.textContent = "Deny";
+      deny.addEventListener("click", function (ev) { ev.stopPropagation(); decideApproval(item, false); });
+      actions.appendChild(deny);
+      actions.appendChild(allow);
+      li.appendChild(open);
+      li.appendChild(actions);
+      mount.appendChild(li);
+    });
+  }
+
+  function loadApprovals() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/approvals"), { headers: headers() })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || r.status); return j; }); })
+      .then(function (j) { renderApprovals((j && j.approvals) || []); })
+      .catch(function () { renderApprovals([]); });
+  }
+
+  function renderGateways(j) {
+    var edges = (j && j.edges) || [];
+    var pending = (j && j.pending) || [];
+    var edgeMount = document.getElementById("gateway-edges");
+    var waitMount = document.getElementById("gateway-pending");
+    var empty = document.getElementById("gateway-pending-empty");
+    var btn = document.querySelector('#sidebar-tabs button[data-side="gateways"]');
+    if (btn) btn.textContent = pending.length ? "Gateways (" + pending.length + ")" : "Gateways";
+    if (edgeMount) {
+      edgeMount.textContent = "";
+      if (!edges.length) {
+        var none = document.createElement("li");
+        none.className = "escalation-empty";
+        none.textContent = "No contacts yet.";
+        edgeMount.appendChild(none);
+      }
+      edges.forEach(function (edge) {
+        var li = document.createElement("li");
+        li.className = "gateway-edge";
+        var who = document.createElement("span");
+        who.textContent = (edge.from_name || edge.from) + " → " + (edge.to_name || edge.to);
+        var label = document.createElement("label");
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = !!edge.inspect;
+        box.addEventListener("change", function () {
+          fetch(apiURL("/api/gateways/inspect"), {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ from: edge.from, to: edge.to, inspect: box.checked }),
+          })
+            .then(readAPIResult)
+            .then(renderGateways)
+            .catch(function (err) { appendLive("\n[gateways] " + err + "\n"); });
+        });
+        label.appendChild(box);
+        label.appendChild(document.createTextNode("Inspect"));
+        li.appendChild(who);
+        li.appendChild(label);
+        edgeMount.appendChild(li);
+      });
+    }
+    if (!waitMount) return;
+    waitMount.textContent = "";
+    if (empty) empty.hidden = pending.length > 0;
+    pending.forEach(function (msg) {
+      var li = document.createElement("li");
+      li.className = "escalation-item";
+      var head = document.createElement("div");
+      head.className = "escalation-head";
+      var who = document.createElement("strong");
+      who.textContent = (msg.from_name || msg.from) + " → " + (msg.to_name || msg.to);
+      var when = document.createElement("span");
+      when.className = "hint";
+      when.textContent = msg.created_at ? new Date(msg.created_at).toLocaleString() : "";
+      head.appendChild(who);
+      head.appendChild(when);
+      var body = document.createElement("p");
+      body.textContent = msg.text || "";
+      var actions = document.createElement("div");
+      actions.className = "escalation-actions";
+      var block = document.createElement("button");
+      block.type = "button";
+      block.className = "ghost";
+      block.textContent = "Block";
+      block.addEventListener("click", function () { decideGateway(msg.id, false); });
+      var allow = document.createElement("button");
+      allow.type = "button";
+      allow.textContent = "Allow";
+      allow.addEventListener("click", function () { decideGateway(msg.id, true); });
+      actions.appendChild(block);
+      actions.appendChild(allow);
+      li.appendChild(head);
+      li.appendChild(body);
+      li.appendChild(actions);
+      waitMount.appendChild(li);
+    });
+  }
+
+  function decideGateway(id, allow) {
+    return fetch(apiURL("/api/gateways/decide"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: id, allow: !!allow }),
+    })
+      .then(readAPIResult)
+      .then(renderGateways)
+      .catch(function (err) { appendLive("\n[gateways] " + err + "\n"); });
+  }
+
+  function loadGateways() {
+    if (!connected) return Promise.resolve();
+    return fetch(apiURL("/api/gateways"), { headers: headers() })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || r.status); return j; }); })
+      .then(renderGateways)
+      .catch(function () { renderGateways({ edges: [], pending: [] }); });
   }
 
   function loadAgentBoard() {

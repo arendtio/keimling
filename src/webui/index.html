@@ -1042,6 +1042,7 @@
             <button type="button" data-side="now" aria-selected="true">Now</button>
             <button type="button" data-side="agents" aria-selected="false">Agents</button>
             <button type="button" data-side="escalations" aria-selected="false">Escalations</button>
+            <button type="button" data-side="gateways" aria-selected="false">Gateways</button>
             <button type="button" data-side="artifacts" aria-selected="false">Artifacts</button>
             <button type="button" data-side="context" aria-selected="false">Context</button>
             <button type="button" data-side="connections" aria-selected="false">Connections</button>
@@ -1100,6 +1101,11 @@
             <p id="side-plan-empty" class="hint">No plan for this run.</p>
             <ol id="side-plan" class="side-plan"></ol>
           </section>
+          <section class="side-block" aria-label="Approvals">
+            <h2>Needs you</h2>
+            <p id="now-approvals-empty" class="hint">Nothing waiting.</p>
+            <ul id="now-approvals" class="escalation-list"></ul>
+          </section>
           <section class="side-block" aria-label="Active agents">
             <h2>Agents</h2>
             <p id="now-agents-empty" class="hint">No active agents.</p>
@@ -1116,6 +1122,18 @@
             <h2>Agents</h2>
             <p class="hint">Who is running, paused, or waiting. Open one to use its chat. Focus and Fullscreen enlarge this page.</p>
             <div id="agent-board" class="agent-board"></div>
+          </section>
+        </div>
+        <div id="side-gateways" class="side-panel" data-side="gateways" hidden>
+          <section class="side-block">
+            <h2>Gateways</h2>
+            <p class="hint">Turn inspection on for one direction. Messages in that direction wait here until you let them through or block them.</p>
+            <ul id="gateway-edges" class="escalation-list"></ul>
+          </section>
+          <section class="side-block">
+            <h2>Waiting</h2>
+            <p id="gateway-pending-empty" class="hint">Nothing held.</p>
+            <ul id="gateway-pending" class="escalation-list"></ul>
           </section>
         </div>
         <div id="side-escalations" class="side-panel" data-side="escalations" hidden>

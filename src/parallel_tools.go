@@ -363,7 +363,7 @@ func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message st
 	case "allow_peer":
 		return a.allowPeer(item.Arguments), ""
 	case "message_agent":
-		return a.messageAgent(item.Arguments), ""
+		return a.messageAgentCtx(ctx, item.Arguments), ""
 	case "stop_agent":
 		return a.stopAgentTool(item.Arguments), ""
 	case "delete_agent":

@@ -536,8 +536,15 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Priority:** shall
 - **Status:** confirmed
 
-## Design notes (not requirements)
+### REQ-AG-45 The user can inspect one direction between two agents
 
+- **Bin:** explicit requirement
+- **Statement:** The sidebar shall offer a Gateways tab that lists every direction in which one agent instance may message another, and shall let the user turn inspection on or off for that direction alone. With inspection on, a peer message in that direction shall not reach the recipient until the user allows or blocks it, and the sender's tool call shall answer only after that decision. A blocked message shall write nothing to the recipient and shall answer the sender with an error. Allowed and blocked entries shall leave the waiting list. A held message shall survive a restart of the app in the list until it is decided. The rule and the list shall be global, because agents work across workspaces. Thread messages, alarms, watches, and messages the user writes shall not be inspected.
+- **Origin:** User, 2026-11-25 (quote: "Ich hätte gern auch in der rechten Sidebar einen Tab, wo ich steuern kann, welche Nachrichten unmittelbar von einem Agenten zum anderen zugestellt werden und welche Nachrichten erst eine Freigabe des Nutzers brauchen" and "wenn ein Agent eine Escalation wirft, für welchen Workspace tut er das denn? … vielleicht ist es auch sinnvoll, das irgendwie global zu machen").
+- **Rationale:** A fan-out run talks to itself faster than the user can read. When one link runs badly, the user wants to stop that link alone and keep the rest moving.
+- **Fit criterion:** With Ada → Bea on inspect, a message from Ada to Bea waits in the Gateways tab and reaches Bea only after Allow; Block leaves Bea without the message and tells Ada's tool call that it was blocked. The reverse direction still delivers at once. Escalations and thread messages are unaffected. The rule and the waiting message are still there after a restart.
+
+## Design notes (not requirements)
 A definition must name its tools when it is created; the create call is rejected without a list, and an empty list grants no tools. Saving stores the checked tools. An instance with no narrower set uses that definition. An instance may only narrow, never widen. Saving the definition’s own set again clears the instance override. REQ-AG-2’s unanswered default is decided here: no choice means no tools.
 
 Tool choices are shown as a topic table with a read column and a write column. The stored grant is still the individual tool names. A cell that is only partly granted stays mixed until the user clicks it, so saving does not silently add the rest. An instance cell lists only the tools the definition allows.

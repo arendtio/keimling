@@ -508,6 +508,11 @@ func (h *Host) Handler() http.Handler {
 	mux.Handle("/api/agents/teams/delete", auth(h.handleAgentTeamDelete))
 	mux.Handle("/api/escalations", auth(h.handleEscalations))
 	mux.Handle("/api/escalations/done", auth(h.handleEscalationDone))
+	mux.Handle("/api/approvals", auth(h.handleApprovals))
+	mux.Handle("/api/approvals/decide", auth(h.handleApprovalDecide))
+	mux.Handle("/api/gateways", auth(h.handleGateways))
+	mux.Handle("/api/gateways/inspect", auth(h.handleGatewayInspect))
+	mux.Handle("/api/gateways/decide", auth(h.handleGatewayDecide))
 	// Workspace threads stay host-owned so attaching an agent does not replace the sidebar list.
 	mux.Handle("/api/threads", auth(h.handleHostThreads))
 	mux.Handle("/api/threads/switch", auth(h.proxyToWorkspace().ServeHTTP))

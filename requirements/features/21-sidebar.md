@@ -151,3 +151,13 @@ The side area is the place for what the user looks at beside the chat. Artifacts
 - **Fit criterion:** With one agent running and one waiting for a watch, both are listed with their name, their definition, and their state. An idle agent does not appear. With only idle agents, the list is empty and the view says there is no active agent. Choosing a listed agent opens its chat. The list is only rebuilt while the Now view is visible.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-SB-15 The Now view carries what waits for the user
+
+- **Bin:** explicit requirement
+- **Statement:** Above the list of working agents, the Now view shall list the approvals that wait for the user, from every agent and from the workspace threads of the open workspace, whichever chat is on screen. Each row shall name who waits and what is asked, and shall offer Allow and Deny there. Choosing a row shall open that chat. A row shall not disappear when the user changes the chat. A count on the Now tab shall show how many are waiting.
+- **Origin:** User, 2026-11-25 (quote: "über der Liste mit den Agenten hätte ich gerne, dass dort eine Liste mit aktuellen Anfragen von Agenten auftaucht, wo man dann draufklicken kann" and "wenn man jetzt agentisch arbeitet und hat ganz viele Agenten und da taucht irgendwo eine Freigabeanforderung auf, das sieht man eben nicht").
+- **Rationale:** A question in a chat is lost the moment the user looks elsewhere. With many agents running, the user needs one place that says who is stuck.
+- **Fit criterion:** With two agents waiting for approval in different chats, both rows are listed in the Now view; Allow on one lets that call run without opening its chat, and the row disappears. Switching the chat does not remove a row. Choosing a row opens the chat of the agent that waits. With nothing waiting, the list is empty and says so.
+- **Priority:** shall
+- **Status:** confirmed

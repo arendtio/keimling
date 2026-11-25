@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,6 +157,10 @@ func (a *Agent) allowPeer(string) string {
 }
 
 func (a *Agent) messageAgent(argsJSON string) string {
+	return a.messageAgentCtx(context.Background(), argsJSON)
+}
+
+func (a *Agent) messageAgentCtx(ctx context.Context, argsJSON string) string {
 	if strings.TrimSpace(a.Cfg.AgentInstanceID) == "" {
 		return a.messageAgentFromThread(argsJSON)
 	}
@@ -194,10 +199,25 @@ func (a *Agent) messageAgent(argsJSON string) string {
 		return "message_agent error: the user has not allowed contact with " + targetMeta.Name + " (" + targetMeta.ID + ")"
 	}
 	target = targetMeta.ID
+	name := agentInstanceDisplayName(target)
+	if gatewayInspect(self.ID, target) {
+		id, ch, err := holdGatewayMessage(self.ID, self.Name, target, name, text)
+		if err != nil {
+			return "message_agent error: " + err.Error()
+		}
+		status, err := waitGatewayDecision(ctx, id, ch)
+		if err != nil {
+			return "message_agent error: " + err.Error()
+		}
+		if status != "approved" {
+			return "message_agent error: the user blocked this message to " + name
+		}
+		a.recordPeerSent(name, text)
+		return fmt.Sprintf("Sent to %s: %s", name, text)
+	}
 	if err := enqueueAgentMessage(target, text, a.Cfg.AgentInstanceID, "peer"); err != nil {
 		return "message_agent error: " + err.Error()
 	}
-	name := agentInstanceDisplayName(target)
 	a.recordPeerSent(name, text)
 	return fmt.Sprintf("Sent to %s: %s", name, text)
 }

@@ -71,6 +71,9 @@ type appServer struct {
 	// startPeerRun starts the run for a peer message. Tests replace it to
 	// observe the wake without a model call.
 	startPeerRun func(text, ws, threadID string, item AgentQueueItem) bool
+	// approvals is the question currently waiting on each thread of this worker.
+	// The sidebar reads it so a chat switch does not hide the question.
+	approvals map[string]map[string]any
 }
 
 // pendingPeer is one peer message that arrived during a run of the attached
@@ -88,6 +91,7 @@ func newAppServer(opts appServerOpts) *appServer {
 		mux:           http.NewServeMux(),
 		skillPreviews: newSkillPreviewHub(),
 		runs:          map[string]*liveThread{},
+		approvals:     map[string]map[string]any{},
 		startedAt:     time.Now().UTC(),
 	}
 	if s.agent != nil {
@@ -116,6 +120,11 @@ func newAppServer(opts appServerOpts) *appServer {
 			case "approval":
 				var payload map[string]any
 				if json.Unmarshal([]byte(text), &payload) == nil {
+					tid := ""
+					if s.agent != nil {
+						tid = s.agent.Cfg.ThreadID
+					}
+					s.noteApproval(tid, payload)
 					s.hub.Broadcast("approval", payload)
 					return
 				}
@@ -250,6 +259,7 @@ func newAppServer(opts appServerOpts) *appServer {
 	s.mux.Handle("/api/credentials/unlock", s.requireSecret(http.HandlerFunc(s.handleCredentialsUnlock)))
 	s.mux.Handle("/api/credentials/", s.requireSecret(http.HandlerFunc(s.handleCredentialsItem)))
 	s.mux.Handle("/api/approve", s.requireSecret(http.HandlerFunc(s.handleApprove)))
+	s.mux.Handle("/api/approvals", s.requireSecret(http.HandlerFunc(s.handleApprovals)))
 	s.mux.Handle("/api/transcribe", s.requireSecret(http.HandlerFunc(s.handleTranscribe)))
 	s.mux.Handle("/api/screen/targets", s.requireSecret(http.HandlerFunc(s.handleScreenTargets)))
 	s.mux.Handle("/api/screen/share", s.requireSecret(http.HandlerFunc(s.handleScreenShare)))
@@ -3796,6 +3806,7 @@ func (s *appServer) emitFork(a *Agent, kind, text string) {
 				run.approval = payload
 			}
 			s.mu.Unlock()
+			s.noteApproval(id, payload)
 			s.hub.Broadcast("approval", payload)
 		}
 		return
@@ -4045,23 +4056,17 @@ func (s *appServer) handleApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	target := s.agent
-	if view := s.viewedThread(); view != "" {
-		s.mu.Lock()
-		if run := s.runs[view]; run != nil && run.agent != nil && run.agent.ApprovalCh != nil {
-			target = run.agent
-		}
-		s.mu.Unlock()
-	}
-	if target == nil || target.ApprovalCh == nil {
-		http.Error(w, "no agent", http.StatusServiceUnavailable)
-		return
-	}
 	var body struct {
-		Allow bool `json:"allow"`
+		Allow    bool   `json:"allow"`
+		ThreadID string `json:"thread_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	target, threadID := s.approvalTarget(strings.TrimSpace(body.ThreadID))
+	if target == nil || target.ApprovalCh == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
 	s.mu.Lock()
@@ -4073,18 +4078,120 @@ func (s *appServer) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	select {
 	case target.ApprovalCh <- body.Allow:
-		if view := s.viewedThread(); view != "" {
-			s.mu.Lock()
-			if run := s.runs[view]; run != nil {
-				run.approval = nil
-			}
-			s.mu.Unlock()
-		}
+		s.clearApproval(threadID)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	default:
 		http.Error(w, "no pending approval", http.StatusConflict)
 	}
+}
+
+// approvalTarget is the agent whose ApprovalCh should receive a decision.
+// An explicit thread id wins, so the sidebar can answer a run that is not the
+// one on screen. An empty id keeps the previous rule: the viewed forked run,
+// otherwise the worker's own agent.
+func (s *appServer) approvalTarget(threadID string) (*Agent, string) {
+	if s == nil {
+		return nil, ""
+	}
+	if threadID != "" {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if run := s.runs[threadID]; run != nil && run.agent != nil && run.agent.ApprovalCh != nil {
+			return run.agent, threadID
+		}
+		if s.agent != nil && s.agent.Cfg.ThreadID == threadID {
+			return s.agent, threadID
+		}
+		return nil, threadID
+	}
+	if view := s.viewedThread(); view != "" {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if run := s.runs[view]; run != nil && run.agent != nil && run.agent.ApprovalCh != nil {
+			return run.agent, view
+		}
+	}
+	id := ""
+	if s.agent != nil {
+		id = s.agent.Cfg.ThreadID
+	}
+	return s.agent, id
+}
+
+func (s *appServer) noteApproval(threadID string, payload map[string]any) {
+	if s == nil {
+		return
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		threadID = "main"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.approvals == nil {
+		s.approvals = map[string]map[string]any{}
+	}
+	if payload == nil {
+		delete(s.approvals, threadID)
+		return
+	}
+	if clear, _ := payload["clear"].(bool); clear {
+		delete(s.approvals, threadID)
+		return
+	}
+	cp := map[string]any{}
+	for k, v := range payload {
+		cp[k] = v
+	}
+	cp["thread_id"] = threadID
+	if s.agent != nil {
+		if id := strings.TrimSpace(s.agent.Cfg.AgentInstanceID); id != "" {
+			cp["agent_instance_id"] = id
+		}
+	}
+	s.approvals[threadID] = cp
+}
+
+func (s *appServer) clearApproval(threadID string) {
+	threadID = strings.TrimSpace(threadID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if threadID == "" {
+		threadID = "main"
+	}
+	delete(s.approvals, threadID)
+	if run := s.runs[threadID]; run != nil {
+		run.approval = nil
+	}
+}
+
+func (s *appServer) approvalList() []map[string]any {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]map[string]any, 0, len(s.approvals))
+	for _, p := range s.approvals {
+		if p == nil {
+			continue
+		}
+		if clear, _ := p["clear"].(bool); clear {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *appServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"approvals": s.approvalList()})
 }
 
 func (s *appServer) handleArtifactProxy(w http.ResponseWriter, r *http.Request) {
