@@ -13,7 +13,7 @@ import (
 
 func defineAgentTool(name string) bool {
 	switch name {
-	case "agent_instructions", "save_agent", "spawn_agent", "save_team", "spawn_team":
+	case "agent_instructions", "save_agent", "spawn_agent", "save_team", "spawn_team", "set_agent_limit":
 		return true
 	default:
 		return false
@@ -35,7 +35,8 @@ func defineAgentTools() []map[string]any {
 	return []map[string]any{
 		toolDef("agent_instructions", "Return the instructions a new agent definition starts from. Call this before save_agent when writing or revising a prompt, and start from this text. Pass unused as an empty string.", map[string]any{"unused": str("Pass empty string")}, "unused"),
 		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto, and tools is required: a definition without a tool list grants nothing. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged; tools null keeps the saved choice. Send every parameter. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text."), "tools": tools}, "id", "name", "instructions", "tools"),
-		toolDef("spawn_agent", "Start one instance of a definition. definition is an id or a unique name. name empty uses the definition name. path is an existing directory that becomes the current workspace of the instance, for example a git worktree; empty uses the workspace this call is running in. task is the first message, or empty when the instance should wait. Send every parameter. The instance runs in the background; the view of the user does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "path": str("Existing directory the instance works in (a git worktree), or empty for the workspace of this call"), "task": str("First message for the new instance, or empty.")}, "definition", "name", "path", "task"),
+		toolDef("spawn_agent", "Start one instance of a definition. definition is an id or a unique name. name empty uses the definition name. path is an existing directory that becomes the current workspace of the instance, for example a git worktree; empty uses the workspace this call is running in. task is the first message, or empty when the instance should wait. spend_limit_usd and spend_limit_tokens cap that instance for its whole life. Empty keeps the definition ceiling. 0 means no ceiling for that unit. Send every parameter. The instance runs in the background; the view of the user does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "path": str("Existing directory the instance works in (a git worktree), or empty for the workspace of this call"), "task": str("First message for the new instance, or empty."), "spend_limit_usd": str("Dollar ceiling for the life of the instance, 0 for none, or empty to keep the definition ceiling."), "spend_limit_tokens": str("Token ceiling for the life of the instance, 0 for none, or empty to keep the definition ceiling.")}, "definition", "name", "path", "task", "spend_limit_usd", "spend_limit_tokens"),
+		toolDef("set_agent_limit", "Change the spend ceiling of an existing agent instance. Requires the same grant as save_agent. instance_id is an id or a unique name. spend_limit_usd and spend_limit_tokens replace that unit. 0 or empty clears it. The ceiling lasts for the life of the instance. An instance cannot change its own ceiling. Send every parameter.", map[string]any{"instance_id": str("Instance id or unique name"), "spend_limit_usd": str("Dollar ceiling, or 0 to clear it"), "spend_limit_tokens": str("Token ceiling, or 0 to clear it")}, "instance_id", "spend_limit_usd", "spend_limit_tokens"),
 		toolDef("save_team", "Create a team of agent definitions, or replace the definitions of an existing team. id empty creates. definitions are definition ids or unique names. On update, an empty list keeps the saved definitions. Send every parameter.", map[string]any{"id": str("Team id to update, or empty to create"), "name": str("Team name. Required on create. Empty on update keeps the saved name."), "definitions": defs}, "id", "name", "definitions"),
 		toolDef("spawn_team", "Start one instance per definition of a team. team is an id or a unique name. path is an existing directory that becomes the current workspace of every instance, for example a git worktree; empty uses the workspace this call is running in. Send every parameter. Teammates may message each other. The instances run in the background; the view of the user does not switch to them.", map[string]any{"team": str("Team id or unique team name"), "path": str("Existing directory the instances work in (a git worktree), or empty for the workspace of this call")}, "team", "path"),
 	}
@@ -49,6 +50,8 @@ func (a *Agent) runDefineAgentTool(name, args string) string {
 		return a.saveAgentTool(args)
 	case "spawn_agent":
 		return a.spawnAgentTool(args)
+	case "set_agent_limit":
+		return a.setAgentLimitTool(args)
 	case "save_team":
 		return a.saveTeamTool(args)
 	case "spawn_team":
@@ -110,12 +113,47 @@ func formatDefinition(rec AgentRecipe, created bool) string {
 	return fmt.Sprintf("definition %s %q %s mode %s", rec.ID, rec.Name, verb, rec.Mode)
 }
 
+func (a *Agent) setAgentLimitTool(args string) string {
+	if a == nil || !a.instanceToolGranted("save_agent") {
+		return "set_agent_limit error: editing an agent is not granted"
+	}
+	var x struct {
+		InstanceID       string `json:"instance_id"`
+		SpendLimitUSD    string `json:"spend_limit_usd"`
+		SpendLimitTokens string `json:"spend_limit_tokens"`
+	}
+	if err := decodeArgs(args, &x); err != nil {
+		return "set_agent_limit error: " + err.Error()
+	}
+	meta, err := a.resolveAgentRef(x.InstanceID)
+	if err != nil {
+		return "set_agent_limit error: " + err.Error()
+	}
+	if meta.ID == a.spawnerInstanceID() {
+		return "set_agent_limit error: an instance cannot change its own ceiling"
+	}
+	updated, err := setAgentInstanceSpend(meta.ID, x.SpendLimitUSD, x.SpendLimitTokens)
+	if err != nil {
+		return "set_agent_limit error: " + err.Error()
+	}
+	usd, tokens := "none", "none"
+	if updated.SpendLimitUSD != nil && *updated.SpendLimitUSD > 0 {
+		usd = fmt.Sprintf("%.4f", *updated.SpendLimitUSD)
+	}
+	if updated.SpendLimitTokens != nil && *updated.SpendLimitTokens > 0 {
+		tokens = fmt.Sprintf("%d", *updated.SpendLimitTokens)
+	}
+	return fmt.Sprintf("ceiling for %s (%s): $%s, %s tokens", updated.Name, updated.ID, usd, tokens)
+}
+
 func (a *Agent) spawnAgentTool(args string) string {
 	var x struct {
-		Definition string `json:"definition"`
-		Name       string `json:"name"`
-		Path       string `json:"path"`
-		Task       string `json:"task"`
+		Definition       string `json:"definition"`
+		Name             string `json:"name"`
+		Path             string `json:"path"`
+		Task             string `json:"task"`
+		SpendLimitUSD    string `json:"spend_limit_usd"`
+		SpendLimitTokens string `json:"spend_limit_tokens"`
 	}
 	if err := decodeArgs(args, &x); err != nil {
 		return "spawn_agent error: " + err.Error()
@@ -129,11 +167,13 @@ func (a *Agent) spawnAgentTool(args string) string {
 		return "spawn_agent error: " + err.Error()
 	}
 	started, body, err := postHostJSON("/api/agents/instances", map[string]string{
-		"recipe_id":    rec.ID,
-		"name":         strings.TrimSpace(x.Name),
-		"path":         strings.TrimSpace(x.Path),
-		"workspace_id": ws,
-		"spawner_id":   a.spawnerInstanceID(),
+		"recipe_id":          rec.ID,
+		"name":               strings.TrimSpace(x.Name),
+		"path":               strings.TrimSpace(x.Path),
+		"workspace_id":       ws,
+		"spawner_id":         a.spawnerInstanceID(),
+		"spend_limit_usd":    x.SpendLimitUSD,
+		"spend_limit_tokens": x.SpendLimitTokens,
 	})
 	if err == nil {
 		return formatHostSpawn("spawn_agent", started, body) + queueInstanceTask(instanceIDFromHost(body), x.Task) + spawnBackgroundNote
@@ -143,6 +183,11 @@ func (a *Agent) spawnAgentTool(args string) string {
 	}
 	inst, err := createAgentInstanceForPath(rec, ws, x.Path, x.Name, a.spawnerInstanceID())
 	if err != nil {
+		return "spawn_agent error: " + err.Error()
+	}
+	inst, err = finalizeSpawnSpend(inst, x.SpendLimitUSD, x.SpendLimitTokens)
+	if err != nil {
+		rollbackSpawn([]AgentInstanceMeta{inst})
 		return "spawn_agent error: " + err.Error()
 	}
 	if err := linkSpawnedInstances(a.spawnerInstanceID(), []AgentInstanceMeta{inst}); err != nil {

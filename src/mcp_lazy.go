@@ -81,6 +81,11 @@ func (m *MCPManager) serverCatalog() string {
 			tools = append(tools, mcpToolName{name: t.Name})
 		}
 		fmt.Fprintf(&b, "- %s: %s\n", name, mcpServerPurpose(s.instructions, tools))
+		if s != nil {
+			if note := strings.TrimSpace(s.cfg.Note); note != "" {
+				fmt.Fprintf(&b, "  Note: %s\n", note)
+			}
+		}
 	}
 	return strings.TrimSpace(b.String())
 }

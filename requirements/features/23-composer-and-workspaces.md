@@ -82,6 +82,16 @@ The records below are the stakeholder ask for a less crowded surface. Which cont
 - **Priority:** shall
 - **Status:** confirmed
 
+## REQ-CW-11 The page dots stay readable over the chat
+
+- **Bin:** explicit requirement
+- **Statement:** On a narrow window the strip behind the three composer page dots shall be transparent, so the chat shows through it. Each dot shall have a ring in the current page background color, so the dot stays readable when text scrolls behind it.
+- **Origin:** User, 2026-11-25 (quote: "der Hintergrund hinter den drei Punkten, der ist im Moment in unserer weißen Farbe und ich hätte gern, dass der transparent wird" and "die drei Punkte jeweils außenrum quasi in der Farbe, die aktuelle Hintergrundfarbe ist, ein weiße eine weiße Umrandung haben" and "wenn man irgendwie scrollt und da Text hinter ist, man immer noch sehr klar sehen kann diese grünen Punkte" and "nicht der ganze horizontale Balken 'n weißer Hintergrund sein").
+- **Rationale:** A solid bar covers the last lines of the chat. A bare dot disappears into the same text.
+- **Fit criterion:** On a narrow window, with text scrolled under the dots, the page background is not a solid bar behind them, and the current dot stays distinguishable from that text. The ring uses the page background of the active theme. Changing page still marks the current dot.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## REQ-CW-9 More opens over the chat
 
 - **Bin:** explicit requirement

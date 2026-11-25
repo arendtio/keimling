@@ -90,6 +90,8 @@ Origin: User, 2026-11-19 (quote: "wenn er neue Nachrichten … dranhängt … vo
 
 Fit: With the page 80 pixels above the bottom, a streaming token, a tool card, and a finished line each leave the page at the bottom. With the page 400 pixels above the bottom, those arrivals leave the scroll position unchanged. Sending a message from 400 pixels up lands on the bottom, and the reply that follows stays at the bottom. The gap under the last line stays clear of the composer.
 
+The moment the distance is measured, and a reader who is scrolling away while a run is still going, are REQ-VE-15. The 200-pixel band itself stays.
+
 ### REQ-VE-9 Follow the live thinking row
 
 The More menu shall offer Follow thinking, off until the user turns it on. While it is on, the thinking row that is receiving text stays open, and that row closes when the text stops. The next thinking row opens on its own. A thinking row the user opened stays open. Turning Follow thinking off leaves rows closed until the user opens one. The choice is still there on the next visit.
@@ -147,3 +149,23 @@ closed line shows `checked` with the review duration; the run itself is not
 included. A call refused by the reviewer shows `FAILED` with the same duration.
 A call that asks the human reads `AWAITING APPROVAL` until it is answered. A
 call that never went to the reviewer shows no `checked` note.
+
+### REQ-VE-15 Follow is decided before the new lines arrive
+
+When new transcript content is about to be added, the page shall remember whether it is inside the follow band of REQ-VE-11. If it is, the page shall be at the bottom after those lines are drawn, including when one new message is taller than that band. If it is not, the page shall stay where it was. A scroll the reader makes upward shall keep the page from following for a short pause on the order of one to two seconds. After that pause the page shall follow only when it is inside the band again.
+
+Origin: User, 2026-11-25 (quote: "bevor die Nachricht reinkommt, er guckt, ob er in dem Bereich ist, an dem er Snack to Button machen sollte. Und wenn ja, dann muss er nach links die Nachricht gerendert wurde, Snack to Button machen" and "wenn ich gerade ein Hochscroll Event gemacht hab … für 'ne Sekunde oder zwei oder so erstmal hochscrollt und kein Snack to Button macht").
+
+Rationale: A tall message moves the old bottom farther than 200 pixels away, so a check after the draw treats a reader who was at the bottom as someone who scrolled away. A follow that fights an upward scroll makes Follow thinking unreadable.
+
+Fit: The page is at the bottom and one arriving message is taller than 200 pixels; after it is drawn the page is at the bottom. The page is 400 pixels above the bottom before that message; after the draw it is still about 400 pixels above the new bottom. During a run the reader scrolls upward; for the next one to two seconds new tokens leave the page where the reader put it. After that pause, a page still inside the band follows again, and a page outside the band stays.
+
+### REQ-VE-16 The agent's own sentences stay visible when a run ends
+
+When a run goes idle, Thinking rows and tool cards of that run close, as REQ-VE-13 says. A sentence the agent wrote that is neither Thinking nor a tool card shall stay visible, including a sentence that sits between tool cards and the sentence that ends the run. A user message shall stay visible, as REQ-VE-8 says. Closing shall not put those sentences into a folded stretch.
+
+Origin: User, 2026-11-25 (quote: "wenn er quasi fertig ist mit seinem Lauf und in Idle zurückgeht, dann sollten immer alle Tool-Aufrufe und jedes Thinking … ausgeblendet werden, aber die Nachrichten, die der Bot zwischendurch geschrieben hat, die kein Tool-Aufruf und kein Thinking sind, die sollten angezeigt bleiben, genauso wie User-Nachrichten" and "die Nachricht, die der Bot mir am Ende schickt … wird manchmal beim Ein- und Ausblenden wieder ausgeblendet").
+
+Rationale: The result is the thing the person came to read. Folding it with the tool trace hides the answer at the moment the run finishes.
+
+Fit: A run that writes a sentence, then a tool card, then a closing sentence goes idle with both sentences readable and the tool card and any Thinking row closed. A user message in that stretch stays readable. Opening the tool card afterward shows its input and output. Reloading the thread still shows the sentences and still shows the tool card closed.

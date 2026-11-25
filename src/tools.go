@@ -211,8 +211,9 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		cmd.Stdin = nil
 		setProcessGroup(cmd)
 		// Combined output preserves the order of stdout/stderr chunks.
-		var output limitedBuffer
-		output.Limit = 36 << 10
+		var output execSink
+		output.buf.Limit = 36 << 10
+		output.fn = execOutputFrom(runCtx)
 		cmd.Stdout = &output
 		cmd.Stderr = &output
 		if err := cmd.Start(); err != nil {
@@ -333,6 +334,57 @@ func executeToolWithEnv(ctx context.Context, name, args string, extraEnv []strin
 		return runCameraSnapshotTool()
 	}
 	return "unknown tool"
+}
+
+type execOutputKey struct{}
+
+func withExecOutput(ctx context.Context, fn func(string)) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, execOutputKey{}, fn)
+}
+
+func execOutputFrom(ctx context.Context) func(string) {
+	if ctx == nil {
+		return nil
+	}
+	fn, _ := ctx.Value(execOutputKey{}).(func(string))
+	return fn
+}
+
+// execSink keeps the same capped transcript as limitedBuffer and reports the
+// text already captured, on a new line or after a burst of bytes.
+type execSink struct {
+	mu    sync.Mutex
+	buf   limitedBuffer
+	fn    func(string)
+	since int
+}
+
+func (b *execSink) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	n, err := b.buf.Write(p)
+	b.since += len(p)
+	var snap string
+	fn := b.fn
+	if fn != nil && (bytes.Contains(p, []byte{'\n'}) || b.since >= 2048) {
+		b.since = 0
+		snap = b.buf.String()
+	} else {
+		fn = nil
+	}
+	b.mu.Unlock()
+	if fn != nil && snap != "" {
+		fn(snap)
+	}
+	return n, err
+}
+
+func (b *execSink) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 type limitedBuffer struct {

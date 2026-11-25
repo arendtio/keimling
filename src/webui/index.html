@@ -126,7 +126,7 @@
       </div>
 
       <div id="pane-agent" class="settings-pane" hidden role="tabpanel">
-        <p class="settings-lead">Providers are endpoints and credentials. Each provider has curated models (id, context, optional pricing). Prefill pulls the upstream catalog into the form only.</p>
+        <p class="settings-lead">Providers are endpoints and credentials. A model names the provider it belongs to. The main chat purpose chooses which saved model answers. Prefill pulls the upstream catalog into the form only.</p>
 
         <p class="settings-section-title">Providers</p>
         <ul id="provider-list" class="profile-list" aria-label="Model providers"></ul>
@@ -157,12 +157,28 @@
           </label>
           <p id="prov-edit-management-hint" class="hint" hidden>Reads the OpenRouter account total. Chat still uses the API key. Leave blank to keep.</p>
 
-          <p class="settings-section-title">Models</p>
-          <p class="hint">Favorites for this provider. One is the default (used when this provider is active). Prefill fills fields from the upstream catalog — catalogs are not stored. On a LiteLLM proxy it also reads /model_group/info and /model/info for context, price, vision, and audio.</p>
-          <ul id="prov-model-list" class="profile-list" aria-label="Provider models"></ul>
-          <button type="button" id="prov-model-new" class="ghost wide">Add model…</button>
-          <div id="prov-model-editor" class="profile-editor nested" hidden>
-            <p id="prov-model-editor-title" class="settings-section-title">Add model</p>
+          <div class="skills-row">
+            <button type="button" id="prov-edit-cancel" class="ghost">Cancel</button>
+            <button type="button" id="prov-edit-save">Save provider</button>
+          </div>
+          <p id="prov-edit-status" class="hint"></p>
+        </div>
+
+        <p class="settings-section-title">Models</p>
+        <p class="hint">A model belongs to one saved provider. Saving here stores that model. Prefill reads the chosen provider’s catalog and does not store the catalog.</p>
+        <ul id="prov-model-list" class="profile-list" aria-label="Models"></ul>
+        <button type="button" id="prov-model-new" class="ghost wide">Add model…</button>
+        <div id="prov-model-editor" class="profile-editor" hidden>
+            <div class="model-form-head">
+              <p id="prov-model-editor-title" class="settings-section-title">Add model</p>
+            </div>
+            <label>Provider
+              <span class="provider-prefill">
+                <select id="prov-model-provider"></select>
+                <button type="button" id="prov-catalog-fetch" class="ghost">Prefill from API…</button>
+              </span>
+            </label>
+            <p id="prov-catalog-status" class="hint" hidden></p>
             <label>Model id
               <input id="prov-model-id" type="text" list="prov-catalog-datalist" autocomplete="off" placeholder="openai/gpt-4.1">
             </label>
@@ -189,30 +205,21 @@
             <label>Completion price (USD / million tokens)
               <input id="prov-model-completion-price" type="text" autocomplete="off" placeholder="8" inputmode="decimal">
             </label>
-            <label id="prov-model-images-label" hidden>
-              <input id="prov-model-images" type="checkbox">
-              Look at images
+            <label class="check"><input id="prov-model-images" type="checkbox"> Looks at images</label>
+            <label class="check"><input id="prov-model-audio" type="checkbox"> Hears audio</label>
+            <label class="check"><input id="prov-model-transcribes" type="checkbox"> Transcribes speech</label>
+            <label class="check"><input id="prov-model-speaks" type="checkbox"> Speaks</label>
+            <label class="check"><input id="prov-model-realtime" type="checkbox"> Realtime voice</label>
+            <p class="hint">Prefill checks what that provider’s catalog reports. A catalog with no capability fields, such as OpenAI’s model list, leaves the boxes as they are.</p>
+            <label>Instructions
+              <textarea id="prov-model-instructions" rows="3" placeholder="Optional. Added when this model answers."></textarea>
             </label>
-            <p id="prov-model-images-hint" class="hint" hidden>On, this model receives the picture. Off, it gets the file path and follows your instructions.</p>
-            <label id="prov-model-audio-label" hidden>
-              <input id="prov-model-audio" type="checkbox">
-              Hear audio
-            </label>
-            <p id="prov-model-audio-hint" class="hint" hidden>On, this model receives the sound. Off, it gets the file path and follows your instructions.</p>
             <div class="skills-row">
-              <button type="button" id="prov-catalog-fetch" class="ghost">Prefill from API…</button>
               <button type="button" id="prov-model-cancel" class="ghost">Cancel</button>
               <button type="button" id="prov-model-save">Save model</button>
             </div>
-            <p id="prov-catalog-status" class="hint" hidden></p>
+            <p id="prov-model-status" class="hint"></p>
           </div>
-
-          <div class="skills-row">
-            <button type="button" id="prov-edit-cancel" class="ghost">Cancel</button>
-            <button type="button" id="prov-edit-save">Save provider</button>
-            <button type="button" id="prov-edit-delete" class="ghost danger" hidden>Delete</button>
-          </div>
-        </div>
 
         <!-- Mirrored from active provider for legacy save path / display -->
         <input id="set-base-url" type="hidden" value="">
@@ -226,35 +233,47 @@
           <option value="max">max</option>
         </select>
 
-        <p class="settings-section-title">Side tasks</p>
-        <p class="hint">Approval review, output filtering, autopilot supervision, the fast delegate, and web search use this model. Empty uses the chat model of the run.</p>
-        <label>Auxiliary model
+        <p class="settings-section-title">Purposes</p>
+        <p class="hint">Each purpose uses one saved model. Saving here stores only these choices.</p>
+        <label>Main chat
+          <select id="set-main-model">
+            <option value="">No saved model</option>
+          </select>
+        </label>
+        <label>Image analysis
+          <select id="set-vision-model">
+            <option value="">Use the chat model</option>
+          </select>
+        </label>
+        <p class="hint">Only models that can see images. Empty uses the chat model.</p>
+        <label>Side task
           <select id="set-auxiliary-model">
             <option value="">Use the chat model</option>
           </select>
         </label>
+        <p class="hint">Approval review, output filtering, and autopilot share this model. Delegates use the main chat model.</p>
 
         <p class="settings-section-title">Voice</p>
-        <p class="hint">Transcription uses the selected provider’s audio endpoint. A text-only model will not transcribe. Off sends no audio.</p>
-        <label>Provider
-          <select id="set-voice-provider">
+        <p class="hint">Transcription stays off until a saved transcription model is chosen.</p>
+        <label>Transcription
+          <select id="set-voice-model">
             <option value="">Off</option>
           </select>
         </label>
-        <label>Model
-          <input id="set-voice-model" type="text" autocomplete="off" placeholder="gpt-transcribe">
+
+        <label>Speech synthesis
+          <select id="set-speech-model">
+            <option value="">Off</option>
+          </select>
         </label>
-        <p class="hint">Type the transcription model id. For OpenAI, gpt-transcribe is a sensible choice.</p>
+        <p class="hint">Stores which model can speak. Playback comes later.</p>
 
         <p class="settings-section-title">Live call</p>
         <p class="hint">A voice conversation on a provider that speaks the Realtime API. OpenAI and a LiteLLM proxy do. Record still only saves a message.</p>
-        <label>Provider
-          <select id="set-realtime-provider">
+        <label>Model
+          <select id="set-realtime-model">
             <option value="">Off</option>
           </select>
-        </label>
-        <label>Model
-          <input id="set-realtime-model" type="text" autocomplete="off" placeholder="gpt-realtime-2.1">
         </label>
         <label>Voice
           <select id="set-realtime-voice">
@@ -270,6 +289,10 @@
             <option value="verse">verse</option>
           </select>
         </label>
+        <div class="skills-row">
+          <button type="button" id="set-purposes-save">Save purposes</button>
+        </div>
+        <p id="set-purposes-status" class="hint"></p>
         <input id="set-openai-api-key" type="hidden" value="">
         <p id="openai-key-hint" class="hint" hidden></p>
 
@@ -329,9 +352,13 @@
           <input id="set-mcp-parallel" type="number" min="1" step="1" value="10">
         </label>
         <p class="hint">How many MCP calls may talk to servers at once. Each stdio server still runs one call at a time.</p>
-        <label>Context limit
-          <input id="set-context-limit" type="number" min="1000" step="1000">
-        </label>
+        <label class="check"><input id="set-idle-sound" type="checkbox"> Sound when a run goes idle</label>
+        <label class="check"><input id="set-idle-notify" type="checkbox"> Desktop notification when a run goes idle</label>
+        <p class="hint">Both stay quiet while this window is focused. The sound is generated when it plays.</p>
+        <div class="skills-row">
+          <button type="button" id="set-behaviour-save">Save behaviour</button>
+        </div>
+        <p id="set-behaviour-status" class="hint"></p>
       </div>
 
       <div id="pane-secrets" class="settings-pane" hidden role="tabpanel">
@@ -534,7 +561,7 @@
 
       <div class="gate-actions" id="gate-actions">
         <button id="gate-cancel" type="button" class="ghost" hidden>Cancel</button>
-        <button id="save-settings" type="button" hidden>Save model settings</button>
+        <button id="save-settings" type="button" hidden>Save behaviour</button>
         <button id="connect" type="button">Continue</button>
       </div>
       <p id="gate-err" class="gate-err" hidden></p>
@@ -764,6 +791,15 @@
               <input id="agent-access-model" type="text" list="agent-model-suggestions" placeholder="Empty uses the definition" autocomplete="off">
             </label>
             <p id="agent-access-model-hint" class="hint">Empty uses the definition. A model here applies only to this instance.</p>
+            <label class="agent-def-field">
+              <span>Spend ceiling (USD)</span>
+              <input id="agent-access-spend-usd" type="text" inputmode="decimal" autocomplete="off" placeholder="Empty means no dollar ceiling">
+            </label>
+            <label class="agent-def-field">
+              <span>Spend ceiling (tokens)</span>
+              <input id="agent-access-spend-tokens" type="text" inputmode="numeric" autocomplete="off" placeholder="Empty means no token ceiling">
+            </label>
+            <p class="hint">The ceiling lasts for the life of this instance. Spend by agents it starts is not included.</p>
             <div class="agent-access-grid">
               <section>
                 <h3 class="settings-section-title">Workspaces</h3>
@@ -806,6 +842,13 @@
             <button type="button" id="mcp-before-save" class="ghost">Save</button>
           </div>
           <p class="hint">Runs before this server connects, then must exit. It may run for five minutes. If it fails, only this server stays disconnected. Reload tries again. A plugin server keeps this here, not in the plugin.</p>
+          <label>Note
+            <textarea id="mcp-note" rows="2" placeholder="Sent while this server is connected"></textarea>
+          </label>
+          <div class="skills-row">
+            <button type="button" id="mcp-note-save" class="ghost">Save note</button>
+          </div>
+          <p class="hint">Empty adds nothing. A disconnected server does not send the note.</p>
           <div id="mcp-edit" hidden>
             <div class="skills-row" id="mcp-edit-stdio">
               <input id="mcp-edit-command" type="text" placeholder="command and args" autocomplete="off" spellcheck="false">

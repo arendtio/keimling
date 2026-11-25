@@ -18,10 +18,16 @@ import (
 
 type Config struct {
 	Model, CompactionModel, Mode, Key, SessionPath, VoiceModel, ReviewModel, ApprovalPolicy, Reasoning, BaseURL string
-	// AuxiliaryModel is the shared model for side tasks (approval review, output
-	// filtering, autopilot supervision, fast delegate, web search). Empty means
-	// each task uses the chat model of its run.
+	// AuxiliaryModel is the side-task model: approval review, output filtering,
+	// and autopilot supervision. Delegates use the chat model. Empty means
+	// those three tasks use the chat model of the run.
 	AuxiliaryModel string
+	// VisionModel looks at images when a delegate carries one. Empty uses the chat model.
+	VisionModel, VisionProviderID string
+	// SpeechModel is the speech-synthesis purpose. Playback is not built yet.
+	SpeechModel, SpeechProviderID string
+	// IdleSound and IdleNotify fire when a run returns to idle and the window is not focused.
+	IdleSound, IdleNotify bool
 	// ConversationMode is the mode stored for workspace threads. Agent workers
 	// keep their definition mode in Mode and leave this as the shared setting.
 	ConversationMode string
@@ -109,11 +115,17 @@ type fileConfig struct {
 		ApprovalPolicy          string          `json:"approval_policy,omitempty"`
 		ToolAsk                 map[string]bool `json:"tool_ask,omitempty"`
 		ArtifactProxy           bool            `json:"artifact_proxy,omitempty"`
+		IdleSound               bool            `json:"idle_sound,omitempty"`
+		IdleNotify              bool            `json:"idle_notify,omitempty"`
 	} `json:"features"`
 	Reasoning             string                     `json:"reasoning,omitempty"`
 	VoiceModel            string                     `json:"voice_model,omitempty"`
 	AuxiliaryModel        string                     `json:"auxiliary_model,omitempty"`
 	VoiceProviderID       string                     `json:"voice_provider_id,omitempty"`
+	VisionModel           string                     `json:"vision_model,omitempty"`
+	VisionProviderID      string                     `json:"vision_provider_id,omitempty"`
+	SpeechModel           string                     `json:"speech_model,omitempty"`
+	SpeechProviderID      string                     `json:"speech_provider_id,omitempty"`
 	RealtimeModel         string                     `json:"realtime_model,omitempty"`
 	RealtimeProviderID    string                     `json:"realtime_provider_id,omitempty"`
 	RealtimeVoice         string                     `json:"realtime_voice,omitempty"`
@@ -596,6 +608,12 @@ func main() {
 	a.Client.Spend = agentSpendHook(a)
 	a.Cfg.ConversationMode = a.Cfg.Mode
 	a.Cfg.AuxiliaryModel = strings.TrimSpace(*auxiliaryModel)
+	a.Cfg.VisionModel = strings.TrimSpace(fc.VisionModel)
+	a.Cfg.VisionProviderID = strings.TrimSpace(fc.VisionProviderID)
+	a.Cfg.SpeechModel = strings.TrimSpace(fc.SpeechModel)
+	a.Cfg.SpeechProviderID = strings.TrimSpace(fc.SpeechProviderID)
+	a.Cfg.IdleSound = fc.Features.IdleSound
+	a.Cfg.IdleNotify = fc.Features.IdleNotify
 	a.applyDefinitionApproval()
 	if ch, chErr := loadCharter(*session); chErr == nil {
 		a.Charter = ch

@@ -122,11 +122,11 @@ func TestKeepBeforeWhenTheEditOmitsIt(t *testing.T) {
 	if err := UpsertUserMCPServer("demo", MCPServerConfig{Command: "echo", Before: "echo keep"}); err != nil {
 		t.Fatal(err)
 	}
-	kept := keepUserMCPFields("demo", MCPServerConfig{Command: "echo"}, false, false, false)
+	kept := keepUserMCPFields("demo", MCPServerConfig{Command: "echo"}, false, false, false, false)
 	if kept.Before != "echo keep" {
 		t.Fatalf("%#v", kept)
 	}
-	replaced := keepUserMCPFields("demo", MCPServerConfig{Command: "echo", Before: "echo new"}, false, false, true)
+	replaced := keepUserMCPFields("demo", MCPServerConfig{Command: "echo", Before: "echo new"}, false, false, true, false)
 	if replaced.Before != "echo new" {
 		t.Fatalf("%#v", replaced)
 	}

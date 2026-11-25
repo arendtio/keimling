@@ -7,10 +7,9 @@ import (
 	"sync"
 )
 
-// auxiliary_model is the model for the side tasks that used to be pinned to
-// their own flag defaults: approval review, output filtering, autopilot
-// supervision, the fast delegate, and the external web search. Empty means
-// each of those tasks uses the chat model of its run.
+// auxiliary_model is the side-task model for approval review, output
+// filtering, and autopilot supervision. Delegates and web search use the
+// chat model. Empty means those three tasks use the chat model of the run.
 //
 // Precedence, highest first:
 //  1. an explicit flag (--review-model, --autopilot-model, --delegate-fast-model),
@@ -44,12 +43,14 @@ func (c Config) auxiliarySetting(task auxiliaryTask) (flagValue, saved string) {
 		return c.ReviewModel, c.AuxiliaryModel
 	case auxPilot:
 		return c.PilotModel, c.AuxiliaryModel
+	case auxFilter:
+		return "", c.AuxiliaryModel
 	case auxDelegate:
-		return c.DelegateFast, c.AuxiliaryModel
-	case auxFilter, auxSearch:
-		return "", c.AuxiliaryModel
+		return c.DelegateFast, ""
+	case auxSearch:
+		return "", ""
 	default:
-		return "", c.AuxiliaryModel
+		return "", ""
 	}
 }
 

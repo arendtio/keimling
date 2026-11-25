@@ -17,6 +17,10 @@ type providerModel struct {
 	HearsAudio      bool   `json:"hears_audio,omitempty"`
 	UseImages       *bool  `json:"use_images,omitempty"` // nil means on when SeesImages
 	UseAudio        *bool  `json:"use_audio,omitempty"`
+	Instructions    string `json:"instructions,omitempty"`
+	Transcribes     bool   `json:"transcribes,omitempty"`
+	Speaks          bool   `json:"speaks,omitempty"`
+	Realtime        bool   `json:"realtime,omitempty"`
 }
 
 func (m providerModel) displayName() string {
@@ -32,6 +36,7 @@ func normalizeProviderModel(m providerModel) (providerModel, error) {
 	m.Reasoning = strings.TrimSpace(m.Reasoning)
 	m.PromptPrice = strings.TrimSpace(m.PromptPrice)
 	m.CompletionPrice = strings.TrimSpace(m.CompletionPrice)
+	m.Instructions = strings.TrimSpace(m.Instructions)
 	if m.ID == "" {
 		return m, errors.New("model id required")
 	}

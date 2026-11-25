@@ -218,7 +218,7 @@ func (a *Agent) parallelToolBody(ctx context.Context, name, args string) string 
 	case "read_file":
 		return executeTool(ctx, name, args)
 	case "exec":
-		return executeTool(ctx, "exec", args)
+		return executeTool(a.streamExec(ctx), "exec", args)
 	case "search_history":
 		return a.searchHistory(args)
 	case "read_history":
@@ -465,7 +465,7 @@ func (a *Agent) invokeTool(ctx context.Context, reader *bufio.Reader, message st
 		}
 		run := func() string {
 			if item.Name == "exec" {
-				return a.runExecWithCredentials(ctx, item.Arguments)
+				return a.runExecWithCredentials(a.streamExec(ctx), item.Arguments)
 			}
 			return executeTool(ctx, item.Name, item.Arguments)
 		}

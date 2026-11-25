@@ -53,6 +53,8 @@ func TestAuxiliaryModelPrecedence(t *testing.T) {
 		{"review flag beats the setting", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model", ReviewModel: "flag-model"}, "", "flag-model"},
 		{"autopilot flag beats the setting", auxPilot, Config{Model: "chat-model", AuxiliaryModel: "aux-model", PilotModel: "flag-model"}, "", "flag-model"},
 		{"fast delegate flag beats the setting", auxDelegate, Config{Model: "chat-model", AuxiliaryModel: "aux-model", DelegateFast: "flag-model"}, "", "flag-model"},
+		{"a delegate uses the chat model", auxDelegate, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "chat-model"},
+		{"web search ignores the side-task model", auxSearch, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "chat-model"},
 		{"blank flag is not a choice", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model", ReviewModel: "  "}, "", "aux-model"},
 		{"the setting beats the chat model", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "aux-model"},
 		{"the setting beats the run chat model", auxFilter, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "run-model", "aux-model"},
@@ -201,7 +203,7 @@ func TestSideTasksUseTheResolvedModel(t *testing.T) {
 
 	t.Run("fast delegate", func(t *testing.T) {
 		a := &Agent{Cfg: Config{Model: "chat-model", AuxiliaryModel: "aux-model", DelegateBalanced: "balanced-model", DelegateDeep: "deep-model"}}
-		if model, effort, err := a.delegateProfile("fast"); err != nil || model != "aux-model" || effort != "low" {
+		if model, effort, err := a.delegateProfile("fast"); err != nil || model != "chat-model" || effort != "low" {
 			t.Fatalf("%q %q %v", model, effort, err)
 		}
 		// The balanced and deep profiles keep their own models.
@@ -220,7 +222,7 @@ func TestSideTasksUseTheResolvedModel(t *testing.T) {
 		if err != nil || !strings.Contains(text, "example.com") {
 			t.Fatalf("%q %v", text, err)
 		}
-		if got := models(); len(got) != 1 || got[0] != "aux-model" {
+		if got := models(); len(got) != 1 || got[0] != "chat-model" {
 			t.Fatalf("search models %v", got)
 		}
 	})

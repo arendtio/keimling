@@ -541,9 +541,139 @@ func parseSpendDays(gran string, raw string) int {
 	return spendDays(gran, n)
 }
 
-// agentSpendLimitError refuses the next turn once an instance has used up the
-// daily cap of its definition. A chat or an instance without a cap is never
-// refused.
+// agentSpendLifetime sums every priced dollar and every token of one agent.
+// An unreadable ledger means nothing has been spent. Other agents are ignored.
+func agentSpendLifetime(agentID string) (usd float64, tokens int64) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return 0, 0
+	}
+	entries, err := os.ReadDir(spendDir())
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, spendRecordPrefix+"-") || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		f, err := os.Open(filepath.Join(spendDir(), name))
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+		for sc.Scan() {
+			var rec spendRecord
+			if json.Unmarshal(sc.Bytes(), &rec) != nil || rec.AgentID != agentID {
+				continue
+			}
+			tokens += rec.InputTokens + rec.OutputTokens
+			if rec.USD != nil {
+				usd += *rec.USD
+			}
+		}
+		f.Close()
+	}
+	return usd, tokens
+}
+
+// parseSpendLimit reads one ceiling. Empty and 0 mean no ceiling. A negative
+// value or other text is an error.
+func parseSpendLimit(raw string) (set bool, value float64, err error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "0" || raw == "0.0" {
+		return false, 0, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < 0 {
+		return false, 0, fmt.Errorf("invalid spend limit %q", raw)
+	}
+	return true, v, nil
+}
+
+// finalizeSpawnSpend applies the ceilings a spawn passed. Empty keeps the
+// ceiling already copied from the definition. 0 clears that unit.
+func finalizeSpawnSpend(inst AgentInstanceMeta, usdText, tokenText string) (AgentInstanceMeta, error) {
+	changed := false
+	if strings.TrimSpace(usdText) != "" {
+		set, v, err := parseSpendLimit(usdText)
+		if err != nil {
+			return inst, err
+		}
+		if set {
+			usd := v
+			inst.SpendLimitUSD = &usd
+		} else {
+			inst.SpendLimitUSD = nil
+		}
+		changed = true
+	}
+	if strings.TrimSpace(tokenText) != "" {
+		set, v, err := parseSpendLimit(tokenText)
+		if err != nil {
+			return inst, err
+		}
+		if set {
+			n := int64(v)
+			inst.SpendLimitTokens = &n
+		} else {
+			inst.SpendLimitTokens = nil
+		}
+		changed = true
+	}
+	if !changed {
+		return inst, nil
+	}
+	if err := writeAgentInstanceMeta(inst); err != nil {
+		return inst, err
+	}
+	return inst, nil
+}
+
+func setAgentInstanceSpend(id, usdText, tokenText string) (AgentInstanceMeta, error) {
+	m, err := readAgentInstanceMeta(id)
+	if err != nil {
+		return m, err
+	}
+	set, v, err := parseSpendLimit(usdText)
+	if err != nil {
+		return m, err
+	}
+	if set {
+		usd := v
+		m.SpendLimitUSD = &usd
+	} else {
+		m.SpendLimitUSD = nil
+	}
+	set, v, err = parseSpendLimit(tokenText)
+	if err != nil {
+		return m, err
+	}
+	if set {
+		n := int64(v)
+		m.SpendLimitTokens = &n
+	} else {
+		m.SpendLimitTokens = nil
+	}
+	if err := writeAgentInstanceMeta(m); err != nil {
+		return m, err
+	}
+	return readAgentInstanceMeta(id)
+}
+
+func raiseSpendLimitEscalation(m AgentInstanceMeta, detail string) {
+	for _, e := range listEscalations(0) {
+		if e.AgentID == m.ID && !e.Done && strings.HasPrefix(e.Text, "spend limit reached") {
+			return
+		}
+	}
+	_, _ = addEscalation(m.ID, m.Name, "spend limit reached: "+detail)
+}
+
+// agentSpendLimitError refuses the next turn once an instance has used up a
+// ceiling for its whole life. A chat, or an instance with no ceiling, is never
+// refused. Spend by an instance this one started does not count.
 func agentSpendLimitError(a *Agent) error {
 	if a == nil {
 		return nil
@@ -556,17 +686,33 @@ func agentSpendLimitError(a *Agent) error {
 	if err != nil {
 		return nil
 	}
-	rec, err := readAgentRecipe(m.RecipeID)
-	if err != nil || rec.SpendLimitUSD == nil {
+	usdLimit := 0.0
+	if m.SpendLimitUSD != nil {
+		usdLimit = *m.SpendLimitUSD
+	}
+	tokenLimit := int64(0)
+	if m.SpendLimitTokens != nil {
+		tokenLimit = *m.SpendLimitTokens
+	}
+	if usdLimit <= 0 && tokenLimit <= 0 {
 		return nil
 	}
-	limit := *rec.SpendLimitUSD
-	if limit <= 0 {
+	spentUSD, spentTokens := agentSpendLifetime(id)
+	var hit string
+	if usdLimit > 0 && spentUSD >= usdLimit {
+		hit = fmt.Sprintf("$%.2f of $%.2f", spentUSD, usdLimit)
+	}
+	if tokenLimit > 0 && spentTokens >= tokenLimit {
+		tokens := fmt.Sprintf("%d of %d tokens", spentTokens, tokenLimit)
+		if hit != "" {
+			hit += ", " + tokens
+		} else {
+			hit = tokens
+		}
+	}
+	if hit == "" {
 		return nil
 	}
-	spent := agentSpendToday(id)
-	if spent < limit {
-		return nil
-	}
-	return fmt.Errorf("spend limit reached: $%.2f of $%.2f used today. Raise the limit in the definition or wait for tomorrow", spent, limit)
+	raiseSpendLimitEscalation(m, hit)
+	return fmt.Errorf("spend limit reached: %s. The ceiling lasts for the life of this instance", hit)
 }

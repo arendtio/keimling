@@ -43,10 +43,10 @@
 ## REQ-CF-5 Seeing and hearing follow the model catalog
 
 - **Bin:** explicit requirement
-- **Statement:** When a model is added, Keimling shall detect whether that model can see images and hear audio. A detected capability shall be on by default and the user shall be able to turn it off. A capability the catalog does not report shall not be offered.
-- **Origin:** User, 2026-11-06 (quote: "wenn ich ein Model hinzufüge, dass er dann so eine Art … Capability Detection macht … man sollte das vielleicht deaktivieren können … wenn das Model die Capability nicht hat, dann macht es ja auch keinen Sinn, das überhaupt zu aktivieren. Standardmäßig sollte es … aktiviert sein").
+- **Statement:** When a model is added, Keimling shall detect whether that model can see images and hear audio. A detected capability shall be on by default and the user shall be able to turn it off. Seeing, hearing, transcription, speech, and realtime voice shall be the same kind of checkbox. Prefill shall check a box when the catalog reports that capability. A catalog that reports no capabilities, such as OpenAI’s model list, shall leave the boxes unchanged so the user can set them.
+- **Origin:** User, 2026-11-06 (quote: "wenn ich ein Model hinzufüge, dass er dann so eine Art … Capability Detection macht … man sollte das vielleicht deaktivieren können … wenn das Model die Capability nicht hat, dann macht es ja auch keinen Sinn, das überhaupt zu aktivieren. Standardmäßig sollte es … aktiviert sein"). 2026-11-25 (quote: "warum die capabilities eines models unterschiedlich dargestellt werden" and "für transcription, speaks und realtime voice gibt es einzelne checkboxen und vision und audio sind irgendwie anders" and "kann man nicht alle 5 so darstellen wie die 3" and "durch die api prefillen lassen").
 - **Rationale:** The switch is only meaningful for a model that has the sense.
-- **Fit criterion:** A catalog entry that reports image input stores seeing as available and on. A catalog entry that reports neither image nor audio stores neither switch. Turning seeing off keeps the capability recorded and stops sending the picture.
+- **Fit criterion:** A catalog entry that reports image input checks Looks at images. A catalog entry that reports speech, transcription, hearing, or realtime checks that box. A catalog entry that reports none of them leaves all five boxes as they were. The five boxes look the same. Turning seeing off stops sending the picture. Unchecking transcription removes that model from the transcription choice.
 - **Priority:** shall
 - **Status:** confirmed
 

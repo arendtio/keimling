@@ -264,6 +264,13 @@
   var setContextLimit = document.getElementById("set-context-limit");
   var setVoiceModel = document.getElementById("set-voice-model");
   var setAuxiliaryModel = document.getElementById("set-auxiliary-model");
+  var setMainModel = document.getElementById("set-main-model");
+  var setVisionModel = document.getElementById("set-vision-model");
+  var setSpeechModel = document.getElementById("set-speech-model");
+  var setIdleSound = document.getElementById("set-idle-sound");
+  var setIdleNotify = document.getElementById("set-idle-notify");
+  var idleSoundOn = false;
+  var idleNotifyOn = false;
   var setVoiceProvider = document.getElementById("set-voice-provider");
   var setRealtimeProvider = document.getElementById("set-realtime-provider");
   var setRealtimeModel = document.getElementById("set-realtime-model");
@@ -312,7 +319,9 @@
   var editingActiveModelID = "";
   var modelFormMode = null; // null | "add" | "edit"
   var modelFormOriginalID = "";
+  var modelFormOriginalProvider = "";
   var catalogCache = [];
+  var catalogsByProvider = {};
   var providerListEl = document.getElementById("provider-list");
   var providerEditor = document.getElementById("provider-editor");
   var providerNewBtn = document.getElementById("provider-new");
@@ -325,23 +334,23 @@
   var provEditManagementHint = document.getElementById("prov-edit-management-hint");
   var provEditCancel = document.getElementById("prov-edit-cancel");
   var provEditSave = document.getElementById("prov-edit-save");
-  var provEditDelete = document.getElementById("prov-edit-delete");
   var provModelList = document.getElementById("prov-model-list");
   var provModelNew = document.getElementById("prov-model-new");
   var provModelEditor = document.getElementById("prov-model-editor");
   var provModelEditorTitle = document.getElementById("prov-model-editor-title");
+  var provModelProvider = document.getElementById("prov-model-provider");
   var provModelID = document.getElementById("prov-model-id");
   var provModelName = document.getElementById("prov-model-name");
   var provModelContext = document.getElementById("prov-model-context");
   var provModelReasoning = document.getElementById("prov-model-reasoning");
   var provModelPromptPrice = document.getElementById("prov-model-prompt-price");
   var provModelCompletionPrice = document.getElementById("prov-model-completion-price");
-  var provModelImagesLabel = document.getElementById("prov-model-images-label");
+  var provModelInstructions = document.getElementById("prov-model-instructions");
+  var provModelTranscribes = document.getElementById("prov-model-transcribes");
+  var provModelSpeaks = document.getElementById("prov-model-speaks");
+  var provModelRealtime = document.getElementById("prov-model-realtime");
   var provModelImages = document.getElementById("prov-model-images");
-  var provModelImagesHint = document.getElementById("prov-model-images-hint");
-  var provModelAudioLabel = document.getElementById("prov-model-audio-label");
   var provModelAudio = document.getElementById("prov-model-audio");
-  var provModelAudioHint = document.getElementById("prov-model-audio-hint");
   var attachRow = document.getElementById("attach-row");
   var attachFileBtn = document.getElementById("attach-file");
   var attachInput = document.getElementById("attach-input");
@@ -1509,7 +1518,7 @@
     if (panePlugins) panePlugins.hidden = tab !== "plugins";
     if (paneThemes) paneThemes.hidden = tab !== "themes";
     if (paneSpend) paneSpend.hidden = tab !== "spend";
-    saveSettingsBtn.hidden = tab !== "models";
+    saveSettingsBtn.hidden = true;
     connectBtn.hidden = tab !== "connection";
     if (tab === "secrets" && connected) loadCredentialsUI();
     if (tab === "plugins" && connected) loadPlugins();
@@ -1749,25 +1758,31 @@
     if (!providerListEl) return;
     providerListEl.innerHTML = "";
     providersCache.forEach(function (p) {
-      var m = activeModelOf(p);
+      var count = (p.models || []).length;
       var li = document.createElement("li");
-      var pick = document.createElement("button");
-      pick.type = "button";
-      pick.className = "profile-pick" + (p.id === activeProviderID ? " active" : "");
-      pick.innerHTML = esc(p.name || p.id) +
-        '<span class="profile-meta">' + esc((m && (m.name || m.id)) || p.model || p.base_url || "") + "</span>";
-      pick.addEventListener("click", function () {
-        activeProviderID = p.id;
-        syncHiddenProviderFields();
-        renderProviderList();
-      });
+      var label = document.createElement("div");
+      label.className = "profile-pick";
+      var meta = [];
+      if (p.base_url) meta.push(p.base_url);
+      meta.push(count === 1 ? "1 model" : count + " models");
+      label.innerHTML = esc(p.name || p.id) +
+        '<span class="profile-meta">' + esc(meta.join(" · ")) + "</span>";
+      var actions = document.createElement("div");
+      actions.className = "profile-row-actions";
       var edit = document.createElement("button");
       edit.type = "button";
       edit.className = "ghost profile-edit-btn";
       edit.textContent = "Edit";
       edit.addEventListener("click", function () { openProviderEditor(p); });
-      li.appendChild(pick);
-      li.appendChild(edit);
+      actions.appendChild(edit);
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "ghost profile-edit-btn danger";
+      del.textContent = "Remove";
+      del.addEventListener("click", function () { removeProvider(p.id); });
+      actions.appendChild(del);
+      li.appendChild(label);
+      li.appendChild(actions);
       providerListEl.appendChild(li);
     });
   }
@@ -1779,7 +1794,8 @@
     if (provModelReasoning) provModelReasoning.value = "";
     if (provModelPromptPrice) provModelPromptPrice.value = "";
     if (provModelCompletionPrice) provModelCompletionPrice.value = "";
-    setModelSenses(null);
+    if (provModelInstructions) provModelInstructions.value = "";
+    setModelCapabilities(null);
   }
 
   function fillModelForm(m) {
@@ -1790,12 +1806,35 @@
     if (provModelReasoning) provModelReasoning.value = m.reasoning || "";
     if (provModelPromptPrice) provModelPromptPrice.value = usdPerMillionFromToken(m.prompt_price);
     if (provModelCompletionPrice) provModelCompletionPrice.value = usdPerMillionFromToken(m.completion_price);
-    setModelSenses(m);
+    if (provModelInstructions) provModelInstructions.value = m.instructions || "";
+    setModelCapabilities(m);
+  }
+
+  function providerByID(id) {
+    for (var i = 0; i < providersCache.length; i++) {
+      if (providersCache[i].id === id) return providersCache[i];
+    }
+    return null;
+  }
+
+  function fillModelProviderSelect(selected) {
+    if (!provModelProvider) return;
+    provModelProvider.innerHTML = "";
+    providersCache.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      provModelProvider.appendChild(opt);
+    });
+    if (selected) provModelProvider.value = selected;
+    if (!provModelProvider.value && providersCache[0]) provModelProvider.value = providersCache[0].id;
+    showProviderCatalog(provModelProvider.value);
   }
 
   function closeModelForm() {
     modelFormMode = null;
     modelFormOriginalID = "";
+    modelFormOriginalProvider = "";
     clearModelForm();
     if (provCatalogStatus) provCatalogStatus.hidden = true;
     if (provModelEditor) provModelEditor.hidden = true;
@@ -1803,78 +1842,96 @@
   }
 
   function openModelFormAdd() {
+    if (!providersCache.length) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Save a provider first";
+      return;
+    }
     modelFormMode = "add";
     modelFormOriginalID = "";
+    modelFormOriginalProvider = "";
     clearModelForm();
+    fillModelProviderSelect(activeProviderID);
     if (provModelEditorTitle) provModelEditorTitle.textContent = "Add model";
     if (provModelEditor) provModelEditor.hidden = false;
     if (provModelNew) provModelNew.hidden = true;
     if (provModelID) provModelID.focus();
   }
 
-  function openModelFormEdit(m) {
+  function openModelFormEdit(m, providerID) {
     if (!m) return;
     modelFormMode = "edit";
     modelFormOriginalID = m.id;
+    modelFormOriginalProvider = providerID || "";
     fillModelForm(m);
+    fillModelProviderSelect(providerID);
     if (provModelEditorTitle) provModelEditorTitle.textContent = "Edit model";
     if (provModelEditor) provModelEditor.hidden = false;
     if (provModelNew) provModelNew.hidden = true;
     if (provModelID) provModelID.focus();
   }
 
+  function persistProviderCache(statusEl, doneText) {
+    if (statusEl) statusEl.textContent = "Saving…";
+    return putSettings({
+      model_providers: providersPayload(),
+      active_model_provider_id: activeProviderID,
+    }).then(function () {
+      if (statusEl) statusEl.textContent = doneText || "Saved";
+      return true;
+    }).catch(function (e) {
+      if (statusEl) statusEl.textContent = "";
+      gateErr.hidden = false;
+      gateErr.textContent = String(e);
+      return false;
+    });
+  }
+
   function renderProvModelList() {
     if (!provModelList) return;
     provModelList.innerHTML = "";
-    editingProviderModels.forEach(function (m) {
-      var isDefault = m.id === editingActiveModelID;
-      var li = document.createElement("li");
-      var label = document.createElement("div");
-      label.className = "profile-pick" + (isDefault ? " active" : "");
-      var meta = [];
-      if (isDefault) meta.push("default");
-      if (m.context_limit) meta.push(m.context_limit + " ctx");
-      if (m.reasoning) meta.push(m.reasoning);
-      if (m.sees_images) meta.push(m.use_images === false ? "images off" : "images");
-      if (m.hears_audio) meta.push(m.use_audio === false ? "audio off" : "audio");
-      label.innerHTML = esc(m.name || m.id) +
-        (meta.length ? '<span class="profile-meta">' + esc(meta.join(" · ")) + "</span>" : "");
-      var actions = document.createElement("div");
-      actions.className = "profile-row-actions";
-      if (!isDefault) {
-        var setDef = document.createElement("button");
-        setDef.type = "button";
-        setDef.className = "ghost profile-edit-btn";
-        setDef.textContent = "Default";
-        setDef.title = "Use as default model for this provider";
-        setDef.addEventListener("click", function () {
-          editingActiveModelID = m.id;
-          renderProvModelList();
+    providersCache.forEach(function (p) {
+      (p.models || []).forEach(function (m) {
+        var li = document.createElement("li");
+        var label = document.createElement("div");
+        label.className = "profile-pick";
+        var meta = [p.name || p.id];
+        if (m.context_limit) meta.push(m.context_limit + " ctx");
+        if (m.transcribes) meta.push("transcribes");
+        if (m.speaks) meta.push("speaks");
+        if (m.realtime) meta.push("realtime");
+        label.innerHTML = esc(m.name || m.id) +
+          '<span class="profile-meta">' + esc(meta.join(" · ")) + "</span>";
+        var actions = document.createElement("div");
+        actions.className = "profile-row-actions";
+        var edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "ghost profile-edit-btn";
+        edit.textContent = "Edit";
+        edit.addEventListener("click", function () { openModelFormEdit(m, p.id); });
+        actions.appendChild(edit);
+        var del = document.createElement("button");
+        del.type = "button";
+        del.className = "ghost profile-edit-btn danger";
+        del.textContent = "Remove";
+        del.addEventListener("click", function () {
+          var labelName = m.name || m.id;
+          askConfirm("Remove “" + labelName + "” from " + (p.name || p.id) + "?", "Remove " + labelName).then(function (yes) {
+            if (!yes) return;
+            p.models = (p.models || []).filter(function (x) { return x.id !== m.id; });
+            if ((p.active_model_id || p.model) === m.id) {
+              p.active_model_id = p.models[0] ? p.models[0].id : "";
+              p.model = p.active_model_id;
+            }
+            if (modelFormOriginalID === m.id && modelFormOriginalProvider === p.id) closeModelForm();
+            persistProviderCache(document.getElementById("prov-model-status"), "Model removed");
+          });
         });
-        actions.appendChild(setDef);
-      }
-      var edit = document.createElement("button");
-      edit.type = "button";
-      edit.className = "ghost profile-edit-btn";
-      edit.textContent = "Edit";
-      edit.addEventListener("click", function () { openModelFormEdit(m); });
-      actions.appendChild(edit);
-      var del = document.createElement("button");
-      del.type = "button";
-      del.className = "ghost profile-edit-btn danger";
-      del.textContent = "Remove";
-      del.addEventListener("click", function () {
-        if (modelFormMode === "edit" && modelFormOriginalID === m.id) closeModelForm();
-        editingProviderModels = editingProviderModels.filter(function (x) { return x.id !== m.id; });
-        if (editingActiveModelID === m.id) {
-          editingActiveModelID = editingProviderModels[0] ? editingProviderModels[0].id : "";
-        }
-        renderProvModelList();
+        actions.appendChild(del);
+        li.appendChild(label);
+        li.appendChild(actions);
+        provModelList.appendChild(li);
       });
-      actions.appendChild(del);
-      li.appendChild(label);
-      li.appendChild(actions);
-      provModelList.appendChild(li);
     });
   }
 
@@ -1906,44 +1963,66 @@
       reasoning: provModelReasoning ? provModelReasoning.value : "",
       prompt_price: promptPrice,
       completion_price: completionPrice,
+      instructions: provModelInstructions ? provModelInstructions.value.trim() : "",
+      transcribes: !!(provModelTranscribes && provModelTranscribes.checked),
+      speaks: !!(provModelSpeaks && provModelSpeaks.checked),
+      realtime: !!(provModelRealtime && provModelRealtime.checked),
+      sees_images: !!(provModelImages && provModelImages.checked),
+      hears_audio: !!(provModelAudio && provModelAudio.checked),
     };
-    if (provModelImagesLabel && !provModelImagesLabel.hidden) {
-      row.sees_images = true;
-      row.use_images = !!(provModelImages && provModelImages.checked);
+    if (row.sees_images) row.use_images = true;
+    if (row.hears_audio) row.use_audio = true;
+    var providerID = provModelProvider ? provModelProvider.value : "";
+    var target = providerByID(providerID);
+    if (!target) {
+      gateErr.hidden = false;
+      gateErr.textContent = "Choose a saved provider";
+      return;
     }
-    if (provModelAudioLabel && !provModelAudioLabel.hidden) {
-      row.hears_audio = true;
-      row.use_audio = !!(provModelAudio && provModelAudio.checked);
+    var models = (target.models || []).slice();
+    var duplicate = models.some(function (x) {
+      return x.id === id && !(modelFormMode === "edit" && modelFormOriginalProvider === providerID && x.id === modelFormOriginalID);
+    });
+    if (duplicate) {
+      gateErr.hidden = false;
+      gateErr.textContent = "That provider already has this model id";
+      return;
     }
-    if (modelFormMode === "edit") {
-      var replaced = false;
-      for (var i = 0; i < editingProviderModels.length; i++) {
-        if (editingProviderModels[i].id === modelFormOriginalID) {
-          // Block rename onto another existing id.
-          if (id !== modelFormOriginalID && editingProviderModels.some(function (x) { return x.id === id; })) {
-            gateErr.hidden = false;
-            gateErr.textContent = "Another model already uses that id";
-            return;
+    if (modelFormMode === "edit" && modelFormOriginalProvider && modelFormOriginalProvider !== providerID) {
+      var previous = providerByID(modelFormOriginalProvider);
+      if (previous) {
+        previous.models = (previous.models || []).filter(function (x) { return x.id !== modelFormOriginalID; });
+        if ((previous.active_model_id || previous.model) === modelFormOriginalID) {
+          previous.active_model_id = previous.models[0] ? previous.models[0].id : "";
+          previous.model = previous.active_model_id;
+        }
+      }
+    }
+    var placed = false;
+    if (modelFormMode === "edit" && modelFormOriginalProvider === providerID) {
+      for (var i = 0; i < models.length; i++) {
+        if (models[i].id === modelFormOriginalID) {
+          models[i] = row;
+          if ((target.active_model_id || target.model) === modelFormOriginalID) {
+            target.active_model_id = id;
+            target.model = id;
           }
-          editingProviderModels[i] = row;
-          if (editingActiveModelID === modelFormOriginalID) editingActiveModelID = id;
-          replaced = true;
+          placed = true;
           break;
         }
       }
-      if (!replaced) editingProviderModels.push(row);
-    } else {
-      if (editingProviderModels.some(function (x) { return x.id === id; })) {
-        gateErr.hidden = false;
-        gateErr.textContent = "Model id already in the list";
-        return;
-      }
-      editingProviderModels.push(row);
-      if (!editingActiveModelID) editingActiveModelID = id;
     }
+    if (!placed) models.push(row);
+    if (!target.active_model_id && !target.model) {
+      target.active_model_id = id;
+      target.model = id;
+    }
+    target.models = models;
     gateErr.hidden = true;
-    closeModelForm();
-    renderProvModelList();
+    var modelStatus = document.getElementById("prov-model-status");
+    persistProviderCache(modelStatus, "Model saved").then(function (ok) {
+      if (ok) closeModelForm();
+    });
   }
 
   function applyCatalogPrefill(entry) {
@@ -1953,35 +2032,37 @@
     if (provModelContext && entry.context_limit) provModelContext.value = String(entry.context_limit);
     if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = usdPerMillionFromToken(entry.prompt_price);
     if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = usdPerMillionFromToken(entry.completion_price);
-    setModelSenses(entry.sees_images || entry.hears_audio ? {
-      sees_images: !!entry.sees_images,
-      hears_audio: !!entry.hears_audio,
-      use_images: true,
-      use_audio: true,
-    } : null);
+    if (entry.capabilities_known) setModelCapabilities(entry);
   }
 
-  function setModelSenses(m) {
-    var images = !!(m && m.sees_images);
-    var audio = !!(m && m.hears_audio);
-    if (provModelImagesLabel) provModelImagesLabel.hidden = !images;
-    if (provModelImagesHint) provModelImagesHint.hidden = !images;
-    if (provModelAudioLabel) provModelAudioLabel.hidden = !audio;
-    if (provModelAudioHint) provModelAudioHint.hidden = !audio;
-    if (provModelImages) provModelImages.checked = images && m.use_images !== false;
-    if (provModelAudio) provModelAudio.checked = audio && m.use_audio !== false;
+  function setModelCapabilities(m) {
+    if (provModelImages) provModelImages.checked = !!(m && m.sees_images && m.use_images !== false);
+    if (provModelAudio) provModelAudio.checked = !!(m && m.hears_audio && m.use_audio !== false);
+    if (provModelTranscribes) provModelTranscribes.checked = !!(m && m.transcribes);
+    if (provModelSpeaks) provModelSpeaks.checked = !!(m && m.speaks);
+    if (provModelRealtime) provModelRealtime.checked = !!(m && m.realtime);
   }
 
-  function fillCatalogDatalist(models) {
-    catalogCache = models || [];
+  function showProviderCatalog(providerID) {
+    catalogCache = catalogsByProvider[providerID] || [];
     if (!provCatalogDatalist) return;
     provCatalogDatalist.innerHTML = "";
     catalogCache.forEach(function (m) {
       var opt = document.createElement("option");
       opt.value = m.id;
       opt.label = m.name ? (m.name + " (" + m.id + ")") : m.id;
+      if (m.outputs) opt.label += " · " + m.outputs;
       provCatalogDatalist.appendChild(opt);
     });
+    if (provCatalogStatus && !catalogCache.length) {
+      provCatalogStatus.hidden = true;
+      provCatalogStatus.textContent = "";
+    }
+  }
+
+  function fillCatalogDatalist(models, providerID) {
+    catalogsByProvider[providerID] = models || [];
+    if (provModelProvider && provModelProvider.value === providerID) showProviderCatalog(providerID);
   }
 
   function fetchModelCatalog() {
@@ -1990,15 +2071,13 @@
       provCatalogStatus.hidden = false;
       provCatalogStatus.textContent = "Fetching catalog…";
     }
-    var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
-    if (!base) {
-      if (provCatalogStatus) provCatalogStatus.textContent = "Base URL required";
+    var catalogProvider = providerByID(provModelProvider ? provModelProvider.value : "");
+    if (!catalogProvider || !catalogProvider.base_url) {
+      if (provCatalogStatus) provCatalogStatus.textContent = "Choose a saved provider";
       return;
     }
-    var body = { base_url: base, kind: provEditKind ? provEditKind.value : "auto" };
-    var key = provEditAPIKey ? provEditAPIKey.value.trim() : "";
-    if (key) body.api_key = key;
-    if (editingProviderID) body.provider_id = editingProviderID;
+    var fetchedFor = catalogProvider.id;
+    var body = { base_url: catalogProvider.base_url, kind: catalogProvider.kind || "auto", provider_id: catalogProvider.id };
     fetch(apiURL("/api/settings/model-catalog"), {
       method: "POST",
       headers: headers(),
@@ -2009,17 +2088,19 @@
           var j = {};
           try { j = JSON.parse(t); } catch (e) {}
           if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
-          fillCatalogDatalist(j.models || []);
-          if (provCatalogStatus) {
-            provCatalogStatus.textContent = (j.count || 0) + " models loaded — pick an id to prefill.";
+          fillCatalogDatalist(j.models || [], fetchedFor);
+          var still = provModelProvider && provModelProvider.value === fetchedFor;
+          if (still && provCatalogStatus) {
+            provCatalogStatus.hidden = false;
+            provCatalogStatus.textContent = (j.count || 0) + " models for this provider — pick an id to prefill.";
           }
+          if (!still) return;
           var typed = provModelID ? provModelID.value.trim() : "";
-          if (typed) {
-            for (var i = 0; i < catalogCache.length; i++) {
-              if (catalogCache[i].id === typed) {
-                applyCatalogPrefill(catalogCache[i]);
-                break;
-              }
+          var list = catalogsByProvider[fetchedFor] || [];
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].id === typed) {
+              applyCatalogPrefill(list[i]);
+              break;
             }
           }
         });
@@ -2045,34 +2126,6 @@
 
   function openProviderEditor(p) {
     editingProviderID = p ? p.id : "";
-    editingProviderModels = ((p && p.models) || []).map(function (m) {
-      return {
-        id: m.id,
-        name: m.name || "",
-        context_limit: m.context_limit || 0,
-        reasoning: m.reasoning || "",
-        prompt_price: m.prompt_price || "",
-        completion_price: m.completion_price || "",
-        sees_images: !!m.sees_images,
-        hears_audio: !!m.hears_audio,
-        use_images: m.use_images !== false,
-        use_audio: m.use_audio !== false,
-      };
-    });
-    if (!editingProviderModels.length && p && p.model) {
-      editingProviderModels = [{
-        id: p.model,
-        name: "",
-        context_limit: 0,
-        reasoning: p.reasoning || "",
-        prompt_price: "",
-        completion_price: "",
-      }];
-    }
-    editingActiveModelID = (p && p.active_model_id) || (editingProviderModels[0] && editingProviderModels[0].id) || "";
-    catalogCache = [];
-    fillCatalogDatalist([]);
-    if (provCatalogStatus) provCatalogStatus.hidden = true;
     if (providerEditor) providerEditor.hidden = false;
     if (provEditName) provEditName.value = p ? (p.name || "") : "";
     if (provEditBaseURL) provEditBaseURL.value = p ? (p.base_url || "") : "";
@@ -2096,24 +2149,14 @@
         ? "Key is set. Leave blank to keep it, or paste a new key."
         : "Required for OpenRouter and most remote APIs.";
     }
-    if (provEditDelete) provEditDelete.hidden = !p;
-    closeModelForm();
-    renderProvModelList();
   }
 
   function closeProviderEditor() {
     editingProviderID = null;
-    editingProviderModels = [];
-    editingActiveModelID = "";
-    closeModelForm();
     if (providerEditor) providerEditor.hidden = true;
   }
 
   function saveProviderEditor() {
-    if (modelFormMode && provModelEditor && !provModelEditor.hidden) {
-      saveEditorModel();
-      if (modelFormMode) return;
-    }
     var name = provEditName ? provEditName.value.trim() : "";
     var base = provEditBaseURL ? provEditBaseURL.value.trim() : "";
     var kind = provEditKind ? provEditKind.value : "auto";
@@ -2124,26 +2167,15 @@
       gateErr.textContent = "Base URL required";
       return;
     }
-    if (!editingProviderModels.length) {
-      gateErr.hidden = false;
-      gateErr.textContent = "Add at least one model";
-      return;
-    }
-    if (!editingActiveModelID || !editingProviderModels.some(function (m) { return m.id === editingActiveModelID; })) {
-      editingActiveModelID = editingProviderModels[0].id;
-    }
-    var activeM = null;
-    for (var i = 0; i < editingProviderModels.length; i++) {
-      if (editingProviderModels[i].id === editingActiveModelID) { activeM = editingProviderModels[i]; break; }
-    }
+    var kept = providerByID(editingProviderID);
     var row = {
       name: name || base,
       base_url: base,
       kind: kind || "auto",
-      models: editingProviderModels.slice(),
-      active_model_id: editingActiveModelID,
-      model: activeM ? activeM.id : "",
-      reasoning: (activeM && activeM.reasoning) || "",
+      models: kept ? (kept.models || []).slice() : [],
+      active_model_id: kept ? (kept.active_model_id || kept.model || "") : "",
+      model: kept ? (kept.model || kept.active_model_id || "") : "",
+      reasoning: kept ? (kept.reasoning || "") : "",
     };
     if (!editingProviderID) {
       row.id = "provider-" + Date.now();
@@ -2168,29 +2200,43 @@
         }
       }
     }
-    closeProviderEditor();
     syncHiddenProviderFields();
     renderProviderList();
+    var status = document.getElementById("prov-edit-status");
+    if (status) status.textContent = "Saving provider…";
+    putSettings({
+      model_providers: providersPayload(),
+      active_model_provider_id: activeProviderID,
+    }).then(function () {
+      if (status) status.textContent = "Provider saved";
+      closeProviderEditor();
+    }).catch(function (e) {
+      gateErr.hidden = false;
+      gateErr.textContent = String(e);
+      if (status) status.textContent = "";
+    });
   }
 
-  function deleteProviderEditor() {
-    if (!editingProviderID) return;
-    var current = null;
-    for (var i = 0; i < providersCache.length; i++) {
-      if (providersCache[i].id === editingProviderID) { current = providersCache[i]; break; }
-    }
-    var name = (current && current.name) || "this provider";
-    var last = providersCache.length <= 1;
-    var ask = last
-      ? "Remove “" + name + "”? Chat cannot call a model until you add one. Save settings to keep this. The saved API key is removed with it."
-      : "Remove “" + name + "”? Save settings to keep this. The saved API key is removed with it.";
-    askConfirm(ask, "Remove").then(function (yes) {
+  function removeProvider(id) {
+    var current = providerByID(id);
+    if (!current) return;
+    var name = current.name || current.id || "this provider";
+    askConfirm("Remove “" + name + "”? The saved API key is removed with it.", "Remove " + name).then(function (yes) {
       if (!yes) return;
-      providersCache = providersCache.filter(function (p) { return p.id !== editingProviderID; });
-      if (activeProviderID === editingProviderID) activeProviderID = providersCache[0] ? providersCache[0].id : "";
-      closeProviderEditor();
+      providersCache = providersCache.filter(function (p) { return p.id !== id; });
+      if (activeProviderID === id) activeProviderID = providersCache[0] ? providersCache[0].id : "";
+      if (editingProviderID === id) closeProviderEditor();
+      if (modelFormOriginalProvider === id) closeModelForm();
       syncHiddenProviderFields();
       renderProviderList();
+      renderProvModelList();
+      putSettings({
+        model_providers: providersPayload(),
+        active_model_provider_id: activeProviderID,
+      }).catch(function (e) {
+        gateErr.hidden = false;
+        gateErr.textContent = String(e);
+      });
     });
   }
 
@@ -2208,8 +2254,6 @@
       setVoiceProvider.value = j.voice_provider_id || current || "";
       if (setVoiceProvider.value !== (j.voice_provider_id || "")) setVoiceProvider.value = j.voice_provider_id || "";
     }
-    fillVoiceModels(j.voice_model || "");
-    syncVoiceModelEnabled();
     if (setSearchKind) setSearchKind.value = j.search_kind || "";
     if (setSearchURL) setSearchURL.value = j.search_url || "";
     if (setSearchKey) {
@@ -2238,11 +2282,7 @@
       setRealtimeProvider.value = j.realtime_provider_id || current || "";
       if (setRealtimeProvider.value !== (j.realtime_provider_id || "")) setRealtimeProvider.value = j.realtime_provider_id || "";
     }
-    if (setRealtimeModel) setRealtimeModel.value = j.realtime_model || "";
     if (setRealtimeVoice) setRealtimeVoice.value = j.realtime_voice || "marin";
-    var on = !!(setRealtimeProvider && setRealtimeProvider.value);
-    if (setRealtimeModel) setRealtimeModel.disabled = !on;
-    if (setRealtimeVoice) setRealtimeVoice.disabled = !on;
     realtimeReady = !!(j.realtime_provider_id && j.realtime_model);
     setState(agentState);
   }
@@ -2272,8 +2312,80 @@
 
   function fillVoiceModels(selected) {
     if (!setVoiceModel) return;
+    if (setVoiceModel.tagName !== "SELECT") {
+      setVoiceModel.value = selected || "";
+      syncVoiceModelEnabled();
+      return;
+    }
+    var pid = setVoiceProvider ? setVoiceProvider.value : "";
+    setVoiceModel.innerHTML = '<option value="">Off</option>';
+    providersCache.forEach(function (p) {
+      if (pid && p.id !== pid) return;
+      (p.models || []).forEach(function (m) {
+        if (!m.transcribes) return;
+        var opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.name || m.id;
+        setVoiceModel.appendChild(opt);
+      });
+    });
     setVoiceModel.value = selected || "";
+    if (setVoiceModel.value !== (selected || "")) setVoiceModel.value = "";
     syncVoiceModelEnabled();
+  }
+
+  function fillCapabilitySelect(select, wanted, allow) {
+    if (!select) return;
+    var label = "Off";
+    var first = select.querySelector("option");
+    if (first && first.textContent) label = first.textContent;
+    select.innerHTML = "";
+    var off = document.createElement("option");
+    off.value = "";
+    off.textContent = label;
+    select.appendChild(off);
+    providersCache.forEach(function (p) {
+      (p.models || []).forEach(function (m) {
+        if (allow && !allow(m)) return;
+        var opt = document.createElement("option");
+        opt.value = p.id + "\n" + m.id;
+        opt.textContent = (p.name || p.id) + " · " + (m.name || m.id);
+        select.appendChild(opt);
+      });
+    });
+    select.value = wanted || "";
+    if (select.value !== (wanted || "")) select.value = "";
+  }
+
+  function fillPurposeChoices(j) {
+    j = j || {};
+    var main = "";
+    if (activeProviderID) {
+      var active = null;
+      for (var i = 0; i < providersCache.length; i++) {
+        if (providersCache[i].id === activeProviderID) { active = providersCache[i]; break; }
+      }
+      var m = activeModelOf(active);
+      if (active && m) main = active.id + "\n" + m.id;
+    }
+    fillCapabilitySelect(setMainModel, main, null);
+    if (setMainModel && setMainModel.options.length > 1) {
+      var blankMain = setMainModel.querySelector('option[value=""]');
+      if (blankMain) blankMain.remove();
+    }
+    var vision = (j.vision_provider_id && j.vision_model) ? j.vision_provider_id + "\n" + j.vision_model : "";
+    fillCapabilitySelect(setVisionModel, vision, function (m) { return !!m.sees_images && m.use_images !== false; });
+    var speech = (j.speech_provider_id && j.speech_model) ? j.speech_provider_id + "\n" + j.speech_model : "";
+    fillCapabilitySelect(setSpeechModel, speech, function (m) { return !!m.speaks; });
+    var voice = (j.voice_provider_id && j.voice_model) ? j.voice_provider_id + "\n" + j.voice_model : "";
+    fillCapabilitySelect(setVoiceModel, voice, function (m) { return !!m.transcribes; });
+    var live = (j.realtime_provider_id && j.realtime_model) ? j.realtime_provider_id + "\n" + j.realtime_model : "";
+    fillCapabilitySelect(setRealtimeModel, live, function (m) { return !!m.realtime; });
+  }
+
+  function purposePair(value) {
+    var parts = String(value || "").split("\n");
+    return { provider: parts[0] || "", model: parts[1] || "" };
   }
 
   function syncVoiceModelEnabled() {
@@ -2339,6 +2451,7 @@
     fillVoiceAndSearch(j);
     fillRealtime(j);
     fillAuxiliaryModel(j);
+    fillPurposeChoices(j);
     setWeb.checked = !!j.web;
     setAutopilot.checked = !!j.autopilot;
     applyAutopilotSettingsFields(j);
@@ -2349,10 +2462,14 @@
     if (setAutopilotInstructionsUndo) setAutopilotInstructionsUndo.hidden = true;
     setMaxSteps.value = j.max_steps != null ? j.max_steps : 200;
     if (setMCPParallel) setMCPParallel.value = j.mcp_parallel != null ? j.mcp_parallel : 10;
-    setContextLimit.value = j.context_limit != null ? j.context_limit : 128000;
-    if (setVoiceModel && !setVoiceProvider) setVoiceModel.value = j.voice_model || "";
+    if (setContextLimit) setContextLimit.value = j.context_limit != null ? j.context_limit : 128000;
+    idleSoundOn = !!j.idle_sound;
+    idleNotifyOn = !!j.idle_notify;
+    if (setIdleSound) setIdleSound.checked = idleSoundOn;
+    if (setIdleNotify) setIdleNotify.checked = idleNotifyOn;
     syncHiddenProviderFields();
     renderProviderList();
+    renderProvModelList();
   }
 
   function applyAutopilotSettingsFields(j) {
@@ -2383,12 +2500,113 @@
       });
   }
 
+  function modelPayload(m) {
+    var model = {
+      id: m.id,
+      name: m.name || "",
+      context_limit: m.context_limit || 0,
+      reasoning: m.reasoning || "",
+      prompt_price: m.prompt_price || "",
+      completion_price: m.completion_price || "",
+      instructions: m.instructions || "",
+      transcribes: !!m.transcribes,
+      speaks: !!m.speaks,
+      realtime: !!m.realtime,
+    };
+    if (m.sees_images) {
+      model.sees_images = true;
+      model.use_images = m.use_images !== false;
+    }
+    if (m.hears_audio) {
+      model.hears_audio = true;
+      model.use_audio = m.use_audio !== false;
+    }
+    return model;
+  }
+
+  function providersPayload() {
+    return providersCache.map(function (p) {
+      var row = {
+        id: p.id,
+        name: p.name,
+        base_url: p.base_url,
+        kind: p.kind || "auto",
+        model: p.model,
+        reasoning: p.reasoning || "",
+        active_model_id: p.active_model_id || p.model || "",
+        models: (p.models || []).map(modelPayload),
+      };
+      if (p.api_key) row.api_key = p.api_key;
+      if (p.management_key) row.management_key = p.management_key;
+      return row;
+    });
+  }
+
+  function putSettings(body) {
+    return fetch(apiURL("/api/settings"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = JSON.parse(t); } catch (e) {}
+        if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
+        providersCache.forEach(function (p) {
+          delete p.api_key;
+          delete p.management_key;
+        });
+        fillAgentSettings(j);
+        applyProviderGate(!!j.needs_provider);
+        if (typeof loadSession === "function") loadSession();
+        if (typeof loadThreadModel === "function") loadThreadModel();
+        if (modeEl) modeEl.textContent = j.mode || "—";
+        return j;
+      });
+    });
+  }
+
+  function savePurposes() {
+    var status = document.getElementById("set-purposes-status");
+    var main = purposePair(setMainModel && setMainModel.value);
+    if (main.provider && main.model) {
+      activeProviderID = main.provider;
+      providersCache.forEach(function (p) {
+        if (p.id === main.provider) {
+          p.active_model_id = main.model;
+          p.model = main.model;
+        }
+      });
+    }
+    var vision = purposePair(setVisionModel && setVisionModel.value);
+    var speech = purposePair(setSpeechModel && setSpeechModel.value);
+    var voice = purposePair(setVoiceModel && setVoiceModel.value);
+    var live = purposePair(setRealtimeModel && setRealtimeModel.value);
+    if (status) status.textContent = "Saving purposes…";
+    putSettings({
+      auxiliary_model: auxiliaryModelPayload(),
+      voice_model: voice.model,
+      voice_provider_id: voice.provider,
+      vision_model: vision.model,
+      vision_provider_id: vision.provider,
+      speech_model: speech.model,
+      speech_provider_id: speech.provider,
+      realtime_model: live.model,
+      realtime_provider_id: live.provider,
+      realtime_voice: setRealtimeVoice ? setRealtimeVoice.value : "marin",
+      active_model_provider_id: activeProviderID,
+      model_providers: providersPayload(),
+    }).then(function () {
+      if (status) status.textContent = "Purposes saved";
+    }).catch(function (e) {
+      if (status) status.textContent = "";
+      gateErr.hidden = false;
+      gateErr.textContent = String(e);
+    });
+  }
+
   function saveAgentSettings() {
     gateErr.hidden = true;
-    if (providerEditor && !providerEditor.hidden) {
-      saveProviderEditor();
-      if (!providerEditor.hidden) return;
-    }
     syncHiddenProviderFields();
     if (setWeb && setSearchKind && agentSettingsLoaded) setWeb.checked = setSearchKind.value !== "";
     var body = {
@@ -2396,52 +2614,13 @@
       autopilot: setAutopilot.checked,
       max_steps: parseInt(setMaxSteps.value, 10),
       mcp_parallel: setMCPParallel ? parseInt(setMCPParallel.value, 10) : 10,
-      context_limit: parseInt(setContextLimit.value, 10),
+      idle_sound: !!(setIdleSound && setIdleSound.checked),
+      idle_notify: !!(setIdleNotify && setIdleNotify.checked),
     };
     if (agentSettingsLoaded) {
       body.web = setWeb ? setWeb.checked : false;
-      body.voice_model = setVoiceModel ? setVoiceModel.value.trim() : "";
-      body.auxiliary_model = auxiliaryModelPayload();
-      body.voice_provider_id = setVoiceProvider ? setVoiceProvider.value : "";
-      body.realtime_model = setRealtimeModel ? setRealtimeModel.value.trim() : "";
-      body.realtime_provider_id = setRealtimeProvider ? setRealtimeProvider.value : "";
-      body.realtime_voice = setRealtimeVoice ? setRealtimeVoice.value : "marin";
       body.search_kind = setSearchKind ? setSearchKind.value : "";
       body.search_url = setSearchURL ? setSearchURL.value.trim() : "";
-      body.active_model_provider_id = activeProviderID;
-      body.model_providers = providersCache.map(function (p) {
-        var row = {
-          id: p.id,
-          name: p.name,
-          base_url: p.base_url,
-          kind: p.kind || "auto",
-          model: p.model,
-          reasoning: p.reasoning || "",
-          active_model_id: p.active_model_id || p.model || "",
-          models: (p.models || []).map(function (m) {
-            var model = {
-              id: m.id,
-              name: m.name || "",
-              context_limit: m.context_limit || 0,
-              reasoning: m.reasoning || "",
-              prompt_price: m.prompt_price || "",
-              completion_price: m.completion_price || "",
-            };
-            if (m.sees_images) {
-              model.sees_images = true;
-              model.use_images = m.use_images !== false;
-            }
-            if (m.hears_audio) {
-              model.hears_audio = true;
-              model.use_audio = m.use_audio !== false;
-            }
-            return model;
-          }),
-        };
-        if (p.api_key) row.api_key = p.api_key;
-        if (p.management_key) row.management_key = p.management_key;
-        return row;
-      });
       var searchKey = setSearchKey ? setSearchKey.value.trim() : "";
       if (searchKey) body.search_api_key = searchKey;
     }
@@ -2460,32 +2639,17 @@
         body.autopilot_instructions = pilotText;
       }
     }
+    var behaviourStatus = document.getElementById("set-behaviour-status");
+    if (behaviourStatus) behaviourStatus.textContent = "Saving…";
     saveSettingsBtn.disabled = true;
-    fetch(apiURL("/api/settings"), {
-      method: "PUT",
-      headers: headers(),
-      body: JSON.stringify(body),
-    })
-      .then(function (r) {
-        return r.text().then(function (t) {
-          var j = {};
-          try { j = JSON.parse(t); } catch (e) {}
-          if (!r.ok) throw new Error((j && j.message) || t || ("HTTP " + r.status));
-          // Clear one-shot keys from cache after successful save.
-          providersCache.forEach(function (p) {
-            delete p.api_key;
-            delete p.management_key;
-          });
-          fillAgentSettings(j);
-          applyProviderGate(!!j.needs_provider);
-          if (typeof loadSession === "function") loadSession();
-          loadThreadModel();
-          modeEl.textContent = j.mode || "—";
-          refreshBudget(true);
-          closeGate();
-        });
+    putSettings(body)
+      .then(function () {
+        if (behaviourStatus) behaviourStatus.textContent = "Behaviour saved";
+        refreshBudget(true);
+        closeGate();
       })
       .catch(function (e) {
+        if (behaviourStatus) behaviourStatus.textContent = "";
         gateErr.hidden = false;
         gateErr.style.color = "";
         gateErr.textContent = String(e);
@@ -3181,6 +3345,54 @@
     }
   }
 
+  function idleWindowQuiet() {
+    return !!(document.hasFocus && document.hasFocus() && document.visibilityState !== "hidden");
+  }
+
+  function idlePingURL() {
+    var rate = 22050;
+    var n = Math.floor(rate * 0.12);
+    var data = n * 2;
+    var buf = new ArrayBuffer(44 + data);
+    var view = new DataView(buf);
+    function write(at, text) {
+      for (var i = 0; i < text.length; i++) view.setUint8(at + i, text.charCodeAt(i));
+    }
+    write(0, "RIFF");
+    view.setUint32(4, 36 + data, true);
+    write(8, "WAVE");
+    write(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    write(36, "data");
+    view.setUint32(40, data, true);
+    for (var i = 0; i < n; i++) {
+      var env = Math.min(1, i / 220) * Math.min(1, (n - i) / 900);
+      var sample = Math.sin(2 * Math.PI * 880 * i / rate) * env * 0.35;
+      view.setInt16(44 + i * 2, sample * 32767, true);
+    }
+    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  }
+
+  function noticeIdle() {
+    if (idleWindowQuiet()) return;
+    if (idleSoundOn) {
+      try {
+        var audio = new Audio(idlePingURL());
+        var played = audio.play();
+        if (played && played.catch) played.catch(function () {});
+      } catch (e) {}
+    }
+    if (idleNotifyOn && typeof Notification === "function" && Notification.permission === "granted") {
+      try { new Notification("Keimling", { body: "The run is idle." }); } catch (e) {}
+    }
+  }
+
   function collapseRunFolds() {
     var before = runFoldKeys || {};
     runFoldKeys = null;
@@ -3219,6 +3431,7 @@
     if (wasRun && agentState === "idle") {
       closeSideRun();
       collapseRunFolds();
+      if (typeof noticeIdle === "function") noticeIdle();
     }
     stateEl.textContent = agentState;
     stateEl.className = "state " + agentState;
@@ -4378,6 +4591,16 @@
             ? "Empty uses the definition (" + defModel + "). A model here applies only to this instance."
             : "Empty uses the definition, which follows Settings. A model here applies only to this instance.";
         }
+        var spendUSD = document.getElementById("agent-access-spend-usd");
+        var spendTokens = document.getElementById("agent-access-spend-tokens");
+        if (spendUSD) {
+          spendUSD.value = j.spend_limit_usd ? String(j.spend_limit_usd) : "";
+          spendUSD.oninput = markAgentAccessUnsaved;
+        }
+        if (spendTokens) {
+          spendTokens.value = j.spend_limit_tokens ? String(j.spend_limit_tokens) : "";
+          spendTokens.oninput = markAgentAccessUnsaved;
+        }
         loadModelSuggestions();
       })
       .catch(function (err) {
@@ -4395,6 +4618,10 @@
     if (accessModel && accessModel.dataset.ready === "1") {
       body.model = accessModel.value.trim();
     }
+    var spendUSD = document.getElementById("agent-access-spend-usd");
+    var spendTokens = document.getElementById("agent-access-spend-tokens");
+    if (spendUSD) body.spend_limit_usd = spendUSD.value.trim();
+    if (spendTokens) body.spend_limit_tokens = spendTokens.value.trim();
     if (agentAccessPeers && agentAccessPeers.dataset.ready === "1") {
       body.peers = checkedAccess(agentAccessPeers, false);
     }
@@ -5849,6 +6076,7 @@
   function chapterItemLoud(m) {
     if (!m) return false;
     if (m.role === "user") return true;
+    if (m.role === "assistant" && String(m.text || "").trim()) return true;
     if (m.role === "tool_group" && (m.status === "failed" || m.status === "stopped")) return true;
     if (m.role === "peer") return true;
     if (m.role === "system" && !m.collapsed) return true;
@@ -5894,13 +6122,29 @@
   // Within this many pixels of the bottom, new transcript growth stays at the bottom.
   var transcriptFollowPx = 200;
   var transcriptStick = true;
+  var transcriptHoldUntil = 0;
+  var transcriptTouchY = null;
 
   function transcriptFromBottom() {
     var el = document.scrollingElement || document.documentElement;
     return el.scrollHeight - el.scrollTop - el.clientHeight;
   }
 
+  function holdTranscriptFollow() {
+    transcriptHoldUntil = Date.now() + 1500;
+    transcriptStick = false;
+  }
+
+  function followWanted() {
+    if (Date.now() < transcriptHoldUntil) return false;
+    return transcriptFromBottom() <= transcriptFollowPx;
+  }
+
   function noteTranscriptStick() {
+    if (Date.now() < transcriptHoldUntil) {
+      transcriptStick = false;
+      return;
+    }
     transcriptStick = transcriptFromBottom() <= transcriptFollowPx;
   }
 
@@ -5910,11 +6154,24 @@
   // so an idle refresh can distinguish a page reset from someone scrolling away.
   var transcriptInputRevision = 0;
   function noteTranscriptInput() { transcriptInputRevision++; }
-  window.addEventListener("wheel", noteTranscriptInput, { passive: true, capture: true });
-  window.addEventListener("touchstart", noteTranscriptInput, { passive: true, capture: true });
+  window.addEventListener("wheel", function (e) {
+    noteTranscriptInput();
+    if (e.deltaY < 0) holdTranscriptFollow();
+  }, { passive: true, capture: true });
+  window.addEventListener("touchstart", function (e) {
+    noteTranscriptInput();
+    if (e.touches && e.touches[0]) transcriptTouchY = e.touches[0].clientY;
+  }, { passive: true, capture: true });
+  window.addEventListener("touchmove", function (e) {
+    if (!e.touches || !e.touches[0] || transcriptTouchY == null) return;
+    var y = e.touches[0].clientY;
+    if (y > transcriptTouchY + 8) holdTranscriptFollow();
+    transcriptTouchY = y;
+  }, { passive: true, capture: true });
   window.addEventListener("pointerdown", noteTranscriptInput, { passive: true, capture: true });
   window.addEventListener("keydown", function (e) {
     if (/^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End| |Spacebar)$/.test(e.key)) noteTranscriptInput();
+    if (e.key === "ArrowUp" || e.key === "PageUp" || e.key === "Home") holdTranscriptFollow();
   }, true);
 
   // force is the reader's own send or a thread change: go to the bottom
@@ -6086,8 +6343,9 @@
   }
 
   function paintTranscript() {
+    var follow = followWanted();
     renderThread();
-    followTranscript();
+    if (follow) scrollTranscript(true);
   }
 
   // Patch only the open streaming bubble — full rebuild per token freezes the UI.
@@ -6109,8 +6367,9 @@
       return;
     }
     // Same markdown as the settled message, so lists and checkboxes do not jump when the reply ends.
+    var follow = followWanted();
     body.innerHTML = renderAssistantHTML(last.text || "");
-    followTranscript();
+    if (follow) scrollTranscript(true);
   }
 
   function patchThinking() {
@@ -6126,8 +6385,9 @@
       paintTranscript();
       return;
     }
+    var follow = followWanted();
     body.textContent = last.text || "";
-    followTranscript();
+    if (follow) scrollTranscript(true);
     if (followThinking && last.streaming && followDismissedKey !== ensureDomKey(last)) {
       var fold = el.querySelector(".thinking-fold");
       if (fold && !fold.open) {
@@ -6286,6 +6546,13 @@
       }
       started.reviewing = false;
       started.waiting = false;
+      paintTranscript();
+      return;
+    }
+    if (payload.phase === "output") {
+      var live = pendingToolCard(payload.name);
+      if (!live) return;
+      live.result = payload.result || "";
       paintTranscript();
       return;
     }
@@ -7315,7 +7582,15 @@
   if (providerNewBtn) providerNewBtn.addEventListener("click", function () {
     openProviderEditor(null);
   });
-  if (setVoiceProvider) setVoiceProvider.addEventListener("change", syncVoiceModelEnabled);
+  var purposeSave = document.getElementById("set-purposes-save");
+  if (purposeSave) purposeSave.addEventListener("click", savePurposes);
+  var behaviourSave = document.getElementById("set-behaviour-save");
+  if (behaviourSave) behaviourSave.addEventListener("click", saveAgentSettings);
+  if (setIdleNotify) setIdleNotify.addEventListener("change", function () {
+    if (setIdleNotify.checked && typeof Notification === "function" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  });
   if (setSearchKind) setSearchKind.addEventListener("change", syncSearchFields);
   var providerDialogAdd = document.getElementById("provider-dialog-add");
   var providerDialogSkip = document.getElementById("provider-dialog-skip");
@@ -7330,26 +7605,23 @@
   if (provEditSave) provEditSave.addEventListener("click", saveProviderEditor);
   if (provEditKind) provEditKind.addEventListener("change", syncManagementKeyField);
   if (provEditBaseURL) provEditBaseURL.addEventListener("input", syncManagementKeyField);
-  if (provEditDelete) provEditDelete.addEventListener("click", deleteProviderEditor);
   if (provModelNew) provModelNew.addEventListener("click", openModelFormAdd);
   if (provModelSave) provModelSave.addEventListener("click", saveEditorModel);
   if (provModelID) provModelID.addEventListener("change", function () {
     if (!catalogCache.length) return;
     var id = provModelID.value.trim();
-    var found = null;
     for (var i = 0; i < catalogCache.length; i++) {
-      if (catalogCache[i].id === id) { found = catalogCache[i]; break; }
+      if (catalogCache[i].id === id) {
+        applyCatalogPrefill(catalogCache[i]);
+        break;
+      }
     }
-    if (!found) setModelSenses(null);
-    else setModelSenses({
-      sees_images: !!found.sees_images,
-      hears_audio: !!found.hears_audio,
-      use_images: true,
-      use_audio: true,
-    });
   });
   if (provModelCancel) provModelCancel.addEventListener("click", closeModelForm);
   if (provCatalogFetch) provCatalogFetch.addEventListener("click", fetchModelCatalog);
+  if (provModelProvider) provModelProvider.addEventListener("change", function () {
+    showProviderCatalog(provModelProvider.value);
+  });
   if (budgetLineEl) {
     budgetLineEl.style.cursor = "pointer";
     budgetLineEl.addEventListener("click", function () { refreshBudget(true); });
@@ -8610,6 +8882,8 @@
         return;
       }
     }
+    var noteEl = document.getElementById("mcp-note");
+    body.note = noteEl ? noteEl.value.trim() : "";
     var save = document.getElementById("mcp-edit-save");
     if (save) save.disabled = true;
     showMcpErr("");
@@ -8679,6 +8953,8 @@
     var edit = document.getElementById("mcp-edit");
     if (edit) edit.hidden = true;
     mcpToolName = name;
+    var note = document.getElementById("mcp-note");
+    if (note) note.value = s.note || "";
     showMcpErr("");
     fillMcpToolDialog(s);
     if (typeof mcpToolDialog.showModal === "function") mcpToolDialog.showModal();
@@ -8820,6 +9096,34 @@
   if (mcpStartSave) mcpStartSave.addEventListener("click", saveMcpStart);
   var mcpBeforeSave = document.getElementById("mcp-before-save");
   if (mcpBeforeSave) mcpBeforeSave.addEventListener("click", saveMcpBefore);
+  function saveMcpNote() {
+    var name = mcpToolName;
+    var s = mcpServerByName(name);
+    var noteEl = document.getElementById("mcp-note");
+    if (!name || !s) return;
+    var body = { name: name, update: true, note: noteEl ? noteEl.value.trim() : "" };
+    if (s.url) body.url = s.url;
+    else {
+      body.command = s.command || "";
+      body.args = s.args || [];
+      body.cwd = s.cwd || "";
+    }
+    showMcpErr("");
+    fetch(apiURL("/api/mcp/add"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (e) {}
+        if (!r.ok) throw new Error((j && (j.error || j.message)) || t || r.status);
+        renderMcpServers(j.servers || []);
+      });
+    }).catch(function (e) { showMcpErr(e.message || e); });
+  }
+  var mcpNoteSave = document.getElementById("mcp-note-save");
+  if (mcpNoteSave) mcpNoteSave.addEventListener("click", saveMcpNote);
   var mcpToolForm = document.getElementById("mcp-tool-form");
   if (mcpToolForm) mcpToolForm.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" || !e.target || e.target.tagName !== "INPUT") return;
@@ -12386,11 +12690,6 @@
     else startCall();
   });
   if (callMuteBtn) callMuteBtn.addEventListener("click", function () { toggleCallMute(); });
-  if (setRealtimeProvider) setRealtimeProvider.addEventListener("change", function () {
-    var on = !!setRealtimeProvider.value;
-    if (setRealtimeModel) setRealtimeModel.disabled = !on;
-    if (setRealtimeVoice) setRealtimeVoice.disabled = !on;
-  });
 
   function pickMime() {
     var types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];

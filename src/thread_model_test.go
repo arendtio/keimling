@@ -65,8 +65,8 @@ func TestThreadChatModel(t *testing.T) {
 	fc.ModelProviders[0].ActiveModelID = "m1b"
 	writeModelConfig(t, cfgPath, fc)
 	got = a.effectiveChatTarget()
-	if got.Custom || got.Model != "m1b" || got.Reasoning != "medium" || got.ContextLimit != 8000 {
-		t.Fatalf("follow settings, global context fallback: %+v", got)
+	if got.Custom || got.Model != "m1b" || got.Reasoning != "medium" || got.ContextLimit != 0 {
+		t.Fatalf("follow settings, no global context: %+v", got)
 	}
 
 	if err := a.saveThreadChatModel("p1", "nope"); err == nil {
@@ -132,7 +132,7 @@ func TestThreadChatModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = a.effectiveChatTarget()
-	if got.Reasoning != "medium" || got.ContextLimit != 8000 {
+	if got.Reasoning != "medium" || got.ContextLimit != 0 {
 		t.Fatalf("empty model reasoning/context: %+v", got)
 	}
 	if err := a.saveThreadChatModel("p1", "m1"); err != nil {

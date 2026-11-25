@@ -62,3 +62,13 @@
 - **Fit criterion:** While a script command is still running, the header between Chapters and Sidebar says it is still running. After a command exits non-zero, the header names the failure and offers reload. After a command exits zero and the servers are not blocked by a script, the header warning is gone.
 - **Priority:** shall
 - **Status:** confirmed
+
+## REQ-MCP-8 A server can carry a note for the model
+
+- **Bin:** explicit requirement
+- **Statement:** Each MCP server shall be able to carry a note the user writes. The note shall be sent with the information the model already receives about that server, and only while that server is connected. A server with an empty note shall add nothing. A disconnected server shall not send its note.
+- **Origin:** User, 2026-11-25 (quote: "auf Pro-MCP-Server, dass ich auch Pro-MCP-Server nochmal System Prompt Instructions mitgeben kann" and "die aber natürlich nur ausgespielt werden sollen, wenn der MCP-Server irgendwie aktiv ist" and "wenn da auch Informationen abgerufen werden an Infos zu dem MCP-Server" and "manche MCP-Server, die bestimmte Macken haben").
+- **Rationale:** One server has a quirk. The model needs that note when it is looking at that server, and the note is noise on every other turn.
+- **Fit criterion:** A connected server with the sentence "Page numbers are 1-based" includes that sentence next to that server's line. A second connected server with an empty note does not. Disconnecting the first server removes its sentence from the next request. The note is still there after a restart.
+- **Priority:** shall
+- **Status:** confirmed

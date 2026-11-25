@@ -146,6 +146,20 @@ func TestExec(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestExecStreamsOutputAsItIsProduced(t *testing.T) {
+	var snaps []string
+	ctx := withExecOutput(context.Background(), func(text string) {
+		snaps = append(snaps, text)
+	})
+	got := executeTool(ctx, "exec", `{"command":"printf 'one\\n'; printf 'two\\n'","timeout_seconds":5}`)
+	if !strings.Contains(got, "exit_code=0") || !strings.Contains(got, "one") || !strings.Contains(got, "two") {
+		t.Fatal(got)
+	}
+	if len(snaps) == 0 || !strings.Contains(snaps[len(snaps)-1], "one") {
+		t.Fatalf("stream %q", snaps)
+	}
+}
 func TestJournal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "j.jsonl")
 	j, e := OpenJournal(path, false)

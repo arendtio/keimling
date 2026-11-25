@@ -77,7 +77,7 @@ const providers = [
 test("settings offer the auxiliary model with an empty chat-model choice", () => {
   assert.match(html, /id="set-auxiliary-model"/);
   assert.match(html, /<option value="">Use the chat model<\/option>/);
-  assert.match(app, /body\.auxiliary_model = auxiliaryModelPayload\(\)/);
+  assert.match(app, /auxiliary_model: auxiliaryModelPayload\(\)/);
   assert.match(app, /fillAuxiliaryModel\(j\)/);
 });
 

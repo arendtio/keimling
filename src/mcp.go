@@ -39,6 +39,7 @@ type MCPServerStatus struct {
 	Grant      string   `json:"grant,omitempty"`
 	Auth       string   `json:"auth,omitempty"`
 	Before     string   `json:"before,omitempty"`
+	Note       string   `json:"note,omitempty"`
 	OAuth      string   `json:"oauth,omitempty"`
 	Source     string   `json:"source,omitempty"`      // user, config, project, cursor, plugin
 	SourceName string   `json:"source_name,omitempty"` // plugin name when Source is plugin
@@ -515,6 +516,7 @@ func (m *MCPManager) Status() []MCPServerStatus {
 			Cwd:        s.cfg.Cwd,
 			URL:        s.cfg.URL,
 			Before:     s.cfg.Before,
+			Note:       s.cfg.Note,
 			Disabled:   s.cfg.Disabled,
 			Grant:      mcpServerGrantID(name),
 			Auth:       s.cfg.authKind(),

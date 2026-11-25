@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -143,11 +144,13 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"instances": out, "attached": attached})
 	case http.MethodPost:
 		var body struct {
-			RecipeID    string `json:"recipe_id"`
-			Name        string `json:"name"`
-			Path        string `json:"path"`
-			WorkspaceID string `json:"workspace_id"`
-			SpawnerID   string `json:"spawner_id"`
+			RecipeID         string `json:"recipe_id"`
+			Name             string `json:"name"`
+			Path             string `json:"path"`
+			WorkspaceID      string `json:"workspace_id"`
+			SpawnerID        string `json:"spawner_id"`
+			SpendLimitUSD    string `json:"spend_limit_usd"`
+			SpendLimitTokens string `json:"spend_limit_tokens"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -173,6 +176,12 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		}
 		inst, err := createAgentInstanceForPath(recipe, wsID, body.Path, body.Name, body.SpawnerID)
 		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		inst, err = finalizeSpawnSpend(inst, body.SpendLimitUSD, body.SpendLimitTokens)
+		if err != nil {
+			_ = deleteAgentInstance(inst.ID)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -562,9 +571,11 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": m.ID, "name": m.Name, "follows": follows, "workspaces": workspaces, "tools": tools, "groups": agentToolGroups(),
-			"peers":            peers,
-			"model":            strings.TrimSpace(m.Model),
-			"definition_model": strings.TrimSpace(rec.Model),
+			"peers":              peers,
+			"model":              strings.TrimSpace(m.Model),
+			"definition_model":   strings.TrimSpace(rec.Model),
+			"spend_limit_usd":    m.SpendLimitUSD,
+			"spend_limit_tokens": m.SpendLimitTokens,
 			"mcp": map[string]any{
 				"allowed_all": defAllMCP,
 				"allowed":     defIDs,
@@ -574,11 +585,13 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 		})
 	case http.MethodPost:
 		var body struct {
-			ID         string    `json:"id"`
-			Workspaces []string  `json:"workspaces"`
-			Tools      *[]string `json:"tools"`
-			Peers      *[]string `json:"peers"`
-			Model      *string   `json:"model"`
+			ID               string    `json:"id"`
+			Workspaces       []string  `json:"workspaces"`
+			Tools            *[]string `json:"tools"`
+			Peers            *[]string `json:"peers"`
+			Model            *string   `json:"model"`
+			SpendLimitUSD    *string   `json:"spend_limit_usd"`
+			SpendLimitTokens *string   `json:"spend_limit_tokens"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
 			http.Error(w, "id required", http.StatusBadRequest)
@@ -604,6 +617,24 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 		}
 		if body.Model != nil {
 			m, err = setAgentInstanceModel(body.ID, *body.Model)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if body.SpendLimitUSD != nil || body.SpendLimitTokens != nil {
+			usd, tokens := "", ""
+			if body.SpendLimitUSD != nil {
+				usd = *body.SpendLimitUSD
+			} else if m.SpendLimitUSD != nil {
+				usd = strconv.FormatFloat(*m.SpendLimitUSD, 'f', -1, 64)
+			}
+			if body.SpendLimitTokens != nil {
+				tokens = *body.SpendLimitTokens
+			} else if m.SpendLimitTokens != nil {
+				tokens = strconv.FormatInt(*m.SpendLimitTokens, 10)
+			}
+			m, err = setAgentInstanceSpend(body.ID, usd, tokens)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

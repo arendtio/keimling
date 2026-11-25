@@ -55,7 +55,7 @@ func (a *Agent) activeChatContextLimit() int {
 	if t := a.callChatTarget(); t.ContextLimit > 0 {
 		return t.ContextLimit
 	}
-	return a.Cfg.ContextLimit
+	return 0
 }
 
 func (a *Agent) effectiveChatTarget() chatTarget {
@@ -224,12 +224,11 @@ func (a *Agent) settingsChatTarget() chatTarget {
 		return chatTarget{}
 	}
 	fallback := chatTarget{
-		Model:        a.Cfg.Model,
-		Label:        a.Cfg.Model,
-		Reasoning:    a.Cfg.Reasoning,
-		ContextLimit: a.Cfg.ContextLimit,
-		BaseURL:      a.Cfg.BaseURL,
-		APIKey:       a.Cfg.Key,
+		Model:     a.Cfg.Model,
+		Label:     a.Cfg.Model,
+		Reasoning: a.Cfg.Reasoning,
+		BaseURL:   a.Cfg.BaseURL,
+		APIKey:    a.Cfg.Key,
 	}
 	if a == nil {
 		return fallback
@@ -247,9 +246,9 @@ func (a *Agent) settingsChatTarget() chatTarget {
 }
 
 func chatTargetFrom(p *modelProvider, m *providerModel, globalLimit int, globalReasoning string) chatTarget {
+	_ = globalLimit
 	t := chatTarget{
-		Reasoning:    globalReasoning,
-		ContextLimit: globalLimit,
+		Reasoning: globalReasoning,
 	}
 	if p == nil {
 		return t
@@ -471,6 +470,53 @@ func (a *Agent) withChatEndpoint(fn func(model, reasoning string)) {
 		a.Client.APIKey = prevKey
 	}()
 	fn(model, reasoning)
+}
+
+// withVisionEndpoint runs fn on the image-analysis model. A saved vision model
+// is used when it can see images. Otherwise the chat model is used, and a chat
+// model that cannot see images refuses the call.
+func (a *Agent) withVisionEndpoint(fn func(model, reasoning string)) error {
+	if a == nil || fn == nil {
+		return fmt.Errorf("no agent")
+	}
+	id := strings.TrimSpace(a.Cfg.VisionModel)
+	if id == "" {
+		if !a.callChatTarget().SeeImages {
+			return fmt.Errorf("seeing is off for this model; use tools on the path")
+		}
+		a.withChatEndpoint(fn)
+		return nil
+	}
+	providers, active, ok := a.liveProviders()
+	if !ok {
+		return fmt.Errorf("seeing is off for this model; use tools on the path")
+	}
+	p, m := findProviderModel(providers, id, strings.TrimSpace(a.Cfg.VisionProviderID))
+	if m == nil {
+		p, m = findProviderModel(providers, id, active)
+	}
+	if p == nil || m == nil || !m.nativeImages() {
+		return fmt.Errorf("seeing is off for this model; use tools on the path")
+	}
+	reasoning := strings.TrimSpace(m.Reasoning)
+	if reasoning == "" {
+		reasoning = a.Cfg.Reasoning
+	}
+	if a.Client == nil {
+		fn(m.ID, reasoning)
+		return nil
+	}
+	prevURL, prevKey := a.Client.BaseURL, a.Client.APIKey
+	if u := strings.TrimSpace(p.BaseURL); u != "" {
+		a.Client.BaseURL = u
+	}
+	a.Client.APIKey = strings.TrimSpace(p.APIKey)
+	defer func() {
+		a.Client.BaseURL = prevURL
+		a.Client.APIKey = prevKey
+	}()
+	fn(m.ID, reasoning)
+	return nil
 }
 
 func (a *Agent) respondMain(ctx context.Context, input []json.RawMessage, extra []map[string]any) (Response, error) {

@@ -25,6 +25,8 @@ type MCPServerConfig struct {
 	Cwd string `json:"cwd,omitempty"`
 	// Before is a shell command run before this server connects. It must exit.
 	Before string `json:"before,omitempty"`
+	// Note is sent with this server while it is connected. Empty adds nothing.
+	Note string `json:"note,omitempty"`
 }
 
 // MCPOAuth is the browser sign-in result for one remote MCP server.
@@ -333,7 +335,7 @@ func UpsertUserMCPServer(name string, cfg MCPServerConfig) error {
 
 // keepUserMCPFields copies secrets the edit form does not send. replaceEnv and
 // replaceHeaders mean the request included those maps and they should win.
-func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHeaders, replaceBefore bool) MCPServerConfig {
+func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHeaders, replaceBefore, replaceNote bool) MCPServerConfig {
 	path := defaultUserMCPPath()
 	if path == "" {
 		return cfg
@@ -357,6 +359,9 @@ func keepUserMCPFields(name string, cfg MCPServerConfig, replaceEnv, replaceHead
 	}
 	if !replaceBefore {
 		cfg.Before = old.Before
+	}
+	if !replaceNote {
+		cfg.Note = old.Note
 	}
 	return cfg
 }

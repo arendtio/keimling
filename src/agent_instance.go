@@ -33,7 +33,11 @@ type AgentInstanceMeta struct {
 	// may contact the other.
 	Spawner string `json:"spawner,omitempty"`
 	// Model overrides the definition. Empty follows the definition.
-	Model            string    `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// SpendLimitUSD and SpendLimitTokens cap this instance for its whole life.
+	// Nil or zero means that unit has no cap. A child's spend is not included.
+	SpendLimitUSD    *float64  `json:"spend_limit_usd,omitempty"`
+	SpendLimitTokens *int64    `json:"spend_limit_tokens,omitempty"`
 	CurrentWorkspace string    `json:"current_workspace"`
 	Status           string    `json:"status"`
 	WakesHeld        bool      `json:"wakes_held,omitempty"`
@@ -356,6 +360,10 @@ func createAgentInstance(recipe AgentRecipe, workspaceID, name string) (AgentIns
 		CurrentWorkspace: workspaceID,
 		Status:           agentStatusIdle,
 		CreatedAt:        time.Now().UTC(),
+	}
+	if recipe.SpendLimitUSD != nil && *recipe.SpendLimitUSD > 0 {
+		v := *recipe.SpendLimitUSD
+		m.SpendLimitUSD = &v
 	}
 	if err := writeAgentInstanceMeta(m); err != nil {
 		_ = os.RemoveAll(agentInstanceDir(id))

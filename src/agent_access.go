@@ -271,6 +271,10 @@ func canonicalTool(name string) string {
 }
 
 func toolNameGranted(grant []string, name string) bool {
+	// Changing a spend ceiling is part of editing an agent, the same grant as save_agent.
+	if name == "set_agent_limit" {
+		name = "save_agent"
+	}
 	if name == "data_processing" || name == "data_processing_help" || name == "find_tools" {
 		return true
 	}
@@ -454,9 +458,31 @@ func (a *Agent) modelInstructions() string {
 		if cred := strings.TrimSpace(credentialStatusPrompt(a.Credentials)); cred != "" {
 			base += "\n\n" + cred
 		}
-		return a.withBuiltinList(a.withMCPCatalog(base))
+		return a.withModelNote(a.withBuiltinList(a.withMCPCatalog(base)))
 	}
-	return a.withBuiltinList(a.withMCPCatalog(a.agentInstanceInstructions()))
+	return a.withModelNote(a.withBuiltinList(a.withMCPCatalog(a.agentInstanceInstructions())))
+}
+
+// withModelNote appends the answering model's own instructions. An empty note adds nothing.
+func (a *Agent) withModelNote(base string) string {
+	note := ""
+	if a != nil {
+		t := a.callChatTarget()
+		providers, active, ok := a.liveProviders()
+		if ok {
+			_, m := findProviderModel(providers, t.Model, t.ProviderID)
+			if m == nil {
+				_, m = findProviderModel(providers, t.Model, active)
+			}
+			if m != nil {
+				note = strings.TrimSpace(m.Instructions)
+			}
+		}
+	}
+	if note == "" {
+		return base
+	}
+	return base + "\n\nModel note:\n" + note
 }
 
 func (a *Agent) agentInstanceInstructions() string {

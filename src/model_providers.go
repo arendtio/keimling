@@ -161,6 +161,10 @@ func publicModelProviders(list []modelProvider) []map[string]any {
 				"reasoning":        m.Reasoning,
 				"prompt_price":     m.PromptPrice,
 				"completion_price": m.CompletionPrice,
+				"instructions":     m.Instructions,
+				"transcribes":      m.Transcribes,
+				"speaks":           m.Speaks,
+				"realtime":         m.Realtime,
 			}
 			if m.SeesImages {
 				row["sees_images"] = true
@@ -220,6 +224,8 @@ func applyActiveProviderToAgent(a *Agent, fc fileConfig) {
 		}
 		if m.ContextLimit >= 1000 {
 			a.Cfg.ContextLimit = m.ContextLimit
+		} else {
+			a.Cfg.ContextLimit = 0
 		}
 	} else if model := strings.TrimSpace(p.Model); model != "" {
 		a.Cfg.Model = model

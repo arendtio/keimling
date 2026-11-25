@@ -144,6 +144,7 @@ func TestToolResultPublishesContextGrowth(t *testing.T) {
 		Journal: j,
 		History: j.History,
 		Cfg:     Config{ContextLimit: 100000},
+		runChat: &chatTarget{ContextLimit: 100000},
 		Emit: func(kind, text string) {
 			if kind != "growth" {
 				return

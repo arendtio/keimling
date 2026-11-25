@@ -323,7 +323,7 @@ func TestDataLangInlineUsesTheRemainingContext(t *testing.T) {
 	if len(payload) <= dataModelLimit {
 		t.Fatalf("fixture is %d bytes", len(payload))
 	}
-	wide := &Agent{Cfg: Config{ContextLimit: 8000}}
+	wide := &Agent{runChat: &chatTarget{ContextLimit: 8000}}
 	text, err := wide.toolResults().hold("text", payload, "tiny")
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +337,7 @@ func TestDataLangInlineUsesTheRemainingContext(t *testing.T) {
 	if strings.Contains(auto, marker) || !strings.Contains(auto, `"preview"`) {
 		t.Fatal(auto)
 	}
-	tight := &Agent{Cfg: Config{ContextLimit: 1500}}
+	tight := &Agent{runChat: &chatTarget{ContextLimit: 1500}}
 	huge := strings.Repeat("x", 20000)
 	text, err = tight.toolResults().hold("text", huge, "tiny")
 	if err != nil {

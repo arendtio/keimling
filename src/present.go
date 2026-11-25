@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -108,6 +109,30 @@ func (a *Agent) presentToolGo(name, args string) {
 		"command":   toolCommandLabel(name, args),
 		"input":     args,
 		"thread_id": a.Cfg.ThreadID,
+	})
+}
+
+// presentToolOutput publishes output a command has already produced, while it
+// is still running. The finished card still arrives as a result.
+func (a *Agent) presentToolOutput(name, text string) {
+	if a == nil || quietTool(name) || text == "" {
+		return
+	}
+	a.emitJSON("tool", map[string]any{
+		"phase":     "output",
+		"name":      name,
+		"result":    text,
+		"thread_id": a.Cfg.ThreadID,
+	})
+}
+
+// streamExec reports non-interactive command output as it is written.
+func (a *Agent) streamExec(ctx context.Context) context.Context {
+	if a == nil {
+		return ctx
+	}
+	return withExecOutput(ctx, func(text string) {
+		a.presentToolOutput("exec", text)
 	})
 }
 

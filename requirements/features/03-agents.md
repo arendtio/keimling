@@ -544,6 +544,26 @@ The earlier text grants an instance workspace and peer access. It does not say t
 - **Rationale:** A fan-out run talks to itself faster than the user can read. When one link runs badly, the user wants to stop that link alone and keep the rest moving.
 - **Fit criterion:** With Ada → Bea on inspect, a message from Ada to Bea waits in the Gateways tab and reaches Bea only after Allow; Block leaves Bea without the message and tells Ada's tool call that it was blocked. The reverse direction still delivers at once. Escalations and thread messages are unaffected. The rule and the waiting message are still there after a restart.
 
+### REQ-AG-46 An agent has a spend ceiling the spawner can set
+
+- **Bin:** explicit requirement
+- **Statement:** Each agent instance shall have a spend ceiling for the life of that instance. The user, and an agent that starts it, shall be able to set a token ceiling, a dollar ceiling, or both. The ceiling shall not reset each day. Spend by an instance this one started shall not count against this ceiling. The human's own chat shall have no ceiling. When a set ceiling is reached the instance shall stop making further model calls, and one escalation shall be raised for that instance, with its id, its name, a text that says the ceiling was reached, and the time. The started instance shall not be able to raise or clear its own ceiling.
+- **Origin:** User, 2026-11-25 (quote: "pro Agent gerne ein Spend Limit … wie viel Token oder auch wie viel Dollar" and "ein blockierter Agent automatisch eine Escalation auslösen" and "wenn man einen Agenten spawnt … das festlegt"). Same day, later (quote: "das Spendlimit sollte für die gesamte Lebenszeit des Agenten, also der Agenteninstanz gelten" and "die Kinder würde ich nicht mit reinrechnen" and "Mein eigener Chat hat keinen … ausgenommen … Agenteninstanzen").
+- **Rationale:** One running agent can keep calling models until the account is gone. The ceiling belongs to that instance for as long as it exists. Counting children against the parent would hide which instance spent the money. A blocked agent cannot be relied on to call the escalation tool itself.
+- **Fit criterion:** An instance with a dollar ceiling of 1 and a known price stops after the next call that would pass 1 dollar, including on a later day, and the Escalations tab shows one new entry for that instance. An instance with a token ceiling stops the same way on tokens. When both are set, the first one reached stops it. A child that spends its own ceiling leaves the parent's remaining unchanged. A workspace chat with no agent instance is never stopped by a ceiling. A spawn that sets a ceiling starts an instance that stops at that ceiling. A later attempt by that instance to set a higher ceiling leaves the ceiling unchanged. An instance with no ceiling still runs. The entry survives a restart.
+- **Priority:** shall
+- **Status:** confirmed
+
+### REQ-AG-47 Who may change an instance's spend ceiling
+
+- **Bin:** explicit requirement
+- **Statement:** The user shall be able to change an instance's spend ceiling in the place where that instance is edited. An agent that may spawn an instance may set that new instance's ceiling at the start, and the spawn grant shall be enough for that. An agent that may edit an instance may change that instance's ceiling later. The grant to delete an instance shall not by itself allow either change. The instance shall not change its own ceiling.
+- **Origin:** User, 2026-11-25 (quote: "das Limit von einem Agenten sollte man sowohl … über die UI bearbeiten können, als auch der Agent" and "orientieren, wer eben Agenten löschen, Spawn oder editieren darf" and "Wenn jemand nur spawnen oder editieren darf, dann wäre das schon ausreichend" and "löschen ist … noch 'n anderes Recht" and "spawnen ausreichen und das editieren eigentlich das Recht, was man dazu braucht, um das Limit anzupassen").
+- **Rationale:** The ceiling is part of looking after an instance, the same work as starting it or changing it. Deleting it is a different decision. The instance must not be able to lift its own ceiling.
+- **Fit criterion:** In instance management the user sets a dollar ceiling, reopens the instance, and the ceiling is still that number. An agent granted spawn and not delete starts an instance with a ceiling and that instance stops at it. An agent granted edit changes that ceiling, and the next call uses the new one. An agent granted delete and not spawn or edit leaves the ceiling unchanged and is told it cannot change it. The instance's own attempt to raise or clear its ceiling leaves it unchanged.
+- **Priority:** shall
+- **Status:** confirmed
+
 ## Design notes (not requirements)
 A definition must name its tools when it is created; the create call is rejected without a list, and an empty list grants no tools. Saving stores the checked tools. An instance with no narrower set uses that definition. An instance may only narrow, never widen. Saving the definition’s own set again clears the instance override. REQ-AG-2’s unanswered default is decided here: no choice means no tools.
 

@@ -50,7 +50,7 @@ func readDelegateImage(path string) (delegateImage, error) {
 }
 
 // runDelegate answers a text task on the Settings profile model.
-// A task with an image path uses the chat model that can see, and only that call receives the bytes.
+// A task with an image path uses the image-analysis model when one is saved, otherwise the chat model, and only that call receives the bytes.
 func (a *Agent) runDelegate(ctx context.Context, args DelegateArgs) (string, error) {
 	if a == nil || a.Client == nil {
 		return "", errors.New("no API client")
@@ -68,9 +68,6 @@ func (a *Agent) runDelegate(ctx context.Context, args DelegateArgs) (string, err
 		}
 		return a.Client.Delegate(ctx, model, effort, args, nil)
 	}
-	if !a.callChatTarget().SeeImages {
-		return "", errors.New("seeing is off for this model; use tools on the path")
-	}
 	img, err := readDelegateImage(args.Image)
 	if err != nil {
 		return "", err
@@ -87,9 +84,11 @@ func (a *Agent) runDelegate(ctx context.Context, args DelegateArgs) (string, err
 	}
 	var answer string
 	var callErr error
-	a.withChatEndpoint(func(model, reasoning string) {
+	if err := a.withVisionEndpoint(func(model, reasoning string) {
 		answer, callErr = a.Client.Delegate(ctx, model, reasoning, call, &img)
-	})
+	}); err != nil {
+		return "", err
+	}
 	return answer, callErr
 }
 

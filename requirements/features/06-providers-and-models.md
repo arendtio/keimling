@@ -21,15 +21,21 @@ remote catalogs.
   `reasoning`, optional `prompt_price` / `completion_price` (USD per token).
 - Prefill: Settings can request upstream `/models` (OpenRouter returns
   `context_length` + pricing; OpenAI-compatible often only ids) and fill the
-  edit form — catalogs are not persisted wholesale. The request uses the URL
+  edit form — catalogs are not persisted wholesale. An OpenRouter request asks
+  for every output kind (`output_modalities=all`), the same list as the site's
+  "all models" view. The bare OpenRouter list is text only and leaves out
+  speech, transcription, image, and the other kinds. Suggestions belong to the
+  provider selected in the model form; switching provider shows that
+  provider’s last fetch, or none. OpenAI’s `/models` list has no modality
+  filter and no capability fields. The request uses the URL
   and key in the open provider form. See REQ-PM-5. LiteLLM also reads
   `GET {root}/model_group/info` (the model groups the key may call, with
   context, price, and vision) and `GET {root}/model/info` (deployments with
   `model_info`, which adds audio input) with that same key. See REQ-PM-8.
 - The form asks for USD per million tokens and stores USD per token. See
   REQ-PM-9.
-- Compaction/context uses the **active model’s** `context_limit` when set;
-  otherwise the global settings fallback.
+- Compaction and context use the context length stored on the model in
+  effect. There is no global context-length setting. See REQ-PM-14.
 
 ## Budget / spend
 
@@ -48,7 +54,7 @@ remote catalogs.
 
 ## UI
 
-- Settings → Models: provider list; editor for provider + nested model list.
+- Settings → Models: a provider list and a separate model list. A provider row and a model row each offer Edit and Remove. Remove asks by name before the provider, its key, and its models are dropped. The model list does not mark a model as the default; the main chat purpose is that choice. Prefill sits at the start of the model form, before the fields it fills.
 - Chat chrome: compact line for session estimate and provider remaining when known.
 
 ## REQ-PM-1 Startup does not require an OpenAI key
@@ -111,6 +117,8 @@ remote catalogs.
 - **Priority:** shall
 - **Status:** confirmed
 
+The typed voice field is the transcription choice until REQ-PM-12. From 2026-11-25 a purpose points only at a saved model, and transcription stays off until such a model is saved and chosen.
+
 ## REQ-PM-7 The account total and the key limit are both visible
 
 - **Statement:** For an OpenRouter provider, Keimling shall show the account remaining amount and, when the chat key has a limit, that key's remaining amount. The account amount shall use a management key stored for that provider. The chat key shall keep calling the models.
@@ -123,9 +131,9 @@ remote catalogs.
 ## REQ-PM-8 Prefill fills context, price, and senses when the catalog reports them
 
 - **Statement:** When a provider catalog reports a context length, a prompt price, a completion price, or image or audio input, prefill shall put those into the model form. A field the catalog does not report shall stay as the form already has it. For a LiteLLM provider, that richer info shall be read with the same key as the model list, from `GET /model_group/info` and `GET /model/info`; this applies even when the proxy URL was not recognised as LiteLLM (for example `http://127.0.0.1:4000/v1` with kind auto), and a LiteLLM endpoint that is absent or refused shall not stop the plain `/v1/models` list from loading.
-- **Origin:** User, 2026-11-20 (quote: "Modelle habe, die eigentlich Vision Capability haben … über den Light LLM Proxy mit Keimling aber anscheinend nicht erkannt" and "wenn wir Modelle abrufen … nicht die Kontextlänge und die Kosten unbedingt mit abruft"). Same day, the user said to use the normal key for LiteLLM when that key can read the info.
+- **Origin:** User, 2026-11-20 (quote: "Modelle habe, die eigentlich Vision Capability haben … über den Light LLM Proxy mit Keimling aber anscheinend nicht erkannt" and "wenn wir Modelle abrufen … nicht die Kontextlänge und die Kosten unbedingt mit abruft"). Same day, the user said to use the normal key for LiteLLM when that key can read the info. 2026-11-25 (quote: "wenn ich auf den Prefill from API-Button drücke, dann … das Model trotzdem nicht" and "wenn ich auf der Website alle Modelle auswähle … dann findet er das" and "warum das bei unserem Prefill from API nicht auftaucht").
 - **Rationale:** The model id is only half of the form. Context, price, and seeing are what they otherwise look up by hand, and other clients already get them from the proxy. `/model_group/info` is the endpoint the proxy documents for the models a key actually calls, and `/v1/models` on LiteLLM carries no price and no vision flag.
-- **Fit criterion:** An OpenRouter catalog entry with context, prices, and image input fills those form fields. A LiteLLM `/model_group/info` row with a float `max_input_tokens`, token prices, a description, and `supports_vision` fills context, both prices, the display name, and seeing. A `/model/info` row with `supports_audio_input` fills hearing. When both management routes are refused, the `/v1/models` ids still load and vision stays off. A catalog entry without a price leaves the price field unchanged. An OpenRouter provider probes neither LiteLLM route.
+- **Fit criterion:** An OpenRouter catalog entry with context, prices, and image input fills those form fields. The OpenRouter catalog request asks for every output kind, so a speech or transcription model that the text-only list omits is in the suggestions, with that kind beside the name. A provider that is not OpenRouter is asked for `/models` with no modality filter. A LiteLLM `/model_group/info` row with a float `max_input_tokens`, token prices, a description, and `supports_vision` fills context, both prices, the display name, and seeing. A `/model/info` row with `supports_audio_input` fills hearing. When both management routes are refused, the `/v1/models` ids still load and vision stays off. A catalog entry without a price leaves the price field unchanged. An OpenRouter provider probes neither LiteLLM route.
 - **Priority:** shall
 - **Status:** confirmed
 
@@ -144,5 +152,49 @@ remote catalogs.
 - **Origin:** User, 2026-11-22 (quote: "In den Model-Settings soll man ein Modell auswählen können, das für die Nebenaufgaben benutzt wird. Ist keins ausgewählt (leer), nimmt jede dieser Aufgaben das normale Modell des Chats").
 - **Rationale:** A chat on a cheap or local model sent its reviews, filters, supervision, and searches to a different provider, so the cost and the data path of a run did not follow its own model.
 - **Fit criterion:** With an empty value, the filter, review, autopilot, fast delegate, and web search request the chat model. After saving a model in Settings, the next side task names it in its request and the value survives a restart. `--review-model` still overrides it. A saved model that no provider offers falls back to the chat model, says so once, and never stops startup.
+- **Priority:** shall
+- **Status:** confirmed
+
+REQ-PM-12 replaces this single choice. Review, the output filter, and autopilot supervision become the one side-task purpose. Delegates use the main chat model and do not use the side-task model. Web search stays the service in REQ-PM-4.
+
+## REQ-PM-11 Each settings section saves on its own
+
+- **Bin:** explicit requirement
+- **Statement:** Settings for providers, models, and purpose choices shall each save on their own. Saving a model shall store that model. Saving a provider shall store that provider. Saving a purpose choice or another setting in that dialog shall store that choice. One of those saves shall leave the others as they were.
+- **Origin:** User, 2026-11-25 (quote: "wenn ich ein Modell hinzufüge, dann muss ich ein Modell speichern. Fertig. Wenn ich einen Provider hinzufüge oder bearbeite, muss ich den Provider speichern. Fertig" and "wenn ich andere Einstellungen hab, dann muss ich eben die anderen Einstellungen irgendwie speichern" and "jeden Abschnitt einzeln speichern" and "sehr homogen … in den Benutzermustern, die da zum Speichern verwendet werden"). Same day, later (quote: "man erst einen Provider speichert und dann darin die Models anlegt, dann hat man wieder dieses Dreifach-Speichern" and "einen Speichern-Button für einen Provider" and "extra Abschnitte, in denen Models anlegen" and "wenn ich das Model anlege, auch den richtigen Provider dazu geben" and "den Speichern Button für den Abschnitt").
+- **Rationale:** Today a model is only stored when the provider is saved afterward, and the purpose fields need a third save. The person cannot tell which button kept the change.
+- **Fit criterion:** Adding a model and using that section's save leaves the model in place after the dialog is closed and reopened, without a second save. The model section is separate from the provider section, and saving a model includes choosing which saved provider it belongs to. Editing a provider and using that section's save leaves the provider in place the same way, without requiring the button at the bottom of Settings. Changing a purpose choice and using that section's save leaves the choice in place and does not drop a model or a provider saved earlier. Each section uses the same save control pattern.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-12 A purpose names the model that does that job
+
+- **Bin:** explicit requirement
+- **Statement:** Settings shall list purposes, and for each purpose the user shall choose a saved model. A purpose shall not accept a model id that is not saved. The choice shall offer only models that have the capability that purpose needs. Image analysis shall offer only models that can see images. A live call shall offer only models that speak the Realtime API. Transcription shall offer only models saved for transcription, and transcription shall stay off until one is chosen. Speech synthesis shall offer only models saved as able to speak. Approval review, the output filter, and autopilot supervision shall be one side-task purpose and shall share one model. A delegate, including the fast delegate, shall use the main chat model. That main chat model shall itself be a purpose. The model list shall not offer a separate control that marks a model as the default. Web search shall stay a service of its own, as REQ-PM-4 says.
+- **Origin:** User, 2026-11-25 (quote: "für die verschiedenen Zwecke immer festlegen kann, welches Modell genau dafür verwendet werden soll" and "nur Modelle auswählbar sein, die auch Vision Capability haben" and "Websearch, wobei das ist eher 'n Service"). Same day, later (quote: "Review, Filter, Autopilot sind … alle so in etwa der gleiche Service" and "bei den Delegate-Varianten immer das Hauptmodell" and "das Hauptmodel könnte ein Service sein" and "Zwecke sollten eigentlich immer auf eine gespeicherte Model-ID gehen" and "für Transkription muss noch 'n Model angelegt werden, also bevor man das nutzen kann" and "ein Purpose könnte auch noch sein … Sprachsynthese"). Same day, later (quote: "das Default-Setzen komplett wegnehmen, weil das macht dann aus meiner Sicht ja jetzt ein Main-Chat-Modell" and "bei Model gibt's ja diese Remove-Button gleich auf der Übersicht. Das hätte ich gerne bei den Providern auch" and "Prefill from API … ganz oben rechts … das, was ich ganz am Anfang machen muss").
+- **Rationale:** Several models can see, transcribe, or speak. One shared side-task field does not say which job it is for. A transcription id that is only a leftover key never appears in the list the user can check. A delegate is a subagent of the chat and should use the model the chat is using.
+- **Fit criterion:** The purpose list shows a model choice for the main chat model, image analysis, transcription, speech synthesis, a live call, and side tasks. Each choice is one list of saved models across every provider, limited to models with that capability. With no transcription model saved, transcription sends nothing. Saving a transcription model and choosing it makes the next transcription call that model. Review, the output filter, and autopilot supervision call the side-task model. A fast delegate and a normal delegate call the main chat model. The model list has Edit and Remove and no Default control. A provider row has Edit and Remove in the same places; confirming Remove names that provider and drops it together with its models. Opening Add model or Edit model shows Prefill from API at the top of that form, before the fields. Web search is still Brave, a URL, or off. The choices survive a restart.
+- **Priority:** shall
+- **Status:** confirmed
+
+Speech synthesis is only the purpose choice for now. How spoken output is produced stays open. REQ-PM-6's typed voice field remains until this list is what transcription uses.
+
+## REQ-PM-14 No global context length
+
+- **Bin:** explicit requirement
+- **Statement:** Settings shall not offer a global context length. The context length of a call shall be the one stored on the model that call uses. A model with no stored context length shall not fall back to a global number.
+- **Origin:** User, 2026-11-25 (quote: "Die globale Kontextlänge kann aus meiner Sicht weg" and "das wird ja eigentlich vom Model immer jeweils festgelegt" and "die könnte höchstens genutzt werden, um irgendwie 'ne kleinere Kontextlänge zu entforcen" and "auch das halte ich eigentlich für Schwachsinn" and "die globale Kontextlänge kann einfach weg").
+- **Rationale:** The length belongs to the model. A global field, even as an optional tighter cap, is a second place to set the same thing.
+- **Fit criterion:** The Models settings have no context-length field. A chat whose model stores 128000 uses 128000. Saving settings does not write a global context length. A model with no stored length does not receive one from settings.
+- **Priority:** shall
+- **Status:** confirmed
+
+## REQ-PM-13 A model can carry extra instructions
+
+- **Bin:** explicit requirement
+- **Statement:** Each saved model shall be able to carry instructions that are added when that model answers. Empty instructions shall add nothing. The extra text shall not replace the instructions the agent, the autopilot, or the product already send.
+- **Origin:** User, 2026-11-25 (quote: "pro Model eigene Instruktionen mitgeben" and "bei dem und dem Model, da möchte ich gern nochmal die und die Instruktionen im System Prompt mitgeben" and "manche Models zum Beispiel ziemlich verbose sind, und dann möchte ich sagen, halte ich bitte sehr kurz").
+- **Rationale:** One model talks too much. The correction belongs to that model, and the other models keep the stance they already have.
+- **Fit criterion:** A model saved with the sentence "Answer in one sentence" receives that sentence on its next reply, and a second model with empty instructions does not. The agent's own instructions are still sent. Clearing the field and saving leaves the next reply without that sentence.
 - **Priority:** shall
 - **Status:** confirmed

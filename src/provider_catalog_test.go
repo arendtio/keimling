@@ -26,6 +26,36 @@ func TestParseModelCatalogOpenRouterShape(t *testing.T) {
 	}
 }
 
+func TestParseModelCatalogCapabilities(t *testing.T) {
+	raw := []byte(`{"data":[
+		{"id":"see","architecture":{"input_modalities":["text","image"],"output_modalities":["text"]}},
+		{"id":"hear","architecture":{"input_modalities":["text","audio"],"output_modalities":["text"]}},
+		{"id":"stt","architecture":{"input_modalities":["audio"],"output_modalities":["transcription"]},"endpoints":["/api/v1/audio/transcriptions"]},
+		{"id":"tts","architecture":{"input_modalities":["text"],"output_modalities":["speech"]},"endpoints":["/api/v1/audio/speech"]},
+		{"id":"live","endpoints":["/api/v1/realtime"]}
+	]}`)
+	got, err := parseModelCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]catalogModel{
+		"see":  {SeesImages: true},
+		"hear": {HearsAudio: true},
+		"stt":  {Transcribes: true},
+		"tts":  {Speaks: true},
+		"live": {Realtime: true, CapabilitiesKnown: true},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%#v", got)
+	}
+	for _, m := range got {
+		w := want[m.ID]
+		if m.SeesImages != w.SeesImages || m.HearsAudio != w.HearsAudio || m.Transcribes != w.Transcribes || m.Speaks != w.Speaks || m.Realtime != w.Realtime || !m.CapabilitiesKnown {
+			t.Fatalf("%s %#v", m.ID, m)
+		}
+	}
+}
+
 func TestParseModelCatalogNumericPrice(t *testing.T) {
 	raw := []byte(`{"data":[{"id":"n","context_length":128000,"pricing":{"prompt":0.000001,"completion":0.000002}}]}`)
 	got, err := parseModelCatalog(raw)
@@ -42,12 +72,14 @@ func TestParseModelCatalogNumericPrice(t *testing.T) {
 }
 
 func TestLiteLLMCatalogUsesModelInfo(t *testing.T) {
+	var modelsQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer tok" {
 			t.Fatalf("auth %q", r.Header.Get("Authorization"))
 		}
 		switch r.URL.Path {
 		case "/v1/models":
+			modelsQuery = r.URL.RawQuery
 			_, _ = w.Write([]byte(`{"data":[{"id":"vision-model"}]}`))
 		case "/model_group/info":
 			http.Error(w, "no", http.StatusNotFound)
@@ -61,6 +93,9 @@ func TestLiteLLMCatalogUsesModelInfo(t *testing.T) {
 	got, err := fetchProviderModelCatalog(context.Background(), srv.URL+"/v1", "tok", "litellm")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if modelsQuery != "" {
+		t.Fatalf("non-openrouter query %q", modelsQuery)
 	}
 	if len(got) != 1 || !got[0].SeesImages || got[0].ContextLimit != 128000 {
 		t.Fatalf("%#v", got)
@@ -158,10 +193,12 @@ func TestLiteLLMCatalogModelInfoAddsAudio(t *testing.T) {
 
 // OpenRouter keeps its own catalog: no LiteLLM management route is probed.
 func TestOpenRouterCatalogSkipsLiteLLMRoutes(t *testing.T) {
+	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/models":
-			_, _ = w.Write([]byte(`{"data":[{"id":"acme/fast","context_length":200000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"architecture":{"input_modalities":["text","image"]}}]}`))
+			gotQuery = r.URL.RawQuery
+			_, _ = w.Write([]byte(`{"data":[{"id":"acme/fast","context_length":200000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"architecture":{"input_modalities":["text","image"],"output_modalities":["speech"]}},{"id":"acme/chat","architecture":{"output_modalities":["text"]}}]}`))
 		default:
 			t.Fatalf("path %s", r.URL.Path)
 		}
@@ -171,8 +208,14 @@ func TestOpenRouterCatalogSkipsLiteLLMRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "acme/fast" || !got[0].SeesImages || got[0].ContextLimit != 200000 {
+	if gotQuery != "output_modalities=all" {
+		t.Fatalf("query %q", gotQuery)
+	}
+	if len(got) != 2 || got[0].ID != "acme/fast" || !got[0].SeesImages || got[0].ContextLimit != 200000 || got[0].Outputs != "speech" || !got[0].Speaks {
 		t.Fatalf("%#v", got)
+	}
+	if got[1].Outputs != "" {
+		t.Fatalf("text output label %q", got[1].Outputs)
 	}
 }
 

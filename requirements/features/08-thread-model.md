@@ -8,7 +8,7 @@ Precedence for the **main chat model** only: a saved thread choice, otherwise th
 
 Selecting the provider and model that Settings currently use clears the thread choice. The thread then follows Settings again, including a later Settings change. Selecting any other configured pair saves it, and the thread keeps that pair when Settings later change.
 
-Reasoning and context limit come from the model that is in effect for the chat. A model with no context limit still uses the global context-limit fallback from [feature 06](06-providers-and-models.md).
+Reasoning and context limit come from the model that is in effect for the chat. There is no global context-length setting (REQ-PM-14).
 
 A run already started keeps the chat model it started with. The thread choice is used when a message is sent.
 
@@ -55,10 +55,10 @@ A run already started keeps the chat model it started with. The thread choice is
 ## REQ-TM-5 Reasoning and context come from the chat model
 
 - **Bin:** explicit requirement
-- **Statement:** The chat call shall use the reasoning and context limit stored on the model that is in effect for that thread.
-- **Origin:** User, 2026-10-31 (quote: "Reasoning und Context Limit sind die Werte am gewählten Modell.").
-- **Rationale:** Those values belong to the model, not to a second global override.
-- **Fit criterion:** M1 has reasoning R1 and context limit C1. M2 has R2 and C2. A thread whose chat model is M1 sends the chat call with R1, and context handling for that chat uses C1. After the thread's chat model is M2, the next sent message uses R2 and C2. When the model in effect has no context limit, the global context-limit fallback from feature 06 still applies.
+- **Statement:** The chat call shall use the reasoning and context limit stored on the model that is in effect for that thread. There shall be no global context length beside the model.
+- **Origin:** User, 2026-10-31 (quote: "Reasoning und Context Limit sind die Werte am gewählten Modell."). User, 2026-11-25 (quote: "die globale Kontextlänge kann einfach weg" and "das wird ja eigentlich vom Model immer jeweils festgelegt" and "Man kann das ja auch im Model entforcen").
+- **Rationale:** Those values belong to the model. A second global number is a cap the user does not want, including as an optional tighter limit.
+- **Fit criterion:** M1 has reasoning R1 and context limit C1. M2 has R2 and C2. A thread whose chat model is M1 sends the chat call with R1, and context handling for that chat uses C1. After the thread's chat model is M2, the next sent message uses R2 and C2. Settings has no context-length field. A model with no stored context length does not pick up a global number.
 - **Priority:** shall
 - **Status:** confirmed
 

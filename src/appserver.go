@@ -392,9 +392,6 @@ func (s *appServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	locked, source, unresolved, saved := s.agent.chatModelLock()
 	limit := chat.ContextLimit
-	if limit <= 0 {
-		limit = s.agent.Cfg.ContextLimit
-	}
 	growth := sessionGrowth(msgs, s.viewedContextBudget().UsedPct)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1494,6 +1491,7 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 		Auth    string             `json:"auth"`
 		Cwd     string             `json:"cwd"`
 		Before  *string            `json:"before"`
+		Note    *string            `json:"note"`
 		Update  bool               `json:"update"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
@@ -1519,13 +1517,16 @@ func (s *appServer) handleMCPAdd(w http.ResponseWriter, r *http.Request) {
 	if body.Before != nil {
 		cfg.Before = strings.TrimSpace(*body.Before)
 	}
+	if body.Note != nil {
+		cfg.Note = strings.TrimSpace(*body.Note)
+	}
 	cfg.setBearer(body.Bearer)
 	switch body.Auth {
 	case "none", "bearer", "headers":
 		cfg.OAuth = nil
 	}
 	if body.Update {
-		cfg = keepUserMCPFields(body.Name, cfg, body.Env != nil, body.Headers != nil || strings.TrimSpace(body.Bearer) != "", body.Before != nil)
+		cfg = keepUserMCPFields(body.Name, cfg, body.Env != nil, body.Headers != nil || strings.TrimSpace(body.Bearer) != "", body.Before != nil, body.Note != nil)
 	}
 	if err := UpsertUserMCPServer(body.Name, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2119,9 +2120,15 @@ type agentSettings struct {
 	VoiceModel                 string          `json:"voice_model,omitempty"`
 	AuxiliaryModel             *string         `json:"auxiliary_model,omitempty"`
 	VoiceProviderID            *string         `json:"voice_provider_id,omitempty"`
+	VisionModel                *string         `json:"vision_model,omitempty"`
+	VisionProviderID           *string         `json:"vision_provider_id,omitempty"`
+	SpeechModel                *string         `json:"speech_model,omitempty"`
+	SpeechProviderID           *string         `json:"speech_provider_id,omitempty"`
 	RealtimeModel              string          `json:"realtime_model,omitempty"`
 	RealtimeProviderID         *string         `json:"realtime_provider_id,omitempty"`
 	RealtimeVoice              string          `json:"realtime_voice,omitempty"`
+	IdleSound                  *bool           `json:"idle_sound,omitempty"`
+	IdleNotify                 *bool           `json:"idle_notify,omitempty"`
 	SearchKind                 *string         `json:"search_kind,omitempty"`
 	SearchURL                  *string         `json:"search_url,omitempty"`
 	SearchAPIKey               *string         `json:"search_api_key,omitempty"`
@@ -2178,6 +2185,12 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"voice_model":                   s.agent.Cfg.VoiceModel,
 		"auxiliary_model":               s.agent.Cfg.AuxiliaryModel,
 		"voice_provider_id":             s.agent.Cfg.VoiceProviderID,
+		"vision_model":                  s.agent.Cfg.VisionModel,
+		"vision_provider_id":            s.agent.Cfg.VisionProviderID,
+		"speech_model":                  s.agent.Cfg.SpeechModel,
+		"speech_provider_id":            s.agent.Cfg.SpeechProviderID,
+		"idle_sound":                    s.agent.Cfg.IdleSound,
+		"idle_notify":                   s.agent.Cfg.IdleNotify,
 		"realtime_model":                s.agent.Cfg.RealtimeModel,
 		"realtime_provider_id":          s.agent.Cfg.RealtimeProviderID,
 		"realtime_voice":                s.agent.Cfg.RealtimeVoice,
@@ -2350,6 +2363,28 @@ func (s *appServer) applySettings(body agentSettings) error {
 	}
 	if body.AuxiliaryModel != nil {
 		cfg.AuxiliaryModel = strings.TrimSpace(*body.AuxiliaryModel)
+	}
+	if body.VisionProviderID != nil {
+		cfg.VisionProviderID = strings.TrimSpace(*body.VisionProviderID)
+		if cfg.VisionProviderID == "" {
+			cfg.VisionModel = ""
+		} else if body.VisionModel != nil {
+			cfg.VisionModel = strings.TrimSpace(*body.VisionModel)
+		}
+	}
+	if body.SpeechProviderID != nil {
+		cfg.SpeechProviderID = strings.TrimSpace(*body.SpeechProviderID)
+		if cfg.SpeechProviderID == "" {
+			cfg.SpeechModel = ""
+		} else if body.SpeechModel != nil {
+			cfg.SpeechModel = strings.TrimSpace(*body.SpeechModel)
+		}
+	}
+	if body.IdleSound != nil {
+		cfg.IdleSound = *body.IdleSound
+	}
+	if body.IdleNotify != nil {
+		cfg.IdleNotify = *body.IdleNotify
 	}
 	if body.ContextLimit != nil {
 		if *body.ContextLimit < 1000 {
@@ -2851,6 +2886,12 @@ func (s *appServer) persistAgentConfig(writeProviderKey, writeOpenAIKey, writeAu
 		fc.VoiceModel = cfg.VoiceModel
 		fc.AuxiliaryModel = cfg.AuxiliaryModel
 		fc.VoiceProviderID = cfg.VoiceProviderID
+		fc.VisionModel = cfg.VisionModel
+		fc.VisionProviderID = cfg.VisionProviderID
+		fc.SpeechModel = cfg.SpeechModel
+		fc.SpeechProviderID = cfg.SpeechProviderID
+		fc.Features.IdleSound = cfg.IdleSound
+		fc.Features.IdleNotify = cfg.IdleNotify
 		fc.RealtimeModel = cfg.RealtimeModel
 		fc.RealtimeProviderID = cfg.RealtimeProviderID
 		fc.RealtimeVoice = cfg.RealtimeVoice

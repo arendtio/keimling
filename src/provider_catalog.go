@@ -22,10 +22,19 @@ type catalogModel struct {
 	CompletionPrice string `json:"completion_price,omitempty"`
 	SeesImages      bool   `json:"sees_images,omitempty"`
 	HearsAudio      bool   `json:"hears_audio,omitempty"`
+	Transcribes     bool   `json:"transcribes,omitempty"`
+	Speaks          bool   `json:"speaks,omitempty"`
+	Realtime        bool   `json:"realtime,omitempty"`
+	// CapabilitiesKnown is false when the catalog has no capability fields,
+	// as with OpenAI's model list. Prefill then leaves the checkboxes alone.
+	CapabilitiesKnown bool `json:"capabilities_known,omitempty"`
+	// Outputs is the catalog's output kind when it is not plain text, so the
+	// prefill list can show speech, transcription, image, and the rest.
+	Outputs string `json:"outputs,omitempty"`
 }
 
 func fetchProviderModelCatalog(ctx context.Context, baseURL, apiKey, kind string) ([]catalogModel, error) {
-	models, err := fetchOpenAIModelList(ctx, baseURL, apiKey)
+	models, err := fetchOpenAIModelList(ctx, baseURL, apiKey, openAIModelsPath(baseURL, kind))
 	root, probe := liteLLMCatalogRoot(baseURL, kind)
 	if !probe {
 		return models, err
@@ -60,11 +69,21 @@ func liteLLMCatalogRoot(baseURL, kind string) (string, bool) {
 	return root, true
 }
 
-func fetchOpenAIModelList(ctx context.Context, baseURL, apiKey string) ([]catalogModel, error) {
+// openAIModelsPath is the /models request. OpenRouter's bare list is text
+// output only; speech, transcription, image, and the other kinds are returned
+// when output_modalities=all, which is the site's "all models" list.
+func openAIModelsPath(baseURL, kind string) string {
+	if detectProviderKind(baseURL, kind) == "openrouter" {
+		return "models?output_modalities=all"
+	}
+	return "models"
+}
+
+func fetchOpenAIModelList(ctx context.Context, baseURL, apiKey, path string) ([]catalogModel, error) {
 	c := NewClient(apiKey)
 	c.BaseURL = baseURL
 	c.HTTP = &http.Client{Timeout: 20 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint("models"), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint(path), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +127,12 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 				Completion json.RawMessage `json:"completion"`
 			} `json:"pricing"`
 			Architecture *struct {
-				Modality        string   `json:"modality"`
-				InputModalities []string `json:"input_modalities"`
+				Modality         string   `json:"modality"`
+				InputModalities  []string `json:"input_modalities"`
+				OutputModalities []string `json:"output_modalities"`
 			} `json:"architecture"`
 			InputModalities []string `json:"input_modalities"`
+			Endpoints       []string `json:"endpoints"`
 		}
 		if err := json.Unmarshal(raw, &row); err != nil {
 			continue
@@ -145,10 +166,73 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 			inputs = append(inputs, row.Architecture.InputModalities...)
 			modality = row.Architecture.Modality
 		}
-		m.SeesImages, m.HearsAudio = catalogModalities(inputs, modality)
+		outputs := []string(nil)
+		if row.Architecture != nil {
+			outputs = row.Architecture.OutputModalities
+			m.Outputs = catalogOutputs(outputs)
+		}
+		endpoints := row.Endpoints
+		m.CapabilitiesKnown = row.Architecture != nil || len(endpoints) > 0
+		m.SeesImages, m.HearsAudio, m.Transcribes, m.Speaks, m.Realtime = catalogCapabilities(inputs, modality, outputs, endpoints)
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// catalogCapabilities reads what the catalog actually reports. A model whose
+// only output is a transcript takes audio, but that is transcription, not a
+// chat model that hears. OpenAI's list has none of these fields, so every
+// flag stays off and the form leaves the choice to the user.
+func catalogCapabilities(inputs []string, modality string, outputs, endpoints []string) (images, audio, transcribes, speaks, realtime bool) {
+	images, audio = catalogModalities(inputs, modality)
+	note := func(s string) {
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "transcription":
+			transcribes = true
+		case "speech", "audio":
+			speaks = true
+		case "realtime":
+			realtime = true
+		}
+	}
+	for _, o := range outputs {
+		note(o)
+	}
+	for _, e := range endpoints {
+		e = strings.ToLower(e)
+		switch {
+		case strings.Contains(e, "transcription"):
+			transcribes = true
+		case strings.Contains(e, "realtime"):
+			realtime = true
+		case strings.Contains(e, "/audio/speech") || strings.HasSuffix(e, "/speech"):
+			speaks = true
+		}
+	}
+	textOut := len(outputs) == 0
+	for _, o := range outputs {
+		if strings.EqualFold(strings.TrimSpace(o), "text") {
+			textOut = true
+		}
+	}
+	if transcribes && !textOut {
+		audio = false
+	}
+	return images, audio, transcribes, speaks, realtime
+}
+
+func catalogOutputs(outs []string) string {
+	clean := make([]string, 0, len(outs))
+	for _, o := range outs {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			clean = append(clean, o)
+		}
+	}
+	if len(clean) == 0 || (len(clean) == 1 && clean[0] == "text") {
+		return ""
+	}
+	return strings.Join(clean, ", ")
 }
 
 func catalogPrice(raw json.RawMessage) string {
@@ -204,6 +288,18 @@ func mergeCatalogModels(base, extra []catalogModel) []catalogModel {
 		}
 		if e.HearsAudio {
 			cur.HearsAudio = true
+		}
+		if e.Transcribes {
+			cur.Transcribes = true
+		}
+		if e.Speaks {
+			cur.Speaks = true
+		}
+		if e.Realtime {
+			cur.Realtime = true
+		}
+		if e.CapabilitiesKnown {
+			cur.CapabilitiesKnown = true
 		}
 		base[i] = cur
 	}
