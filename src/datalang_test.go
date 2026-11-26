@@ -1025,3 +1025,21 @@ func TestDataLangExecWaitsForApproval(t *testing.T) {
 		t.Fatalf("exec ran without approval: %s", out)
 	}
 }
+
+func TestDataLangErrorsTeachTheShape(t *testing.T) {
+	_, err := runDataLang(`return input | map(.x)`, map[string]any{"a": 1}, time.Second)
+	de, ok := err.(*dataError)
+	if !ok || de.Code != "TYPE_ERROR" || !strings.Contains(de.Suggestion, "entries") {
+		t.Fatalf("map on object: %v", err)
+	}
+	_, err = runDataLang(`return input.missing`, map[string]any{"a": 1}, time.Second)
+	de, ok = err.(*dataError)
+	if !ok || de.Code != "MISSING_FIELD" || !strings.Contains(de.Suggestion, "get(") {
+		t.Fatalf("missing field: %v", err)
+	}
+	_, err = runDataLang(`return keys(input)`, []any{}, time.Second)
+	de, ok = err.(*dataError)
+	if !ok || de.Code != "TYPE_ERROR" || !strings.Contains(de.Suggestion, "entries") {
+		t.Fatalf("keys on array: %v", err)
+	}
+}

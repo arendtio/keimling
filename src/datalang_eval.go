@@ -466,13 +466,52 @@ func asFloat(v any) (float64, bool) {
 func fieldOf(base any, name string) (any, error) {
 	m, ok := base.(map[string]any)
 	if !ok {
-		return nil, dataErr("TYPE_ERROR", "field access expects an object")
+		return nil, &dataError{Code: "TYPE_ERROR", Message: "field access expects an object",
+			Suggestion: "The value is " + kindName(base) + ". Use get(object, name) for an optional field."}
 	}
 	v, ok := m[name]
 	if !ok {
-		return nil, &dataError{Code: "MISSING_FIELD", Message: "missing field " + name}
+		return nil, &dataError{Code: "MISSING_FIELD", Message: "missing field " + name,
+			Suggestion: "Use get(object, name) when the field may be absent, or a ?? fallback."}
 	}
 	return v, nil
+}
+
+func kindName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "a bool"
+	case string:
+		return "text"
+	case int, int64, float64, json.Number:
+		return "a number"
+	case []any:
+		return "an array"
+	case map[string]any:
+		return "an object"
+	default:
+		return "this value"
+	}
+}
+
+func arrayTypeError(name string, v any) *dataError {
+	e := &dataError{Code: "TYPE_ERROR", Message: name + " expects an array"}
+	switch v.(type) {
+	case map[string]any:
+		e.Suggestion = "The value is an object. Wrap it in [.] or use entries()/values()."
+	case nil:
+		e.Suggestion = "The value is null. Use a ?? [] fallback."
+	default:
+		e.Suggestion = "The value is " + kindName(v) + ". Wrap it in [...] or return an array."
+	}
+	return e
+}
+
+func objectTypeError(name string, v any) *dataError {
+	return &dataError{Code: "TYPE_ERROR", Message: name + " expects an object",
+		Suggestion: "The value is " + kindName(v) + ". Use a row object; entries()/values() turn an object into rows."}
 }
 
 func indexOf(base, idx any) (any, error) {
@@ -591,7 +630,7 @@ func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, 
 		}
 		arr, ok := src.([]any)
 		if !ok {
-			return nil, dataErr("TYPE_ERROR", name+" expects an array")
+			return nil, arrayTypeError(name, src)
 		}
 		switch name {
 		case "filter":
@@ -613,7 +652,7 @@ func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, 
 		}
 		arr, ok := src.([]any)
 		if !ok {
-			return nil, dataErr("TYPE_ERROR", name+" expects an array")
+			return nil, arrayTypeError(name, src)
 		}
 		switch name {
 		case "count":
@@ -692,7 +731,7 @@ func collArgs(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any,
 		rest = args
 	} else {
 		if len(args) < 1 {
-			return nil, nil, dataErr("TYPE_ERROR", name+" expects an array")
+			return nil, nil, arrayTypeError(name, src)
 		}
 		v, err := eval(args[0], env)
 		if err != nil {
@@ -1010,7 +1049,7 @@ func indexOfValue(args []any) (any, error) {
 	}
 	arr, ok := args[0].([]any)
 	if !ok {
-		return nil, dataErr("TYPE_ERROR", "indexOf expects an array and a value")
+		return nil, arrayTypeError("indexOf", args[0])
 	}
 	for i, item := range arr {
 		if numOrDeepEqual(item, args[1]) {
@@ -1280,7 +1319,7 @@ func valueSum(args []any) (any, error) {
 	}
 	arr, ok := args[0].([]any)
 	if !ok {
-		return nil, dataErr("TYPE_ERROR", "sum expects an array of numbers")
+		return nil, arrayTypeError("sum", args[0])
 	}
 	total := float64(0)
 	for _, item := range arr {
@@ -1489,7 +1528,7 @@ func oneObject(name string, args []any) (map[string]any, error) {
 	}
 	m, ok := args[0].(map[string]any)
 	if !ok {
-		return nil, dataErr("TYPE_ERROR", name+" expects an object")
+		return nil, objectTypeError(name, args[0])
 	}
 	return m, nil
 }
