@@ -175,7 +175,8 @@ func TestGatewayEdgesListBothDirections(t *testing.T) {
 	}
 }
 
-func TestWaitingApprovalIsListedWithoutTheChat(t *testing.T) {	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: &Agent{ApprovalCh: make(chan bool, 1), Cfg: Config{ThreadID: "main"}}})
+func TestWaitingApprovalIsListedWithoutTheChat(t *testing.T) {
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: &Agent{ApprovalCh: make(chan bool, 1), Cfg: Config{ThreadID: "main"}}})
 	srv.noteApproval("main", map[string]any{"name": "exec", "reason": "run it", "command": "ls"})
 	list := srv.approvalList()
 	if len(list) != 1 {

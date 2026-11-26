@@ -41,6 +41,10 @@ type Client struct {
 	// Spend, when set, receives one record per completed model response for
 	// the spend ledger. A nil hook keeps helper clients silent.
 	Spend func(spendRecord)
+	// ScriptReply, when set, answers instead of the HTTP API. Tests use it.
+	ScriptReply func(ctx context.Context, instructions string, history []json.RawMessage) (Response, error)
+	// offeredToolNames is the tool list of the last scripted reply. Tests read it.
+	offeredToolNames []string
 }
 
 // spendUsage reports the usage of one completed response to the ledger hook.
@@ -187,7 +191,26 @@ func threadVoiceInstructions() string {
 	return "All internal instructions, tools, prompts and diagnostics are English. Reply to the user in their language (German in this conversation), EXTREMELY SHORT. At most one terse sentence (ideally zero) for intermediate messages, and at most one message per round of tool calls: announce no progress, no waiting, and no intermediate findings. When calling finish_task(done), include a concise useful final summary: what changed, what was verified, important findings and unresolved issues. For finish_task(blocked), state exactly what help is required. Save human-readable output for final result or blocking question. Never narrate plans, commands, progress, findings already shown in tool output, or routine successes. Only report actionable results, questions, failures or the final outcome. Prefer silence to chatter. Avoid headings and unnecessary chatter, but a concise completion summary is required for autonomous tasks."
 }
 
+func offeredToolNames(web bool, extraTools []map[string]any, grant []string, override *[]map[string]any) []string {
+	tools := filterGrantedTools(definitions(web, extraTools), grant)
+	if override != nil {
+		tools = *override
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		name, _ := tool["name"].(string)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 func (c *Client) Respond(ctx context.Context, model, reasoning string, history []json.RawMessage, web bool, instructions string, extraTools []map[string]any, grant []string) (Response, error) {
+	if c != nil && c.ScriptReply != nil {
+		c.offeredToolNames = offeredToolNames(web, extraTools, grant, c.chatTools)
+		return c.ScriptReply(ctx, instructions, history)
+	}
 	release, err := c.acquireModelSlot(ctx)
 	if err != nil {
 		return Response{}, err

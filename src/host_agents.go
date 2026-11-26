@@ -24,14 +24,15 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"recipes": list, "tools": agentToolCatalog(), "groups": agentToolGroups(), "review_prompt_factory": defaultPolicy})
 	case http.MethodPost:
 		var body struct {
-			Name              string    `json:"name"`
-			Instructions      string    `json:"instructions"`
-			Model             *string   `json:"model"`
-			Tools             *[]string `json:"tools"`
-			Peers             *[]string `json:"peers"`
-			Mode              string    `json:"mode"`
-			ReviewPrompt      *string   `json:"review_prompt"`
-			ReviewPromptReset *bool     `json:"review_prompt_reset"`
+			Name              string           `json:"name"`
+			Instructions      string           `json:"instructions"`
+			Model             *string          `json:"model"`
+			Tools             *[]string        `json:"tools"`
+			Peers             *[]string        `json:"peers"`
+			Mode              string           `json:"mode"`
+			ReviewPrompt      *string          `json:"review_prompt"`
+			ReviewPromptReset *bool            `json:"review_prompt_reset"`
+			Tests             []DefinitionTest `json:"tests"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil && err != io.EOF {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -73,6 +74,15 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 		reset := body.ReviewPromptReset != nil && *body.ReviewPromptReset
 		if body.Mode != "" || body.ReviewPrompt != nil || reset {
 			rec, err = setRecipeApproval(rec.ID, body.Mode, body.ReviewPrompt, reset)
+			if err != nil {
+				_ = deleteAgentRecipe(rec.ID)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		for _, test := range body.Tests {
+			test.LastRuns = nil
+			rec, err = saveDefinitionTest(rec.ID, test)
 			if err != nil {
 				_ = deleteAgentRecipe(rec.ID)
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -863,4 +873,146 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 	// Same as a single spawn: no attach, so the user keeps the chat they are in.
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "instances": created, "attached": false})
+}
+
+func (h *Host) handleDefinitionTests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID   string         `json:"id"`
+		Test DefinitionTest `json:"test"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	rec, err := saveDefinitionTest(body.ID, body.Test)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rec)
+}
+
+func (h *Host) handleDefinitionTestDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID     string `json:"id"`
+		TestID string `json:"test_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" || strings.TrimSpace(body.TestID) == "" {
+		http.Error(w, "id and test_id required", http.StatusBadRequest)
+		return
+	}
+	rec, err := deleteDefinitionTest(body.ID, body.TestID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rec)
+}
+
+func (h *Host) definitionTestWorkspace() (string, error) {
+	if id := strings.TrimSpace(h.focusWorkspaceID()); id != "" {
+		if _, err := readWorkspaceMeta(id); err == nil {
+			return id, nil
+		}
+	}
+	list, err := listWorkspaces()
+	if err != nil {
+		return "", err
+	}
+	for _, ws := range list {
+		if strings.TrimSpace(ws.ID) != "" {
+			return ws.ID, nil
+		}
+	}
+	dir, err := os.MkdirTemp("", "keimling-definition-test-")
+	if err != nil {
+		return "", err
+	}
+	ws, err := ensureWorkspaceForRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	return ws.ID, nil
+}
+
+func (h *Host) handleDefinitionTestRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID     string `json:"id"`
+		TestID string `json:"test_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" || strings.TrimSpace(body.TestID) == "" {
+		http.Error(w, "id and test_id required", http.StatusBadRequest)
+		return
+	}
+	rec, err := readAgentRecipe(body.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var test DefinitionTest
+	found := false
+	for _, one := range rec.Tests {
+		if one.ID == strings.TrimSpace(body.TestID) {
+			test = one
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "test not found", http.StatusNotFound)
+		return
+	}
+	wsID, err := h.definitionTestWorkspace()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	inst, err := createAgentInstance(rec, wsID, "Test "+test.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer func() { _ = deleteAgentInstance(inst.ID) }()
+	agent, cancel, err := openRuntimeAgent(h.config, "", inst.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer cancel()
+	updated, err := agent.runDefinitionTest(r.Context(), test)
+	rec, readErr := readAgentRecipe(rec.ID)
+	if readErr == nil {
+		for i := range rec.Tests {
+			if rec.Tests[i].ID == test.ID {
+				rec.Tests[i].LastRuns = updated.LastRuns
+			}
+		}
+		if writeErr := writeAgentRecipe(rec); writeErr == nil {
+			rec, _ = readAgentRecipe(rec.ID)
+		}
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"pass":   definitionTestPassed(updated.LastRuns),
+		"runs":   updated.LastRuns,
+		"recipe": rec,
+	})
 }

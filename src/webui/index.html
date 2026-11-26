@@ -726,6 +726,7 @@
               <p class="hint">Definitions this kind of agent may message. Instances of those definitions may contact each other in a shared workspace. An edit applies to existing instances too.</p>
               <div id="agent-def-create-peers" class="agent-check-grid"></div>
             </section>
+            <div id="agent-def-tests-slot-create"></div>
             <div class="skills-row">
               <button type="button" id="agent-def-create-back" class="ghost">Back</button>
               <button type="button" id="agent-def-create-save">Save definition</button>
@@ -774,6 +775,16 @@
               <p class="hint">Definitions this kind of agent may message. Instances of those definitions may contact each other in a shared workspace. An edit applies to existing instances too.</p>
               <div id="agent-def-edit-peers" class="agent-check-grid"></div>
             </section>
+            <div id="agent-def-tests-slot-edit">
+            <section id="agent-def-tests">
+              <h3 class="settings-section-title">Tests</h3>
+              <p class="hint">A test plays the other parties. This agent is the one under test, and it is not a party.</p>
+              <p id="agent-def-test-draft-note" class="hint" hidden>These tests are stored when you save the definition. Run is available after that.</p>
+              <ul id="agent-def-test-list" class="agent-test-list"></ul>
+              <p id="agent-def-test-undo" class="hint" hidden></p>
+              <button type="button" id="agent-def-test-new" class="ghost">New test</button>
+            </section>
+            </div>
             <div class="skills-row">
               <button type="button" id="agent-def-edit-back" class="ghost">Back</button>
               <button type="button" id="agent-def-edit-save">Save</button>
@@ -843,6 +854,64 @@
           </div>
           <p id="agent-def-err" class="gate-err" hidden></p>
         </form>
+      </dialog>
+
+      <dialog id="agent-test-dialog" class="context-dialog agent-manage-dialog" aria-labelledby="agent-test-dialog-title">
+        <div class="context-panel">
+          <header class="context-head">
+            <h2 id="agent-test-dialog-title">New test</h2>
+            <button type="button" id="agent-test-dialog-close" class="ghost">Close</button>
+          </header>
+          <p class="hint">Parties are the other side. This agent is not a party. Thread or Agent only says how that party is introduced. It does not choose who is under test.</p>
+          <div class="agent-test-head">
+            <button type="button" id="agent-def-test-info" class="ghost agent-test-info" aria-expanded="false" aria-controls="agent-def-test-example" title="Example">i</button>
+            <span class="hint">Example of a test that passes</span>
+          </div>
+          <div id="agent-def-test-example" class="agent-test-example" hidden>
+            <p>The definition says: when requester asks for a status, ask source, then tell requester the status is green.</p>
+            <p>Parties, neither of them is this agent: requester, Requester, Thread. source, Source, Agent. Source is introduced as another agent. The agent under test is still this definition.</p>
+            <p>Step 1. requester writes to this agent: Ask the source for the status. This agent writes to source: Asks source for the status.</p>
+            <p>Step 2. source writes to this agent: The status is green. This agent writes to requester: Tells requester the status is green.</p>
+            <p>read_file, call 1: nothing found. Call 2: status=green.</p>
+          </div>
+          <p id="agent-test-dialog-err" class="gate-err" hidden></p>
+          <label class="agent-def-field">
+            <span>Test name</span>
+            <input id="agent-def-test-name" type="text" autocomplete="off">
+          </label>
+          <div class="agent-test-block">
+            <span class="agent-test-label">Parties</span>
+            <p class="hint">The other side only. Do not add this agent.</p>
+            <div id="agent-def-test-parties" class="agent-test-grid"></div>
+            <button type="button" class="ghost" data-test-add="party">Add party</button>
+          </div>
+          <div class="agent-test-block">
+            <span class="agent-test-label">Script</span>
+            <p class="hint">Someone writes to this agent, or this agent writes to someone, or both in that order. The second line is only a message this agent sends. It does not check the message that was sent to it.</p>
+            <div id="agent-def-test-steps" class="agent-test-grid"></div>
+            <button type="button" class="ghost" data-test-add="step">Add step</button>
+          </div>
+          <div class="agent-test-block">
+            <span class="agent-test-label">Tool results</span>
+            <p class="hint">What a granted tool returns on each call. The tool does not run on this computer. message_agent is the script, not a result here.</p>
+            <div id="agent-def-test-tools" class="agent-test-grid"></div>
+          </div>
+          <div class="skills-row">
+            <button type="button" id="agent-def-test-save">Save</button>
+            <button type="button" id="agent-test-dialog-cancel" class="ghost">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="agent-test-chat-dialog" class="context-dialog agent-manage-dialog" aria-labelledby="agent-def-test-chat-title">
+        <div class="context-panel">
+          <header class="context-head">
+            <h2 id="agent-def-test-chat-title">Run</h2>
+            <button type="button" id="agent-def-test-chat-back" class="ghost">Close</button>
+          </header>
+          <p id="agent-def-test-chat-detail" class="hint"></p>
+          <div id="agent-def-test-chat-log" class="thread agent-test-chat"></div>
+        </div>
       </dialog>
 
       <dialog id="mcp-tool-dialog" class="context-dialog" aria-labelledby="mcp-tool-title">

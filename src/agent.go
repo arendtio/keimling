@@ -57,6 +57,11 @@ type Agent struct {
 	// on a finding for every tool result. The raw result is already in its
 	// temporary transcript.
 	skipToolFindings bool
+	// defTest is set while a definition test drives this instance. It is how
+	// simulated tools and scripted parties stay out of the host.
+	defTest *definitionTestRun
+	// defTestJudge, when set, scores an expected message instead of a model.
+	defTestJudge func(check, message string) (bool, string, error)
 	// branchHold is the parent tail for a continuation that has not been written yet.
 	branchHold      *tailSnap
 	branchPending   int

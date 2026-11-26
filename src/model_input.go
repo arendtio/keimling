@@ -27,7 +27,9 @@ func (a *Agent) modelInputCore() []json.RawMessage {
 		}
 		out = append(out, raw)
 	}
-	if a != nil && strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
+	// A definition test learns the recipient from the definition and the
+	// scripted message. The per-turn hint would name a recipient of its own.
+	if a != nil && a.defTest == nil && strings.TrimSpace(a.Cfg.AgentInstanceID) != "" {
 		if hint := peerReplyHint(out, a.Cfg.AgentInstanceID); hint != "" {
 			item, _ := json.Marshal(map[string]string{"role": "developer", "content": hint})
 			out = append(out, item)

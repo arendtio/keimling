@@ -4783,7 +4783,16 @@
     if (agentDefEdit) agentDefEdit.hidden = name !== "edit";
     if (agentDefInstance) agentDefInstance.hidden = name !== "instance";
     if (agentDefAccess) agentDefAccess.hidden = name !== "access";
+    if (name === "create" || name === "edit") placeDefinitionTests(name);
+    var note = document.getElementById("agent-def-test-draft-note");
+    if (note) note.hidden = name !== "create";
     showAgentDefErr("");
+  }
+
+  function placeDefinitionTests(name) {
+    var section = document.getElementById("agent-def-tests");
+    var slot = document.getElementById(name === "create" ? "agent-def-tests-slot-create" : "agent-def-tests-slot-edit");
+    if (section && slot && section.parentNode !== slot) slot.appendChild(section);
   }
 
   function setManageTab(name) {
@@ -5321,6 +5330,511 @@
       if (editingDefinitionID !== def.id) return;
       renderToolMatrix(document.getElementById("agent-def-edit-tools"), { granted: def.tools == null ? null : def.tools });
       renderPeerChoices(document.getElementById("agent-def-edit-peers"), definitionsCache, def.peers || []);
+      renderToolRows(readToolsFromForm());
+    });
+    clearDefinitionTestForm();
+    renderDefinitionTests(def);
+  }
+
+  var editingDefinitionTestID = "";
+  var definitionTestUndo = null;
+  var creatingTests = [];
+
+  function currentEditingDefinition() {
+    for (var i = 0; i < definitionsCache.length; i++) {
+      if (definitionsCache[i].id === editingDefinitionID) return definitionsCache[i];
+    }
+    return null;
+  }
+
+  function testsOnScreen() {
+    if (editingDefinitionID) {
+      var def = currentEditingDefinition();
+      return (def && def.tests) || [];
+    }
+    return creatingTests;
+  }
+
+  function toolResultsList(value) {
+    if (Array.isArray(value)) return value.slice();
+    if (value == null || value === "") return value == null ? [] : [""];
+    return [String(value)];
+  }
+
+  function grantedToolsForTestForm() {
+    var root = document.getElementById(editingDefinitionID ? "agent-def-edit-tools" : "agent-def-create-tools");
+    return checkedToolNames(root).filter(function (name) {
+      return name && name !== "message_agent";
+    });
+  }
+
+  function fieldInput(value, placeholder) {
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = value || "";
+    if (placeholder) input.placeholder = placeholder;
+    input.autocomplete = "off";
+    return input;
+  }
+
+  function partyKindSelect(kind) {
+    var select = document.createElement("select");
+    [["thread", "Thread"], ["agent", "Agent"]].forEach(function (pair) {
+      var opt = document.createElement("option");
+      opt.value = pair[0];
+      opt.textContent = pair[1];
+      select.appendChild(opt);
+    });
+    select.value = kind === "thread" ? "thread" : "agent";
+    return select;
+  }
+
+  function removeButton(kind) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = "Remove";
+    button.dataset.testRemove = kind;
+    return button;
+  }
+
+  function readPartiesFromForm() {
+    var rows = [];
+    document.querySelectorAll("#agent-def-test-parties .agent-test-party").forEach(function (row) {
+      var inputs = row.querySelectorAll("input");
+      var kind = row.querySelector("select");
+      rows.push({
+        id: inputs[0] ? inputs[0].value : "",
+        name: inputs[1] ? inputs[1].value : "",
+        kind: kind ? kind.value : "agent",
+      });
+    });
+    return rows;
+  }
+
+  function partyOptions(selected) {
+    var select = document.createElement("select");
+    var none = document.createElement("option");
+    none.value = "";
+    none.textContent = "—";
+    select.appendChild(none);
+    readPartiesFromForm().forEach(function (p) {
+      var id = String(p.id || "").trim();
+      if (!id) return;
+      var opt = document.createElement("option");
+      opt.value = id;
+      var label = String(p.name || "").trim();
+      opt.textContent = label && label !== id ? label + " (" + id + ")" : id;
+      select.appendChild(opt);
+    });
+    select.value = selected || "";
+    if (select.value !== (selected || "")) select.value = "";
+    return select;
+  }
+
+  function renderPartyRows(parties) {
+    var host = document.getElementById("agent-def-test-parties");
+    if (!host) return;
+    host.textContent = "";
+    var list = parties && parties.length ? parties : [{ id: "", name: "", kind: "thread" }];
+    list.forEach(function (p) {
+      var row = document.createElement("div");
+      row.className = "agent-test-party";
+      row.appendChild(fieldInput(p.id, "id"));
+      row.appendChild(fieldInput(p.name, "Name"));
+      row.appendChild(partyKindSelect(p.kind));
+      row.appendChild(removeButton("party"));
+      host.appendChild(row);
+    });
+  }
+
+  function renderStepRows(steps) {
+    var host = document.getElementById("agent-def-test-steps");
+    if (!host) return;
+    host.textContent = "";
+    var list = steps && steps.length ? steps : [{ from: "", text: "", to: "", check: "" }];
+    list.forEach(function (step) {
+      var row = document.createElement("div");
+      row.className = "agent-test-step";
+      [["Writes to this agent", step.from, step.text, "What they send"], ["This agent writes to", step.to, step.check, "What that message must mean"]].forEach(function (spec, index) {
+        var line = document.createElement("div");
+        line.className = "agent-test-step-line";
+        var label = document.createElement("span");
+        label.textContent = spec[0];
+        line.appendChild(label);
+        line.appendChild(partyOptions(spec[1]));
+        line.appendChild(fieldInput(spec[2], spec[3]));
+        line.appendChild(index === 1 ? removeButton("step") : document.createElement("span"));
+        row.appendChild(line);
+      });
+      host.appendChild(row);
+    });
+  }
+
+  function readStepsFromForm() {
+    var steps = [];
+    document.querySelectorAll("#agent-def-test-steps .agent-test-step").forEach(function (row) {
+      var lines = row.querySelectorAll(".agent-test-step-line");
+      function part(line) {
+        if (!line) return { who: "", text: "" };
+        var select = line.querySelector("select");
+        var input = line.querySelector("input");
+        return { who: select ? select.value : "", text: input ? input.value : "" };
+      }
+      var write = part(lines[0]);
+      var expect = part(lines[1]);
+      steps.push({ from: write.who, text: write.text, to: expect.who, check: expect.text });
+    });
+    return steps;
+  }
+
+  function syncStepPartySelects() {
+    document.querySelectorAll("#agent-def-test-steps select").forEach(function (select) {
+      select.replaceWith(partyOptions(select.value));
+    });
+  }
+
+  function readToolsFromForm() {
+    var tools = {};
+    document.querySelectorAll("#agent-def-test-tools .agent-test-tool").forEach(function (block) {
+      var name = block.dataset.tool || "";
+      if (!name) return;
+      var results = [];
+      block.querySelectorAll("input").forEach(function (input) {
+        results.push(input.value);
+      });
+      tools[name] = results;
+    });
+    return tools;
+  }
+
+  function renderToolRows(tools, onlyGranted) {
+    var host = document.getElementById("agent-def-test-tools");
+    if (!host) return;
+    var saved = tools == null ? readToolsFromForm() : tools;
+    host.textContent = "";
+    var names = grantedToolsForTestForm();
+    if (!onlyGranted) {
+      Object.keys(saved).forEach(function (name) {
+        if (name !== "message_agent" && names.indexOf(name) < 0) names.push(name);
+      });
+    }
+    if (!names.length) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "No simulated tools. message_agent is the script. Check a tool above to set what it returns.";
+      host.appendChild(empty);
+      return;
+    }
+    names.forEach(function (name) {
+      var results = toolResultsList(saved[name]);
+      if (!results.length) results = [""];
+      var block = document.createElement("div");
+      block.className = "agent-test-tool";
+      block.dataset.tool = name;
+      var title = document.createElement("span");
+      title.className = "agent-test-label";
+      title.textContent = name;
+      block.appendChild(title);
+      results.forEach(function (result) {
+        var row = document.createElement("div");
+        row.className = "agent-test-tool-call";
+        var label = document.createElement("span");
+        label.textContent = "Call " + (block.querySelectorAll(".agent-test-tool-call").length + 1);
+        row.appendChild(label);
+        row.appendChild(fieldInput(result, "Result, empty is allowed"));
+        row.appendChild(removeButton("tool"));
+        block.appendChild(row);
+      });
+      var add = document.createElement("button");
+      add.type = "button";
+      add.className = "ghost";
+      add.textContent = "Add the next call";
+      add.dataset.testAdd = "tool";
+      add.dataset.tool = name;
+      block.appendChild(add);
+      host.appendChild(block);
+    });
+  }
+
+  function closeDefinitionTestChat() {
+    var dlg = document.getElementById("agent-test-chat-dialog");
+    if (dlg && dlg.open) dlg.close();
+  }
+
+  function closeDefinitionTestEditor() {
+    var dlg = document.getElementById("agent-test-dialog");
+    if (dlg && dlg.open) dlg.close();
+  }
+
+  function showDefinitionTestErr(msg) {
+    var el = document.getElementById("agent-test-dialog-err");
+    if (!el) return;
+    el.hidden = !msg;
+    el.textContent = msg || "";
+  }
+
+  function openDefinitionTestEditor(test) {
+    if (test) fillDefinitionTestForm(test);
+    else clearDefinitionTestForm();
+    var title = document.getElementById("agent-test-dialog-title");
+    if (title) title.textContent = test ? "Edit test" : "New test";
+    showDefinitionTestErr("");
+    var dlg = document.getElementById("agent-test-dialog");
+    if (dlg && !dlg.open) dlg.showModal();
+  }
+
+  function openDefinitionTestChat(test, index) {
+    var runs = test.last_runs || [];
+    var run = runs[index];
+    var dlg = document.getElementById("agent-test-chat-dialog");
+    var log = document.getElementById("agent-def-test-chat-log");
+    var title = document.getElementById("agent-def-test-chat-title");
+    var detail = document.getElementById("agent-def-test-chat-detail");
+    if (!dlg || !log || !run) return;
+    if (title) title.textContent = (test.name || "Test") + " · Run " + (index + 1);
+    if (detail) detail.textContent = run.pass ? "Passed" : (run.detail || "Failed");
+    log.textContent = "";
+    if (run.transcript && run.transcript.length) appendMessageList(log, run.transcript);
+    else log.appendChild(document.createTextNode("This run has no chat. Run the test again to keep one."));
+    if (!dlg.open) dlg.showModal();
+  }
+
+  function clearDefinitionTestForm() {
+    editingDefinitionTestID = "";
+    var name = document.getElementById("agent-def-test-name");
+    if (name) name.value = "";
+    renderPartyRows([]);
+    renderStepRows([]);
+    renderToolRows({});
+  }
+
+  function localTestProblem(test) {
+    if (!test.name) return "Test name required.";
+    if (!test.parties.length) return "Add at least one party. Parties are the other side, not this agent.";
+    if (!test.steps.length) return "Add a step: someone writes to this agent, or this agent writes to someone.";
+    return "";
+  }
+
+  function definitionTestFormTouched() {
+    if ((document.getElementById("agent-def-test-name").value || "").trim()) return true;
+    if (readPartiesFromForm().some(function (p) { return String(p.id || "").trim() || String(p.name || "").trim(); })) return true;
+    if (readStepsFromForm().some(function (s) { return String(s.from || s.to || s.text || s.check || "").trim(); })) return true;
+    var tools = readToolsFromForm();
+    return Object.keys(tools).some(function (name) {
+      var results = tools[name] || [];
+      return results.length > 1 || results.some(function (r) { return String(r) !== ""; });
+    });
+  }
+
+  function parseDefinitionTestForm() {
+    var name = (document.getElementById("agent-def-test-name").value || "").trim();
+    var parties = readPartiesFromForm().filter(function (p) {
+      return String(p.id || "").trim();
+    }).map(function (p) {
+      var id = String(p.id).trim();
+      return { id: id, name: String(p.name || "").trim() || id, kind: p.kind || "agent" };
+    });
+    var steps = [];
+    readStepsFromForm().forEach(function (s) {
+      var step = {};
+      if (String(s.from || "").trim()) {
+        step.from = String(s.from).trim();
+        step.text = String(s.text || "").trim();
+      }
+      if (String(s.to || "").trim()) {
+        step.to = String(s.to).trim();
+        step.check = String(s.check || "").trim();
+      }
+      if (step.from || step.to) steps.push(step);
+    });
+    var tools = {};
+    var raw = readToolsFromForm();
+    Object.keys(raw).forEach(function (tool) {
+      var results = raw[tool] || [];
+      var keep = results.length > 1 || results.some(function (r) { return String(r) !== ""; });
+      if (keep) tools[tool] = results;
+    });
+    var test = { name: name, parties: parties, steps: steps, tools: tools };
+    if (editingDefinitionTestID) test.id = editingDefinitionTestID;
+    return test;
+  }
+
+  function fillDefinitionTestForm(test) {
+    editingDefinitionTestID = test.id || "";
+    document.getElementById("agent-def-test-name").value = test.name || "";
+    renderPartyRows(test.parties || []);
+    renderStepRows((test.steps || []).map(function (step) {
+      return { from: step.from || "", text: step.text || "", to: step.to || "", check: step.check || "" };
+    }));
+    var tools = {};
+    Object.keys(test.tools || {}).forEach(function (name) {
+      tools[name] = toolResultsList(test.tools[name]);
+    });
+    renderToolRows(tools);
+    closeDefinitionTestChat();
+  }
+
+  function renderDefinitionTests(def) {
+    var list = document.getElementById("agent-def-test-list");
+    if (!list) return;
+    list.textContent = "";
+    var tests = editingDefinitionID ? ((def && def.tests) || []) : creatingTests;
+    if (!tests.length) {
+      var empty = document.createElement("li");
+      empty.className = "hint";
+      empty.textContent = "No tests yet.";
+      list.appendChild(empty);
+      return;
+    }
+    tests.forEach(function (test) {
+      var row = document.createElement("li");
+      row.className = "agent-test-row";
+      var name = document.createElement("span");
+      name.className = "agent-test-name";
+      name.textContent = test.name || test.id;
+      row.appendChild(name);
+      var runs = test.last_runs || [];
+      if (runs.length) {
+        var block = document.createElement("div");
+        block.className = "agent-test-runs";
+        runs.forEach(function (run, i) {
+          var line = document.createElement("div");
+          line.className = "agent-test-run";
+          var label = document.createElement("span");
+          label.textContent = "Run " + (i + 1);
+          var state = document.createElement("span");
+          state.className = "agent-test-run-state" + (run.pass ? "" : " fail");
+          state.textContent = run.pass ? "Passed" : (run.detail || "Failed");
+          var chat = document.createElement("button");
+          chat.type = "button";
+          chat.className = "ghost";
+          chat.textContent = "Chat";
+          chat.dataset.testAct = "chat";
+          chat.dataset.testId = test.id;
+          chat.dataset.runIndex = String(i);
+          line.appendChild(label);
+          line.appendChild(state);
+          line.appendChild(chat);
+          block.appendChild(line);
+        });
+        var all = runs.length === 3 && runs.every(function (run) { return run.pass; });
+        var overall = document.createElement("p");
+        overall.className = "hint";
+        overall.textContent = all ? "Test passed." : "Test failed.";
+        block.appendChild(overall);
+        row.appendChild(block);
+      }
+      [["Run", "run"], ["Edit", "edit"], ["Delete", "delete"]].forEach(function (pair) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = pair[1] === "run" ? "" : "ghost";
+        button.textContent = pair[0];
+        button.dataset.testAct = pair[1];
+        button.dataset.testId = test.id;
+        if (pair[1] === "run" && !editingDefinitionID) {
+          button.disabled = true;
+          button.title = "Save the definition before running this test.";
+        }
+        row.appendChild(button);
+      });
+      list.appendChild(row);
+    });
+  }
+
+  function showDefinitionTestUndo(test) {
+    definitionTestUndo = test;
+    var bar = document.getElementById("agent-def-test-undo");
+    if (!bar) return;
+    bar.hidden = false;
+    bar.textContent = "";
+    bar.appendChild(document.createTextNode("Removed “" + (test.name || test.id) + "”. "));
+    var undo = document.createElement("button");
+    undo.type = "button";
+    undo.className = "ghost";
+    undo.textContent = "Undo";
+    undo.addEventListener("click", function () {
+      if (!definitionTestUndo) return;
+      saveDefinitionTest(definitionTestUndo).catch(function (err) { showAgentDefErr(String(err)); });
+    });
+    bar.appendChild(undo);
+  }
+
+  function rememberDraftTest(test) {
+    if (!test.id) test.id = "draft-" + Date.now();
+    var next = [];
+    var replaced = false;
+    creatingTests.forEach(function (one) {
+      if (one.id === test.id) {
+        next.push(test);
+        replaced = true;
+      } else next.push(one);
+    });
+    if (!replaced) next.push(test);
+    creatingTests = next;
+    definitionTestUndo = null;
+    var bar = document.getElementById("agent-def-test-undo");
+    if (bar) bar.hidden = true;
+    clearDefinitionTestForm();
+    renderDefinitionTests(null);
+    closeDefinitionTestEditor();
+  }
+
+  function draftTestsForSave(extra) {
+    var tests = creatingTests.map(function (test) {
+      var copy = JSON.parse(JSON.stringify(test));
+      if (String(copy.id || "").indexOf("draft-") === 0) delete copy.id;
+      delete copy.last_runs;
+      return copy;
+    });
+    if (extra) {
+      var copy = JSON.parse(JSON.stringify(extra));
+      if (String(copy.id || "").indexOf("draft-") === 0) delete copy.id;
+      delete copy.last_runs;
+      tests.push(copy);
+    }
+    return tests;
+  }
+
+  function saveDefinitionTest(test) {
+    if (!editingDefinitionID) {
+      rememberDraftTest(test);
+      return Promise.resolve();
+    }
+    return fetch(apiURL("/api/agents/recipes/tests"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: editingDefinitionID, test: test }),
+    }).then(readAPIResult).then(function () {
+      definitionTestUndo = null;
+      var bar = document.getElementById("agent-def-test-undo");
+      if (bar) bar.hidden = true;
+      clearDefinitionTestForm();
+      closeDefinitionTestEditor();
+      return loadDefinitions();
+    }).then(function () {
+      renderDefinitionTests(currentEditingDefinition());
+    });
+  }
+
+  function runDefinitionTest(testID, button) {
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Running…";
+    }
+    return fetch(apiURL("/api/agents/recipes/tests/run"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ id: editingDefinitionID, test_id: testID }),
+    }).then(readAPIResult).then(function () {
+      return loadDefinitions();
+    }).then(function () {
+      renderDefinitionTests(currentEditingDefinition());
+    }).catch(function (err) {
+      showAgentDefErr(String(err));
+      return loadDefinitions().then(function () {
+        renderDefinitionTests(currentEditingDefinition());
+      });
     });
   }
 
@@ -5346,7 +5860,9 @@
     var createMode = document.getElementById("agent-def-mode");
     var mode = createMode ? createMode.value : "auto";
     var peers = checkedPeerIDs(document.getElementById("agent-def-create-peers"));
-    var body = { name: name, instructions: instructions, model: model, tools: tools, peers: peers, mode: mode };
+    var pendingTest = null;
+    if (definitionTestFormTouched()) pendingTest = parseDefinitionTestForm();
+    var body = { name: name, instructions: instructions, model: model, tools: tools, peers: peers, mode: mode, tests: draftTestsForSave(pendingTest) };
     if (mode === "auto") {
       var prompt = reviewPromptPayload(document.getElementById("agent-def-review") && document.getElementById("agent-def-review").value);
       if (prompt.error) {
@@ -5366,6 +5882,8 @@
         if (agentDefName) agentDefName.value = "";
         if (agentDefInstructions) agentDefInstructions.value = "";
         if (createModel) createModel.value = "";
+        creatingTests = [];
+        clearDefinitionTestForm();
         setManageTab("definitions");
         setAgentDefPane("pick");
         return loadDefinitions();
@@ -10706,11 +11224,16 @@
   var agentTeamNewBtn = document.getElementById("agent-team-new-btn");
   if (agentDefNewBtn) {
     agentDefNewBtn.addEventListener("click", function () {
+      editingDefinitionID = "";
+      creatingTests = [];
+      clearDefinitionTestForm();
+      renderDefinitionTests(null);
       setAgentDefPane("create");
       loadModelSuggestions();
       loadMcpServers().then(function () {
         renderToolMatrix(document.getElementById("agent-def-create-tools"), { granted: null });
         renderPeerChoices(document.getElementById("agent-def-create-peers"), definitionsCache, []);
+        renderToolRows({});
         var createMode = document.getElementById("agent-def-mode");
         if (createMode) createMode.value = "auto";
         var createReview = document.getElementById("agent-def-review");
@@ -10743,6 +11266,199 @@
       saveEditDefinition();
     });
   }
+  var agentDefTestList = document.getElementById("agent-def-test-list");
+  if (agentDefTestList) {
+    agentDefTestList.addEventListener("click", function (e) {
+      var button = e.target.closest("button");
+      if (!button || !button.dataset.testAct) return;
+      e.preventDefault();
+      var test = null;
+      testsOnScreen().forEach(function (one) {
+        if (one.id === button.dataset.testId) test = one;
+      });
+      if (!test) return;
+      if (button.dataset.testAct === "chat") {
+        openDefinitionTestChat(test, Number(button.dataset.runIndex) || 0);
+        return;
+      }
+      if (button.dataset.testAct === "edit") {
+        openDefinitionTestEditor(test);
+        return;
+      }
+      if (button.dataset.testAct === "run") {
+        if (!editingDefinitionID) {
+          showAgentDefErr("Save the definition before running this test.");
+          return;
+        }
+        runDefinitionTest(test.id, button);
+        return;
+      }
+      if (button.dataset.testAct === "delete") {
+        askConfirm("Delete test “" + (test.name || test.id) + "”?", "Delete").then(function (yes) {
+          if (!yes) return;
+          if (!editingDefinitionID) {
+            creatingTests = creatingTests.filter(function (one) { return one.id !== test.id; });
+            showDefinitionTestUndo(test);
+            renderDefinitionTests(null);
+            return;
+          }
+          fetch(apiURL("/api/agents/recipes/tests/delete"), {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ id: editingDefinitionID, test_id: test.id }),
+          }).then(readAPIResult).then(function () {
+            showDefinitionTestUndo(test);
+            return loadDefinitions();
+          }).then(function () {
+            renderDefinitionTests(currentEditingDefinition());
+          }).catch(function (err) {
+            showAgentDefErr(String(err));
+          });
+        });
+      }
+    });
+  }
+  var agentDefTestSave = document.getElementById("agent-def-test-save");
+  if (agentDefTestSave) {
+    agentDefTestSave.addEventListener("click", function (e) {
+      e.preventDefault();
+      var test;
+      try { test = parseDefinitionTestForm(); }
+      catch (err) { showDefinitionTestErr(String(err.message || err)); return; }
+      var problem = localTestProblem(test);
+      if (problem) { showDefinitionTestErr(problem); return; }
+      showDefinitionTestErr("");
+      saveDefinitionTest(test).catch(function (err) { showDefinitionTestErr(String(err.message || err)); });
+    });
+  }
+  var agentDefTestNew = document.getElementById("agent-def-test-new");
+  if (agentDefTestNew) {
+    agentDefTestNew.addEventListener("click", function (e) {
+      e.preventDefault();
+      openDefinitionTestEditor(null);
+    });
+  }
+  ["agent-test-dialog-close", "agent-test-dialog-cancel"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", function (e) {
+      e.preventDefault();
+      closeDefinitionTestEditor();
+    });
+  });
+  var agentTestDialog = document.getElementById("agent-test-dialog");
+  if (agentTestDialog) agentTestDialog.addEventListener("close", clearDefinitionTestForm);
+  var agentDefDialog = document.getElementById("agent-def-dialog");
+  if (agentDefDialog) {
+    agentDefDialog.addEventListener("close", function () {
+      closeDefinitionTestEditor();
+      closeDefinitionTestChat();
+    });
+  }
+  var agentDefTests = document.getElementById("agent-test-dialog");
+  if (agentDefTests) {
+    agentDefTests.addEventListener("click", function (e) {
+      var add = e.target.closest("[data-test-add]");
+      if (add && add.dataset.testAdd !== "tool") {
+        e.preventDefault();
+        if (add.dataset.testAdd === "party") {
+          var parties = readPartiesFromForm();
+          parties.push({ id: "", name: "", kind: "agent" });
+          renderPartyRows(parties);
+          syncStepPartySelects();
+        } else if (add.dataset.testAdd === "step") {
+          var steps = readStepsFromForm();
+          steps.push({ from: "", text: "", to: "", check: "" });
+          renderStepRows(steps);
+        }
+        return;
+      }
+      if (add && add.dataset.testAdd === "tool") {
+        e.preventDefault();
+        var tools = readToolsFromForm();
+        var toolName = add.dataset.tool;
+        tools[toolName] = toolResultsList(tools[toolName]);
+        if (!tools[toolName].length) tools[toolName] = [""];
+        tools[toolName].push("");
+        renderToolRows(tools);
+        return;
+      }
+      var remove = e.target.closest("[data-test-remove]");
+      if (!remove) return;
+      e.preventDefault();
+      if (remove.dataset.testRemove === "party") {
+        var left = [];
+        document.querySelectorAll("#agent-def-test-parties .agent-test-party").forEach(function (row) {
+          if (row.contains(remove)) return;
+          var inputs = row.querySelectorAll("input");
+          var kind = row.querySelector("select");
+          left.push({ id: inputs[0] ? inputs[0].value : "", name: inputs[1] ? inputs[1].value : "", kind: kind ? kind.value : "agent" });
+        });
+        renderPartyRows(left);
+        syncStepPartySelects();
+        return;
+      }
+      if (remove.dataset.testRemove === "step") {
+        var kept = [];
+        document.querySelectorAll("#agent-def-test-steps .agent-test-step").forEach(function (row) {
+          if (!row.contains(remove)) {
+            var lines = row.querySelectorAll(".agent-test-step-line");
+            function part(line) {
+              if (!line) return { who: "", text: "" };
+              var select = line.querySelector("select");
+              var input = line.querySelector("input");
+              return { who: select ? select.value : "", text: input ? input.value : "" };
+            }
+            var write = part(lines[0]);
+            var expect = part(lines[1]);
+            kept.push({ from: write.who, text: write.text, to: expect.who, check: expect.text });
+          }
+        });
+        renderStepRows(kept);
+        return;
+      }
+      if (remove.dataset.testRemove === "tool") {
+        var block = remove.closest(".agent-test-tool");
+        var current = readToolsFromForm();
+        if (block) {
+          var rows = block.querySelectorAll(".agent-test-tool-call");
+          var index = Array.prototype.indexOf.call(rows, remove.closest(".agent-test-tool-call"));
+          var seq = toolResultsList(current[block.dataset.tool]);
+          if (index >= 0) seq.splice(index, 1);
+          if (!seq.length) seq = [""];
+          current[block.dataset.tool] = seq;
+        }
+        renderToolRows(current);
+      }
+    });
+    var partyHost = document.getElementById("agent-def-test-parties");
+    if (partyHost) partyHost.addEventListener("change", syncStepPartySelects);
+  }
+  var agentDefTestInfo = document.getElementById("agent-def-test-info");
+  if (agentDefTestInfo) {
+    agentDefTestInfo.addEventListener("click", function (e) {
+      e.preventDefault();
+      var example = document.getElementById("agent-def-test-example");
+      if (!example) return;
+      example.hidden = !example.hidden;
+      agentDefTestInfo.setAttribute("aria-expanded", example.hidden ? "false" : "true");
+    });
+  }
+  var agentDefTestChatBack = document.getElementById("agent-def-test-chat-back");
+  if (agentDefTestChatBack) {
+    agentDefTestChatBack.addEventListener("click", function (e) {
+      e.preventDefault();
+      closeDefinitionTestChat();
+    });
+  }
+  ["agent-def-create-tools", "agent-def-edit-tools"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", function () {
+      if (!document.getElementById("agent-def-tests") || document.getElementById("agent-def-tests").hidden) return;
+      renderToolRows(readToolsFromForm(), true);
+    });
+  });
   ["agent-def-mode", "agent-def-edit-mode"].forEach(function (id) {
     var el = document.getElementById(id);
     if (!el) return;

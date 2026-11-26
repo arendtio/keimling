@@ -28,10 +28,11 @@ type AgentRecipe struct {
 	// Peers lists definition ids this kind of agent may contact. Every instance
 	// of the definition reads this list at call time, so an edit reaches
 	// instances that already exist.
-	Peers      []string  `json:"peers,omitempty"`
-	Skills     []string  `json:"skills,omitempty"`
-	MCPServers []string  `json:"mcp_servers,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Peers      []string         `json:"peers,omitempty"`
+	Tests      []DefinitionTest `json:"tests,omitempty"`
+	Skills     []string         `json:"skills,omitempty"`
+	MCPServers []string         `json:"mcp_servers,omitempty"`
+	UpdatedAt  time.Time        `json:"updated_at"`
 }
 
 func configHome() string {

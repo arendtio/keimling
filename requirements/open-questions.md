@@ -2,6 +2,10 @@
 
 Unresolved points from stakeholder conversations. A requirement does not invent an answer for these.
 
+## 2026-11-26 — definition tests (REQ-ADT-6, REQ-ADT-8, REQ-ADT-9)
+
+Answered the same day: all three runs must pass. A tool the definition does not grant, and a name that is not a tool, get the reply a normal agent gets. An empty tool result is allowed. It is delivered, the run continues, and the emptiness alone does not fail the agent.
+
 ## 2026-11-25 — agent spend ceiling (REQ-AG-46, REQ-AG-47)
 
 Answered the same day: the ceiling lasts for the life of the instance, a child's spend does not count against the parent, and the human's own chat has no ceiling. The user changes it where the instance is edited. Spawn may set it at the start. Edit may change it later. Delete does not. The instance cannot change its own.

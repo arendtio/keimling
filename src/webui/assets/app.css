@@ -727,19 +727,29 @@ button.wide { width: 100%; max-width: 100%; }
   width: auto;
 }
 .context-dialog.agent-manage-dialog {
-  max-width: min(960px, 96vw);
+  width: 90vw;
+  max-width: 90vw;
+  height: 92vh;
+  max-height: 92vh;
 }
 .agent-manage-dialog .context-panel {
-  max-height: min(86vh, 820px);
+  max-height: 92vh;
+  height: 100%;
   overflow: auto;
+  box-sizing: border-box;
+  align-content: start;
 }
 .agent-manage-tabs {
   display: flex;
+  align-items: center;
+  justify-content: flex-start;
   gap: 0.35rem;
 }
 .agent-manage-tabs button {
   width: auto;
-  flex: 1 1 0;
+  height: auto;
+  flex: 0 0 auto;
+  align-self: center;
   background: transparent;
   color: var(--fg);
   border: 1px solid var(--line);
@@ -1039,7 +1049,29 @@ button.wide { width: 100%; max-width: 100%; }
   white-space: pre;
 }
 .budget-line { font-variant-numeric: tabular-nums; }
-.agent-def-pane { display: grid; gap: 0.65rem; }
+.agent-def-pane { display: grid; gap: 0.65rem; align-content: start; }
+.agent-test-list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.agent-test-row { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.agent-test-name { font-weight: 600; margin-right: 0.25rem; }
+.agent-test-runs { width: 100%; display: grid; gap: 0.25rem; margin: 0.15rem 0 0; }
+.agent-test-run { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr) auto; gap: 0.5rem; align-items: baseline; }
+.agent-test-run-state { font-weight: 600; }
+.agent-test-run-state.fail { color: var(--danger, #b42318); }
+.agent-test-head { display: flex; align-items: center; gap: 0.4rem; }
+.agent-test-head h3 { margin: 0; }
+.agent-test-info { width: auto; min-width: 1.7rem; padding: 0.05rem 0.45rem; border-radius: 999px; font-style: italic; }
+.agent-test-example { display: grid; gap: 0.35rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 8px; }
+.agent-test-example p { margin: 0; }
+.agent-test-block { display: grid; gap: 0.4rem; }
+.agent-test-label { font-weight: 600; }
+.agent-test-grid { display: grid; gap: 0.45rem; }
+.agent-test-party, .agent-test-tool-call { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; gap: 0.35rem; align-items: center; }
+.agent-test-tool { display: grid; gap: 0.3rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--line); }
+.agent-test-tool-call { grid-template-columns: 4.5rem minmax(0, 1fr) auto; }
+.agent-test-step { display: grid; gap: 0.35rem; padding: 0.45rem 0; border-bottom: 1px solid var(--line); }
+.agent-test-step-line { display: grid; grid-template-columns: 12.5rem minmax(8rem, 0.7fr) minmax(0, 1.4fr) auto; gap: 0.35rem; align-items: center; }
+.agent-test-chat { max-height: 62vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.9rem; background: var(--bg); }
+.agent-test-chat-title { margin: 0; }
 .agent-def-field {
   display: grid;
   gap: 0.3rem;
