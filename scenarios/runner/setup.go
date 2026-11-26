@@ -117,6 +117,11 @@ func prepare(id, specSetup string) (*prepared, error) {
 	case "large-page":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, largePagePrior(), 0o600)
+	case "delegate-tools":
+		notes := filepath.Join(root, "notes")
+		if err = os.MkdirAll(notes, 0o700); err == nil {
+			err = os.WriteFile(filepath.Join(notes, "alpha.txt"), []byte("ALPHA-CODE: A-17\nOwner: Ada\n"), 0o600)
+		}
 	default:
 		err = fmt.Errorf("scenario %s has unknown setup %q", id, specSetup)
 	}

@@ -1,0 +1,6 @@
+{
+  "task": "Lies notes/alpha.txt nicht selbst. Nutze stattdessen delegate mit tools=all und gib dem Subagenten die Aufgabe, notes/alpha.txt zu lesen und den ALPHA-CODE zu nennen. Antworte danach nur mit dem Code.",
+  "setup": "delegate-tools",
+  "answer_needles": ["A-17"],
+  "require_tools": ["delegate"]
+}
