@@ -26,6 +26,10 @@ output_mode?: auto | inline | ref (default auto)
 
 The input_ref value is available as ` + "`input`" + `.
 Never copy large tool outputs into code; pass references.
+When a tool result needs filtering, put the call in the program:
+return mcp("server__tool", {...}) | ...
+or return exec("...") | lines() | filter(...).
+One program is one model step, and its tool calls are approved once.
 
 SYNTAX
 let x = expression
@@ -36,22 +40,36 @@ Access: .field, object.field, [index].
 Pipelines: value | operation(args).
 Inside filter/map/sort, ` + "`.`" + ` is the current item.
 Tests combine with &&, ||, and, or, and not.
+A conditional is ` + "`cond ? a : b`" + `; ` + "`a ?? b`" + ` is b when a is null.
 
 OPERATIONS
 filter(predicate), map(expression), sort(key), group(key),
-take(n), count(), first(), unique(), contains(value, item),
+take(n), skip(n), count(), first(), unique(), contains(value, item),
 lookup(rows, field, key), split(text, sep), join(array, sep),
-trim(text), json(text), csv(text), xml(text), outline(value), indexOf(array, value).
+trim(text), lower(text), upper(text), json(text), csv(text), xml(text), outline(value), indexOf(array, value).
+slice(value, start, end) takes a text or array window; end is optional.
+lines(text) splits text into lines. startsWith(text, prefix), endsWith(text, suffix).
+sum(array), min(...), max(...) work on numbers. values(object) returns its values in key order.
+exec(command) runs one shell command and returns its transcript. read_file(path) returns one file as text.
+Both need a literal string argument, so the approval can name them.
 xml(text) returns {tag, attrs, children}. A text node is {text}. A child is children | filter(.tag == "name"). An attribute is attrs.name.
 indexOf returns the first matching index, or null. Use that index on another array.
 keys(object) returns the field names, sorted. entries(object) returns [{key, value}] in that order. from_entries(rows) rebuilds the object.
-length(value) counts characters, array elements, or fields. null has length 0. count() still scans an array or a file. type(value) is object, array, string, number, bool, or null.
+length(value) or len(value) counts characters, array elements, or fields. null has length 0. count() still scans an array or a file. type(value) is object, array, string, number, bool, or null.
 string(value) and number(value) convert. replace(text, old, new) replaces every old.
 has(object, name) reports the field. get(object, name) returns its value, or null when it is absent. .name still fails when the field is absent.
 set(object, name, value) and omit(object, name) return a new object. The input object is unchanged.
-outline returns the shape of JSON, XML, or CSV: names, types, and list lengths, within 4 KiB, without the values. An XML shape names tag, attrs, and children.
+outline returns the shape of JSON, XML, CSV, or plain text: names, types, and list lengths, within 4 KiB, without the values. An XML shape names tag, attrs, and children; plain text reports lines and characters.
 A file of any size can be an input. A file too large to pass as text is scanned by csv(input), json(input), xml(input), and outline(input). json of such a file reads an array or one value per line. filter, first, take, count, and lookup can stop at the row they need. Return that row, not the file.
 lookup returns the first object whose field equals key, or null.
+A program that calls exec, read_file, or mcp is approved once before it starts. A pure transform needs no approval.
+
+LARGE TEXT
+A text result over 4 KiB arrives as a ref with a preview. Call outline(input) to see its line and character count, then read one window at a time:
+return lines(input) | slice(0, 200)
+and later:
+return lines(input) | slice(200, 400)
+Set output_mode to inline for one window, not for the whole page. For a file, read_file(path) reads it directly; use the same windowing before returning.
 
 EXAMPLE — FILTER AN MCP RESULT
 Suppose an issue-search tool returned ref "r1" with:
@@ -110,6 +128,10 @@ all(mcp("mcp__a__one", {}), mcp("mcp__b__two", {})) runs those calls together.
 The program is approved once before it starts, from those string names.
 A name computed while the program runs is not called.
 A program that only calls MCP tools may leave input_ref empty and inputs [].
+To read a large page, fetch it once and return one window:
+let page = mcp("wiki__page", {"title": "Handbook"})
+return lines(page) | slice(0, 200)
+The next window uses slice(200, 400), and so on.
 
 OUTPUT
 auto returns a result inline only when it is at most 4 KiB. A larger
@@ -260,12 +282,29 @@ func (a *Agent) runDataProgram(ctx context.Context, reader *bufio.Reader, args s
 		return dataErrorJSON(err)
 	}
 	names, calls := mcpProgramNames(prog)
-	vars, err := a.dataVars(in.InputRef, in.Inputs, calls)
+	execs, execComputed := programStringCalls(prog, "exec")
+	reads, readComputed := programStringCalls(prog, "read_file")
+	if execComputed || readComputed {
+		return dataErrorJSON(dataErr("TOOL", "exec and read_file need one literal string argument in a DataLang program"))
+	}
+	uses := make([]dataToolUse, 0, len(names)+len(execs)+len(reads))
+	for _, name := range names {
+		uses = append(uses, dataToolUse{Name: name, Args: "{}"})
+	}
+	for _, command := range execs {
+		raw, _ := json.Marshal(map[string]string{"command": command})
+		uses = append(uses, dataToolUse{Name: "exec", Args: string(raw)})
+	}
+	for _, path := range reads {
+		raw, _ := json.Marshal(map[string]string{"path": path})
+		uses = append(uses, dataToolUse{Name: "read_file", Args: string(raw)})
+	}
+	vars, err := a.dataVars(in.InputRef, in.Inputs, calls || len(execs) > 0 || len(reads) > 0)
 	if err != nil {
 		return dataErrorJSON(err)
 	}
-	if calls {
-		ok, err := a.allowMCPProgram(ctx, reader, names)
+	if len(uses) > 0 {
+		ok, err := a.allowDataProgram(ctx, reader, uses)
 		if err != nil {
 			return err.Error()
 		}
@@ -273,9 +312,19 @@ func (a *Agent) runDataProgram(ctx context.Context, reader *bufio.Reader, args s
 			return "DENIED by user"
 		}
 	}
-	host := &dlHost{allowed: map[string]bool{}}
+	host := &dlHost{
+		allowed:     map[string]bool{},
+		execAllowed: map[string]bool{},
+		readAllowed: map[string]bool{},
+	}
 	for _, name := range names {
 		host.allowed[name] = true
+	}
+	for _, command := range execs {
+		host.execAllowed[command] = true
+	}
+	for _, path := range reads {
+		host.readAllowed[path] = true
 	}
 	host.call = func(name string, args any) (any, error) {
 		raw, err := json.Marshal(args)
@@ -291,6 +340,28 @@ func (a *Agent) runDataProgram(ctx context.Context, reader *bufio.Reader, args s
 			return nil, dataErr("MCP", msg)
 		}
 		return done.value, nil
+	}
+	host.exec = func(command string) (any, error) {
+		raw, _ := json.Marshal(map[string]string{"command": command})
+		out := a.runExecWithCredentials(ctx, string(raw))
+		return redactAllSecrets(out, parseExecSecretsForRedact(a, string(raw))), nil
+	}
+	host.read = func(path string) (any, error) {
+		resolved := path
+		if chatRef(path) {
+			p, err := resolveChatJournal(path)
+			if err != nil {
+				return nil, dataErr("TOOL", err.Error())
+			}
+			resolved = p
+		} else {
+			resolved = resolveToolPath(ctx, path)
+		}
+		v, err := fileRefValue(resolved)
+		if err != nil {
+			return nil, dataErr("TOOL", err.Error())
+		}
+		return v, nil
 	}
 	value, err := evalDataLangHost(in.Code, vars, dataTimeout(in.TimeoutMS), host)
 	if err != nil {

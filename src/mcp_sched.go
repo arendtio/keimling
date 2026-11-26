@@ -166,10 +166,6 @@ func (m *MCPManager) callRoute(exposed string) (server, transport string, ok boo
 	return route.Server, sess.cfg.transportKind(), true
 }
 
-// allowMCPProgram decides the program once, before any of its calls run.
-// Each literal tool is judged the same way as a single call. When every one
-// may run, the program starts. When any would ask or need review, the program
-// is that one question. A refusal runs nothing.
 // runMCPWave approves each MCP call, then runs the allowed ones through the
 // shared scheduler. Results are recorded after the wave, in call order, so the
 // next model step sees every result. Stop cancels a call that is waiting or running.
@@ -229,16 +225,38 @@ func (a *Agent) runMCPWave(ctx context.Context, reader *bufio.Reader, items []It
 	return nil
 }
 
+// dataToolUse is one tool call written inside a DataLang program. The argument
+// is the exact JSON handed to the normal tool gate.
+type dataToolUse struct {
+	Name string
+	Args string
+}
+
+// allowMCPProgram is the MCP-only form of allowDataProgram.
 func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names []string) (bool, error) {
-	if len(names) == 0 {
+	uses := make([]dataToolUse, 0, len(names))
+	for _, name := range names {
+		uses = append(uses, dataToolUse{Name: name, Args: "{}"})
+	}
+	return a.allowDataProgram(ctx, reader, uses)
+}
+
+// allowDataProgram gates every tool that a DataLang program will call before
+// the program starts. A plain transform has no uses and needs no approval.
+func (a *Agent) allowDataProgram(ctx context.Context, reader *bufio.Reader, uses []dataToolUse) (bool, error) {
+	if len(uses) == 0 {
 		return true, nil
 	}
 	agentRun := strings.TrimSpace(a.Cfg.AgentInstanceID) != ""
 	ask := false
 	review := false
 	var listed []string
-	for _, name := range names {
-		g := gateToolIn(agentRun, a.Cfg.Mode, name, "{}", mcpToolAlwaysAllowed(a.Cfg.ConfigPath, name), a.Cfg.ToolAsk, a.Cfg.WorkspaceRoot, a.threadDir())
+	for _, use := range uses {
+		whitelisted := false
+		if isMCPTool(use.Name) {
+			whitelisted = mcpToolAlwaysAllowed(a.Cfg.ConfigPath, use.Name)
+		}
+		g := gateToolIn(agentRun, a.Cfg.Mode, use.Name, use.Args, whitelisted, a.Cfg.ToolAsk, a.Cfg.WorkspaceRoot, a.threadDir())
 		if g.Deny {
 			why := g.Reason
 			if why == "" {
@@ -250,7 +268,7 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 		if g.Allow && !g.Ask && !g.Review {
 			continue
 		}
-		listed = append(listed, name)
+		listed = append(listed, use.Name+": "+truncate(use.Args, 120))
 		if g.Ask {
 			ask = true
 		}
@@ -261,7 +279,7 @@ func (a *Agent) allowMCPProgram(ctx context.Context, reader *bufio.Reader, names
 	if len(listed) == 0 {
 		return true, nil
 	}
-	reason := "MCP program calls " + strings.Join(listed, ", ")
+	reason := "DataLang program calls " + strings.Join(listed, ", ")
 	if review && !ask && a.Client != nil {
 		cwd, _ := os.Getwd()
 		purpose := ""

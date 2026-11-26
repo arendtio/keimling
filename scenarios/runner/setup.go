@@ -107,6 +107,12 @@ func prepare(id, specSetup string) (*prepared, error) {
 	case "service-table":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, serviceTablePrior(), 0o600)
+	case "operations-watch":
+		p.PriorResult = filepath.Join(data, "prior.json")
+		err = os.WriteFile(p.PriorResult, operationsWatchPrior(), 0o600)
+	case "large-page":
+		p.PriorResult = filepath.Join(data, "prior.json")
+		err = os.WriteFile(p.PriorResult, largePagePrior(), 0o600)
 	default:
 		err = fmt.Errorf("scenario %s has unknown setup %q", id, specSetup)
 	}
@@ -291,6 +297,59 @@ func serviceTablePrior() []byte {
 	doc := map[string]any{
 		"user": "Here is the service list.", "tool": "mcp__ops__project_status",
 		"arguments": map[string]string{"scope": "all"}, "value": serviceTableValue(),
+	}
+	b, _ := json.Marshal(doc)
+	return b
+}
+
+func operationsWatchPrior() []byte {
+	doc := map[string]any{
+		"user":      "The update was started. Its tool result is above.",
+		"tool":      "mcp__Operations__update_project",
+		"arguments": map[string]string{"project": "02-keimling"},
+		"value": map[string]any{
+			"project":            "02-keimling",
+			"state":              "running",
+			"expected_finish_at": time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339),
+		},
+	}
+	b, _ := json.Marshal(doc)
+	return b
+}
+
+const (
+	largePageAlpha = "WIKI-ALPHA-711"
+	largePageBeta  = "WIKI-BETA-942"
+	largePageGamma = "WIKI-GAMMA-385"
+)
+
+func largePageText() string {
+	var b strings.Builder
+	b.WriteString("# Handbook\n\n")
+	for i := 1; i <= 18; i++ {
+		fmt.Fprintf(&b, "## Section %d\n\n", i)
+		switch i {
+		case 1:
+			b.WriteString("The first principle is " + largePageAlpha + ". ")
+		case 7:
+			b.WriteString("The middle principle is " + largePageBeta + ". ")
+		case 12:
+			b.WriteString("The last principle is " + largePageGamma + ". ")
+		}
+		b.WriteString("This section explains a procedure, its inputs, and the checks that keep it stable. ")
+		for b.Len()%1800 < 1400 {
+			b.WriteString("A paragraph of ordinary handbook prose keeps the page long enough to arrive as a reference. ")
+		}
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
+
+func largePagePrior() []byte {
+	body, _ := json.Marshal(largePageText())
+	doc := map[string]any{
+		"user": "Here is the handbook page.", "tool": "mcp__wiki__page",
+		"arguments": map[string]string{"title": "Handbook"}, "value": json.RawMessage(body),
 	}
 	b, _ := json.Marshal(doc)
 	return b

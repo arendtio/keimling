@@ -260,11 +260,17 @@ func TestDataLangHasNoHostAccess(t *testing.T) {
 	for _, code := range []string{
 		`return read("/etc/passwd")`,
 		`return exec("rm -rf /")`,
+		`return read_file("/etc/passwd")`,
 		`return dial("127.0.0.1")`,
 	} {
 		_, err := runDataLang(code, nil, time.Second)
 		de, ok := err.(*dataError)
-		if !ok || de.Code != "UNKNOWN_FUNCTION" {
+		if !ok {
+			t.Fatalf("%s: %v", code, err)
+		}
+		// exec and read_file are known names, but without a host binding they
+		// have no way to touch the process; read and dial are not names at all.
+		if de.Code != "TOOL" && de.Code != "UNKNOWN_FUNCTION" {
 			t.Fatalf("%s: %v", code, err)
 		}
 	}
@@ -927,5 +933,95 @@ func TestFilteredExecKeepsRawHead(t *testing.T) {
 	small := withRawHead("exit_code=0\n[Filtered]\nsummary", "exit_code=0\nonly line\n")
 	if !strings.Contains(small, "only line") || strings.Contains(small, "more bytes") {
 		t.Fatalf("a short raw output must pass whole: %q", small)
+	}
+}
+
+func mustDataJSON(t *testing.T, code, want string) {
+	t.Helper()
+	got, err := runDataLang(code, nil, time.Second)
+	if err != nil {
+		t.Fatalf("%s: %v", code, err)
+	}
+	raw, _ := json.Marshal(got)
+	if string(raw) != want {
+		t.Fatalf("%s = %s, want %s", code, raw, want)
+	}
+}
+
+func TestDataLangHasFamiliarHelpers(t *testing.T) {
+	mustDataJSON(t, `return slice("abcdef", 1, 3)`, `"bc"`)
+	mustDataJSON(t, `return slice([1,2,3,4], 1)`, `[2,3,4]`)
+	mustDataJSON(t, `return lines("a\nb\n")`, `["a","b"]`)
+	mustDataJSON(t, `return lines("a\r\nb\r\n")`, `["a","b"]`)
+	mustDataJSON(t, `return [1,2,3,4] | skip(2) | first()`, `3`)
+	mustDataJSON(t, `return skip("abcd", 2)`, `"cd"`)
+	mustDataJSON(t, `return startsWith("abc", "ab")`, `true`)
+	mustDataJSON(t, `return endsWith("abc", "bc")`, `true`)
+	mustDataJSON(t, `return sum([1,2,3])`, `6`)
+	mustDataJSON(t, `return min([4,2,9])`, `2`)
+	mustDataJSON(t, `return max(4,2,9)`, `9`)
+	mustDataJSON(t, `return len("abc")`, `3`)
+	mustDataJSON(t, `return values({"b": 2, "a": 1})`, `[1,2]`)
+	mustDataJSON(t, `return (1 < 2) ? "yes" : "no"`, `"yes"`)
+	mustDataJSON(t, `return null ?? "fallback"`, `"fallback"`)
+	mustDataJSON(t, `return "kept" ?? "fallback"`, `"kept"`)
+}
+
+func TestDataLangExecAndReadFileUseTheApprovedHost(t *testing.T) {
+	host := &dlHost{
+		execAllowed: map[string]bool{"printf hi": true},
+		readAllowed: map[string]bool{"notes.txt": true},
+		exec: func(command string) (any, error) {
+			if command != "printf hi" {
+				t.Fatalf("unexpected command %q", command)
+			}
+			return "hi", nil
+		},
+		read: func(path string) (any, error) {
+			if path != "notes.txt" {
+				t.Fatalf("unexpected path %q", path)
+			}
+			return "hello", nil
+		},
+	}
+	got, err := evalDataLangHost(`return exec("printf hi")`, nil, time.Second, host)
+	if err != nil || got != "hi" {
+		t.Fatalf("exec = %v, %v", got, err)
+	}
+	got, err = evalDataLangHost(`return read_file("notes.txt")`, nil, time.Second, host)
+	if err != nil || got != "hello" {
+		t.Fatalf("read_file = %v, %v", got, err)
+	}
+	_, err = evalDataLangHost(`return exec("rm -rf /")`, nil, time.Second, host)
+	if err == nil || !strings.Contains(err.Error(), "not part of the approval") {
+		t.Fatalf("unapproved exec = %v", err)
+	}
+}
+
+func TestDataLangCollectsLiteralToolUses(t *testing.T) {
+	prog, err := parseProgram(`return exec("git status") | lines()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, computed := programStringCalls(prog, "exec")
+	if computed || len(got) != 1 || got[0] != "git status" {
+		t.Fatalf("exec uses = %v computed=%v", got, computed)
+	}
+	prog, err = parseProgram("let c = input.cmd\nreturn exec(c)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, computed := programStringCalls(prog, "exec"); !computed {
+		t.Fatal("a computed exec must not be approvable")
+	}
+}
+
+func TestDataLangExecWaitsForApproval(t *testing.T) {
+	a := &Agent{Cfg: Config{Mode: "ask"}}
+	a.ApprovalCh = make(chan bool, 1)
+	a.ApprovalCh <- false
+	out := a.runDataProgram(context.Background(), nil, `{"input_ref":"","inputs":[],"code":"return exec(\"printf hi\")","timeout_ms":1000}`)
+	if !strings.HasPrefix(out, "DENIED") {
+		t.Fatalf("exec ran without approval: %s", out)
 	}
 }

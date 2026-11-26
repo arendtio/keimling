@@ -1,0 +1,6 @@
+{
+  "task": "Lies die Wiki-Seite oben und erklaere die drei Kernpunkte aus den Abschnitten 1, 7 und 12. Nenne zu jedem Punkt den Code, der dort steht. Die Seite ist lang; lies sie in Fenstern, statt den ganzen Text auf einmal in den Kontext zu laden.",
+  "setup": "large-page",
+  "answer_needles": ["WIKI-ALPHA-711", "WIKI-BETA-942", "WIKI-GAMMA-385"],
+  "prefer_tools": ["data_processing"]
+}

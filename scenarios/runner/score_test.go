@@ -529,3 +529,40 @@ func TestPlanReportFailuresDemandAFinishedPlanAndAReport(t *testing.T) {
 		t.Fatalf("without the flags nothing is demanded: %v", failures)
 	}
 }
+
+func TestLargePagePriorIsBigAndKeepsAllCodes(t *testing.T) {
+	var doc struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(largePagePrior(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	if err := json.Unmarshal(doc.Value, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= 4096 {
+		t.Fatalf("large page is only %d bytes", len(body))
+	}
+	for _, code := range []string{largePageAlpha, largePageBeta, largePageGamma} {
+		if strings.Count(body, code) != 1 {
+			t.Fatalf("%s appears %d times", code, strings.Count(body, code))
+		}
+	}
+}
+
+func TestOperationsWatchPriorCarriesAnEta(t *testing.T) {
+	var doc struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(operationsWatchPrior(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(doc.Value, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["project"] != "02-keimling" || strings.TrimSpace(fmt.Sprint(value["expected_finish_at"])) == "" {
+		t.Fatalf("watch prior %#v", value)
+	}
+}

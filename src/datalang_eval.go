@@ -35,11 +35,18 @@ type stmt struct {
 
 type program struct{ stmts []stmt }
 
-// dlHost is the process side of mcp() and all(). Nil in a program that only
-// transforms values already in hand.
+// dlHost is the process side of mcp(), exec(), and read_file(). Nil in a
+// program that only transforms values already in hand.
 type dlHost struct {
-	call    func(name string, args any) (any, error)
+	call func(name string, args any) (any, error)
+	// allowed names the MCP tools that were part of the approval.
 	allowed map[string]bool
+
+	exec        func(command string) (any, error)
+	execAllowed map[string]bool
+
+	read        func(path string) (any, error)
+	readAllowed map[string]bool
 }
 
 type dlEnv struct {
@@ -86,6 +93,38 @@ func mcpProgramNames(p *program) (literals []string, calls bool) {
 		walk(st.expr)
 	}
 	return literals, calls
+}
+
+// programStringCalls lists the literal arguments of exec() and read_file().
+// computed is true for a call whose argument is not a literal, which cannot be
+// part of an approval.
+func programStringCalls(p *program, name string) (literals []string, computed bool) {
+	if p == nil {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	var walk func(*ex)
+	walk = func(e *ex) {
+		if e == nil {
+			return
+		}
+		if e.kind == "call" && e.name == name && e.recv == nil {
+			if len(e.args) != 1 || e.args[0] == nil || e.args[0].kind != "str" || strings.TrimSpace(e.args[0].str) == "" {
+				computed = true
+			} else if !seen[e.args[0].str] {
+				seen[e.args[0].str] = true
+				literals = append(literals, e.args[0].str)
+			}
+		}
+		walk(e.recv)
+		for _, arg := range e.args {
+			walk(arg)
+		}
+	}
+	for _, st := range p.stmts {
+		walk(st.expr)
+	}
+	return literals, computed
 }
 
 func runDataLang(code string, input any, timeout time.Duration) (any, error) {
@@ -230,6 +269,28 @@ func eval(e *ex, env *dlEnv) (any, error) {
 		return -n, nil
 	case "binary":
 		return evalBinary(e, env)
+	case "ternary":
+		cond, err := eval(e.args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		b, ok := cond.(bool)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", "? expects a boolean condition")
+		}
+		if b {
+			return eval(e.args[1], env)
+		}
+		return eval(e.args[2], env)
+	case "coalesce":
+		left, err := eval(e.args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		if left == nil {
+			return eval(e.args[1], env)
+		}
+		return left, nil
 	case "call":
 		return applyFn(e.name, nil, false, e.args, env)
 	case "pipe":
@@ -482,6 +543,44 @@ func applyFn(name string, recv any, hasRecv bool, args []*ex, env *dlEnv) (any, 
 			return nil, dataErr("TYPE_ERROR", "mcp args must be an object")
 		}
 		return env.host.call(tool, arg)
+	case "exec":
+		if hasRecv || len(args) != 1 {
+			return nil, dataErr("TYPE_ERROR", "exec expects one command")
+		}
+		if env.host == nil || env.host.exec == nil {
+			return nil, dataErr("TOOL", "exec is not available")
+		}
+		cmdv, err := eval(args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		command, ok := cmdv.(string)
+		if !ok || strings.TrimSpace(command) == "" {
+			return nil, dataErr("TYPE_ERROR", "exec command must be a string")
+		}
+		if env.host.execAllowed == nil || !env.host.execAllowed[command] {
+			return nil, dataErr("TOOL", "exec was not part of the approval")
+		}
+		return env.host.exec(command)
+	case "read_file":
+		if hasRecv || len(args) != 1 {
+			return nil, dataErr("TYPE_ERROR", "read_file expects one path")
+		}
+		if env.host == nil || env.host.read == nil {
+			return nil, dataErr("TOOL", "read_file is not available")
+		}
+		pathv, err := eval(args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		path, ok := pathv.(string)
+		if !ok || strings.TrimSpace(path) == "" {
+			return nil, dataErr("TYPE_ERROR", "read_file path must be a string")
+		}
+		if env.host.readAllowed == nil || !env.host.readAllowed[path] {
+			return nil, dataErr("TOOL", "read_file was not part of the approval")
+		}
+		return env.host.read(path)
 	case "filter", "map", "sort", "group":
 		src, pred, err := higherArgs(name, recv, hasRecv, args, env)
 		if err != nil {
@@ -730,7 +829,8 @@ func uniqueArr(arr []any) []any {
 func knownPure(name string) bool {
 	switch name {
 	case "contains", "split", "join", "trim", "lower", "upper", "json", "csv", "xml", "outline", "parse", "extract", "lookup", "indexOf",
-		"keys", "entries", "from_entries", "length", "type", "string", "number", "replace", "has", "get", "set", "omit":
+		"keys", "values", "entries", "from_entries", "length", "len", "type", "string", "number", "replace", "has", "get", "set", "omit",
+		"slice", "lines", "skip", "startsWith", "endsWith", "sum", "min", "max":
 		return true
 	default:
 		return false
@@ -850,8 +950,22 @@ func callPure(name string, args []any, env *dlEnv) (any, error) {
 		return objectEntries(args)
 	case "from_entries":
 		return objectFromEntries(args)
-	case "length":
+	case "length", "len":
 		return valueLength(args)
+	case "slice":
+		return valueSlice(args)
+	case "lines":
+		return valueLines(args)
+	case "skip":
+		return valueSkip(args)
+	case "startsWith", "endsWith":
+		return valueAffix(name, args)
+	case "sum":
+		return valueSum(args)
+	case "min", "max":
+		return valueMinMax(name, args)
+	case "values":
+		return objectValues(args)
 	case "type":
 		return valueKind(args)
 	case "string":
@@ -1024,6 +1138,202 @@ func valueLength(args []any) (any, error) {
 	default:
 		return nil, dataErr("TYPE_ERROR", "length expects text, an array, an object, or null")
 	}
+}
+
+func sliceBounds(n int, start, end int64, hasEnd bool) (int, int) {
+	if start < 0 {
+		start = int64(n) + start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start > int64(n) {
+		start = int64(n)
+	}
+	if !hasEnd {
+		end = int64(n)
+	}
+	if end < 0 {
+		end = int64(n) + end
+	}
+	if end < start {
+		end = start
+	}
+	if end > int64(n) {
+		end = int64(n)
+	}
+	return int(start), int(end)
+}
+
+func intArg(v any) (int64, bool) {
+	f, ok := asFloat(v)
+	if !ok || f != float64(int64(f)) {
+		return 0, false
+	}
+	return int64(f), true
+}
+
+func valueSlice(args []any) (any, error) {
+	if len(args) != 2 && len(args) != 3 {
+		return nil, dataErr("TYPE_ERROR", "slice expects a value, a start, and an optional end")
+	}
+	start, ok := intArg(args[1])
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", "slice expects integer bounds")
+	}
+	end := int64(0)
+	hasEnd := len(args) == 3
+	if hasEnd {
+		end, ok = intArg(args[2])
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", "slice expects integer bounds")
+		}
+	}
+	switch v := args[0].(type) {
+	case string:
+		r := []rune(v)
+		a, b := sliceBounds(len(r), start, end, hasEnd)
+		return string(r[a:b]), nil
+	case []any:
+		a, b := sliceBounds(len(v), start, end, hasEnd)
+		out := make([]any, b-a)
+		copy(out, v[a:b])
+		return out, nil
+	default:
+		return nil, dataErr("TYPE_ERROR", "slice expects text or an array")
+	}
+}
+
+func valueLines(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "lines expects text")
+	}
+	text, ok := args[0].(string)
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", "lines expects text")
+	}
+	raw := strings.Split(text, "\n")
+	if len(raw) > 0 && raw[len(raw)-1] == "" {
+		raw = raw[:len(raw)-1]
+	}
+	out := make([]any, len(raw))
+	for i, line := range raw {
+		out[i] = strings.TrimSuffix(line, "\r")
+	}
+	return out, nil
+}
+
+func valueSkip(args []any) (any, error) {
+	if len(args) != 2 {
+		return nil, dataErr("TYPE_ERROR", "skip expects a value and a count")
+	}
+	n, ok := intArg(args[1])
+	if !ok || n < 0 {
+		return nil, dataErr("TYPE_ERROR", "skip expects a non-negative integer count")
+	}
+	switch v := args[0].(type) {
+	case string:
+		r := []rune(v)
+		k := int(n)
+		if k > len(r) {
+			k = len(r)
+		}
+		return string(r[k:]), nil
+	case []any:
+		k := int(n)
+		if k > len(v) {
+			k = len(v)
+		}
+		out := make([]any, len(v)-k)
+		copy(out, v[k:])
+		return out, nil
+	default:
+		return nil, dataErr("TYPE_ERROR", "skip expects text or an array")
+	}
+}
+
+func valueAffix(name string, args []any) (any, error) {
+	if len(args) != 2 {
+		return nil, dataErr("TYPE_ERROR", name+" expects text and a prefix or suffix")
+	}
+	text, ok1 := args[0].(string)
+	part, ok2 := args[1].(string)
+	if !ok1 || !ok2 {
+		return nil, dataErr("TYPE_ERROR", name+" expects strings")
+	}
+	if name == "startsWith" {
+		return strings.HasPrefix(text, part), nil
+	}
+	return strings.HasSuffix(text, part), nil
+}
+
+func numberResult(f float64) any {
+	if f == float64(int64(f)) {
+		return int64(f)
+	}
+	return f
+}
+
+func valueSum(args []any) (any, error) {
+	if len(args) != 1 {
+		return nil, dataErr("TYPE_ERROR", "sum expects an array of numbers")
+	}
+	arr, ok := args[0].([]any)
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", "sum expects an array of numbers")
+	}
+	total := float64(0)
+	for _, item := range arr {
+		n, ok := asFloat(item)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", "sum expects an array of numbers")
+		}
+		total += n
+	}
+	return numberResult(total), nil
+}
+
+func valueMinMax(name string, args []any) (any, error) {
+	values := args
+	if len(args) == 1 {
+		if arr, ok := args[0].([]any); ok {
+			values = arr
+		}
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+	best, ok := asFloat(values[0])
+	if !ok {
+		return nil, dataErr("TYPE_ERROR", name+" expects numbers")
+	}
+	for _, item := range values[1:] {
+		n, ok := asFloat(item)
+		if !ok {
+			return nil, dataErr("TYPE_ERROR", name+" expects numbers")
+		}
+		if (name == "min" && n < best) || (name == "max" && n > best) {
+			best = n
+		}
+	}
+	return numberResult(best), nil
+}
+
+func objectValues(args []any) (any, error) {
+	m, err := oneObject("values", args)
+	if err != nil {
+		return nil, err
+	}
+	raw := make([]string, 0, len(m))
+	for k := range m {
+		raw = append(raw, k)
+	}
+	sort.Strings(raw)
+	out := make([]any, len(raw))
+	for i, k := range raw {
+		out[i] = m[k]
+	}
+	return out, nil
 }
 
 func valueKind(args []any) (any, error) {
@@ -1368,7 +1678,7 @@ func parseProgram(src string) (*program, error) {
 }
 
 func (p *parser) parsePipe() (*ex, error) {
-	left, err := p.parseOr()
+	left, err := p.parseTernary()
 	if err != nil {
 		return nil, err
 	}
@@ -1385,6 +1695,43 @@ func (p *parser) parsePipe() (*ex, error) {
 			return nil, err
 		}
 		left = &ex{kind: "pipe", name: name, recv: left, args: args}
+	}
+	return left, nil
+}
+
+func (p *parser) parseTernary() (*ex, error) {
+	left, err := p.parseCoalesce()
+	if err != nil {
+		return nil, err
+	}
+	if p.consumeOp("?") {
+		thenExpr, err := p.parsePipe()
+		if err != nil {
+			return nil, err
+		}
+		if !p.consumeOp(":") {
+			return nil, p.err("expected : after the true branch")
+		}
+		elseExpr, err := p.parsePipe()
+		if err != nil {
+			return nil, err
+		}
+		return &ex{kind: "ternary", args: []*ex{left, thenExpr, elseExpr}}, nil
+	}
+	return left, nil
+}
+
+func (p *parser) parseCoalesce() (*ex, error) {
+	left, err := p.parseOr()
+	if err != nil {
+		return nil, err
+	}
+	for p.consumeOp("??") {
+		right, err := p.parseOr()
+		if err != nil {
+			return nil, err
+		}
+		left = &ex{kind: "coalesce", args: []*ex{left, right}}
 	}
 	return left, nil
 }

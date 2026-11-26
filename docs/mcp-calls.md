@@ -43,7 +43,9 @@ tools are known before the start and REQ-MCP-2 applies to the whole program.
 Inside the group the scheduler still applies the cap and the stdio key. A later
 step that needs a returned value stays sequential.
 
-DataLang writes a sequential call as `mcp(name, args)` and a parallel group as
-`all(...)`. Those two operations are the program side of this design. They do
-not add a second runtime. A name that is not a string literal in the program
-is not part of the approval and does not run.
+DataLang writes a sequential call as `mcp(name, args)`, `exec(command)`, or
+`read_file(path)`, and a parallel group of MCP calls as `all(...)`. Those three
+operations are the program side of this design. They do not add a second
+runtime. A name or argument that is not a string literal in the program is not
+part of the approval and does not run. The whole program is approved once
+before it starts; a pure transform needs no approval.

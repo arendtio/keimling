@@ -12,6 +12,28 @@ A separate WebAssembly runtime would also keep host I/O away, and it would add a
 
 The Responses API rejects a tool name that contains a dot. The tools are `data_processing` and `data_processing_help`.
 
+## Tool calls
+
+A program may call `mcp(name, args)`, `exec(command)`, and `read_file(path)`. The
+last two need one literal string argument so the approval can name them; a
+computed argument is refused before the program runs. `exec` uses the same
+credential and working-directory path as the shell tool, and `read_file` uses
+the same protected-path check. A program with any of those calls is approved
+once before it starts. A program that only transforms values needs no approval.
+`exec` and `read_file` results are values inside the program; they are not
+stored as separate tool results.
+
+## Large text
+
+The 4 KiB threshold stays a presentation rule: a larger result is a ref, not a
+truncation. The program decides how to read it. `outline` gives the size of
+plain text, `lines` turns it into rows, and `slice` returns one window; the model
+can inline one window at a time and keep the page out of the transcript. This is
+the chunking path for a long wiki page or a log. There is no automatic split,
+because a split that the model did not ask for hides where a fact came from.
+`read_file(path)` in a program reads the whole file, so the same windowing
+applies before returning it.
+
 ## What the model sees
 
 MCP, exec, and `data_processing` results are stored on the agent. A result larger than 4 KiB is replaced, before it is written into the model transcript, by a reference, a preview, and a schema hint. A smaller result keeps its text and gains a `ref:` line so a later `data_processing` can still name it. Nothing is truncated and then described as the whole result.
