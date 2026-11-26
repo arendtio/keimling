@@ -432,3 +432,38 @@ func TestDelegateAgentUsesToolsAndReturnsOnlyTheAnswer(t *testing.T) {
 		t.Fatalf("answer=%q calls=%d", answer, calls)
 	}
 }
+
+func TestDelegateUsesConfiguredStepLimit(t *testing.T) {
+	if delegateStepLimit(0) != 200 || delegateStepLimit(7) != 7 {
+		t.Fatalf("limit 0=%d 7=%d", delegateStepLimit(0), delegateStepLimit(7))
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		fmt.Fprint(w, `{"status":"completed","output":[{"type":"function_call","name":"read_file","call_id":"c1","arguments":"{\"path\":\"note.txt\",\"start_line\":0,\"end_line\":0}"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+	c := NewClient("")
+	c.BaseURL = srv.URL
+	c.HTTP = srv.Client()
+	a := &Agent{Client: c, Cfg: Config{Mode: "yolo", DelegateFast: "mock-model", WorkspaceRoot: dir, ThreadID: "test", MaxSteps: 2}}
+	_, err = a.runDelegate(context.Background(), DelegateArgs{Task: "read note.txt", Profile: "fast", Tools: "all"})
+	if err == nil || !strings.Contains(err.Error(), "step limit (2)") {
+		t.Fatalf("step limit: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d", calls)
+	}
+}

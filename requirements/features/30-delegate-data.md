@@ -33,7 +33,7 @@
 ## REQ-DD-4 A delegate can use the caller's tools on request
 
 - **Bin:** explicit requirement
-- **Statement:** A delegate call with `tools: "all"` shall run a nested agent loop with exactly the tools the caller is granted, under the caller's approvals. The default `tools: "none"` shall stay one model call without tools. The nested loop shall not offer `delegate` or `finish_task`, shall return only its final answer, and shall stop at a bounded number of steps.
+- **Statement:** A delegate call with `tools: "all"` shall run a nested agent loop with exactly the tools the caller is granted, under the caller's approvals. The default `tools: "none"` shall stay one model call without tools. The nested loop shall not offer `delegate` or `finish_task`, shall return only its final answer, and shall stop at the configured `max_steps` (default 200).
 - **Origin:** User, 2026-11-26 (quote: "Ich hätte jetzt gedacht, dass Delegate grundsätzlich alle Tools hat, die der aufrufende Agent oder das aufrufende Thread-Chat zur Verfügung hat, also dass das qualifiziert wird von der Berechtigung her").
 - **Rationale:** A subagent that can read, run, and filter with the caller's own permissions can do bounded work without spending the parent transcript on every tool result; making it opt-in keeps the cheap tool-less call as the default.
 - **Fit criterion:** A caller with an `exec` grant can ask `tools: "all"` for a task that runs `exec`; a caller without that grant cannot. A call that would ask the user asks the same user. A `tools: "all"` request does not expose `delegate` or `finish_task` to the subagent, and the parent receives one answer rather than the subagent's tool transcript.

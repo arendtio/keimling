@@ -21,7 +21,8 @@ task and context only; a source or image belongs to the tool-less mode.
   approve an action; a call that would ask the user asks the same user.
 - The subagent writes a temporary journal. Only its final answer returns to the
   parent, so its tool results do not flood the parent transcript.
-- The loop stops after 12 steps. A missing final answer is an error, not a
+- The loop stops after the configured `max_steps` (default 200), the same
+  global limit as the parent. A missing final answer is an error, not a
   half-finished transcript.
 - Tool findings are skipped inside the subagent: the raw result is already in
   its temporary transcript, and a finding would cost one more model call per

@@ -9,9 +9,16 @@ import (
 	"strings"
 )
 
-// delegateAgentMaxSteps bounds one subagent run. A delegate is a bounded
-// second opinion, not a second chat.
-const delegateAgentMaxSteps = 12
+// delegateDefaultMaxSteps is the global default when a caller has no positive
+// max_steps. A delegate uses the configured max_steps, not a smaller ceiling.
+const delegateDefaultMaxSteps = 200
+
+func delegateStepLimit(maxSteps int) int {
+	if maxSteps < 1 {
+		return delegateDefaultMaxSteps
+	}
+	return maxSteps
+}
 
 const delegateAgentRules = " You are a bounded subagent. Use the available tools to complete the task. You cannot call delegate or finish_task. Do not ask the user a question: when a tool is denied, report that and continue with what you can verify. Return one concise answer that names what you checked."
 
@@ -102,8 +109,9 @@ func (a *Agent) runDelegateAgent(ctx context.Context, args DelegateArgs, model, 
 	extra := sub.chatExtraTools()
 	grant := delegateToolGrant(sub.Cfg.Web, extra, sub.instanceToolGrant())
 	instructions := sharedWorkInstructions() + delegateAgentRules
+	steps := delegateStepLimit(sub.Cfg.MaxSteps)
 	last := ""
-	for step := 0; step < delegateAgentMaxSteps; step++ {
+	for step := 0; step < steps; step++ {
 		resp, err := sub.Client.Respond(ctx, model, effort, sub.History, sub.Cfg.Web, instructions, extra, grant)
 		if err != nil {
 			return "", err
@@ -136,7 +144,7 @@ func (a *Agent) runDelegateAgent(ctx context.Context, args DelegateArgs, model, 
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("delegate reached its step limit (%d)", delegateAgentMaxSteps)
+	return "", fmt.Errorf("delegate reached its step limit (%d)", steps)
 }
 
 func itemOutputText(item Item) string {
