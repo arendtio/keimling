@@ -398,6 +398,48 @@ func TestAcceptAgentTextSteersWhenBusy(t *testing.T) {
 	}
 }
 
+// An agent instance's chat is the fixed "main" thread, which is not a workspace
+// thread. Sending there must not be rejected as an unknown thread.
+func TestAgentInstanceAcceptsMessageOnItsMainThread(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := createAgentInstance(recipe, ws.ID, "Entertainer 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{
+		Cfg:     Config{AgentInstanceID: inst.ID, WorkspaceID: ws.ID, ThreadID: "main", HasModelProvider: true},
+		Control: newTaskControl(func() {}),
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"text":"hello","thread_id":"main"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("send to agent instance: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case ev := <-a.Control.events:
+		if ev.text != "hello" {
+			t.Fatalf("event %#v", ev)
+		}
+	default:
+		t.Fatal("expected the message in the run")
+	}
+}
+
 func TestAcceptAgentTextSteersARunningForkedChat(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	ws, err := ensureWorkspaceForRoot(t.TempDir())

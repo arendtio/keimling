@@ -3263,7 +3263,9 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := strings.TrimSpace(body.ThreadID)
-	if target != "" {
+	// An agent instance keeps its chat on a fixed "main" thread that is not a
+	// workspace thread, so the thread the agent already runs on needs no lookup.
+	if target != "" && target != s.agent.Cfg.ThreadID {
 		if _, err := readThreadMeta(s.agent.Cfg.WorkspaceID, target); err != nil {
 			http.Error(w, "unknown thread", http.StatusBadRequest)
 			return
