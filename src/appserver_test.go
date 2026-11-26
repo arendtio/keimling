@@ -398,6 +398,49 @@ func TestAcceptAgentTextSteersWhenBusy(t *testing.T) {
 	}
 }
 
+func TestAcceptAgentTextSteersARunningForkedChat(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, session, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := createParkedThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell := &Agent{
+		Cfg:     Config{WorkspaceID: ws.ID, ThreadID: running.ID, SessionPath: session},
+		Control: newTaskControl(func() {}),
+	}
+	fork := &Agent{Control: newTaskControl(func() {})}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: shell})
+	srv.mu.Lock()
+	srv.runs[other.ID] = &liveThread{agent: fork, cancel: func() {}}
+	srv.mu.Unlock()
+
+	queued, err := srv.acceptAgentText("please pivot", "user", "message", other.ID)
+	if err != nil || !queued {
+		t.Fatalf("steer forked chat: queued=%v err=%v", queued, err)
+	}
+	select {
+	case ev := <-fork.Control.events:
+		if ev.kind != "steer" || ev.text != "please pivot" {
+			t.Fatalf("event %#v", ev)
+		}
+	default:
+		t.Fatal("expected steer event on the forked chat")
+	}
+	select {
+	case ev := <-shell.Control.events:
+		t.Fatalf("message went to the shell chat: %#v", ev)
+	default:
+	}
+}
+
 func TestAppServerStopRequiresSecret(t *testing.T) {
 	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: &Agent{ApprovalCh: make(chan bool, 1)}})
 	rec := httptest.NewRecorder()

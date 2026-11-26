@@ -644,9 +644,9 @@ func main() {
 	// A start script can wait on a sign-in. A oneshot needs the servers first.
 	// Every other mode serves the UI while the script is still running.
 	if *oneshot {
-		a.reloadMCP(sessionCtx)
+		a.startMCP(sessionCtx)
 	} else {
-		go a.reloadMCP(sessionCtx)
+		go a.startMCP(sessionCtx)
 	}
 	defer a.MCP.Close()
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(c.SessionPath)

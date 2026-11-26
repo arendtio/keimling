@@ -4506,9 +4506,13 @@
       var box = document.createElement("input");
       box.type = "checkbox";
       box.checked = !!row.granted;
-      box.disabled = row.allowed === false;
+      box.disabled = row.allowed === false || row.fixed === true;
       box.dataset.accessId = row.id || row.name;
       if (row.allowed === false) box.dataset.allowed = "0";
+      if (row.fixed === true) {
+        box.dataset.fixed = "1";
+        label.title = "This contact comes from the definition. Change it there.";
+      }
       box.addEventListener("change", markAgentAccessUnsaved);
       var text = document.createElement("span");
       text.textContent = row.label || row.name || row.id;
@@ -4524,6 +4528,36 @@
     el.querySelectorAll("input[type=checkbox]").forEach(function (box) {
       if (onlyEnabled && box.disabled) return;
       if (box.checked) ids.push(box.dataset.accessId);
+    });
+    return ids;
+  }
+
+  function renderPeerChoices(el, rows, selected, skipID) {
+    if (!el) return;
+    var want = {};
+    (selected || []).forEach(function (id) { if (id) want[id] = true; });
+    el.innerHTML = "";
+    (rows || []).forEach(function (row) {
+      if (!row || !row.id || row.id === skipID) return;
+      var label = document.createElement("label");
+      label.className = "agent-access-row";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!want[row.id];
+      box.dataset.peerId = row.id;
+      var text = document.createElement("span");
+      text.textContent = row.name || row.id;
+      label.appendChild(box);
+      label.appendChild(text);
+      el.appendChild(label);
+    });
+  }
+
+  function checkedPeerIDs(el) {
+    var ids = [];
+    if (!el) return ids;
+    el.querySelectorAll("input[type=checkbox]").forEach(function (box) {
+      if (box.checked) ids.push(box.dataset.peerId);
     });
     return ids;
   }
@@ -4568,7 +4602,7 @@
           agentAccessPeers.dataset.ready = "1";
         } else {
           fillAgentAccessList(agentAccessPeers, peerRows.map(function (p) {
-            return { id: p.id, label: p.name || p.id, granted: !!p.granted };
+            return { id: p.id, label: p.name || p.id, granted: !!p.granted, fixed: !!p.fixed };
           }));
           if (agentAccessPeers) agentAccessPeers.dataset.ready = "1";
         }
@@ -4623,7 +4657,7 @@
     if (spendUSD) body.spend_limit_usd = spendUSD.value.trim();
     if (spendTokens) body.spend_limit_tokens = spendTokens.value.trim();
     if (agentAccessPeers && agentAccessPeers.dataset.ready === "1") {
-      body.peers = checkedAccess(agentAccessPeers, false);
+      body.peers = checkedAccess(agentAccessPeers, true);
     }
     showAgentDefErr("");
     if (!workspaces.length) {
@@ -5168,6 +5202,7 @@
     var def = null;
     definitionsCache.forEach(function (d) { if (d.id === selectedDefinitionID) def = d; });
     if (agentInstanceName) agentInstanceName.value = def ? (def.name || "Agent") : "";
+    renderPeerChoices(document.getElementById("agent-instance-peers"), allInstancesCache, []);
     setAgentDefPane("instance");
   }
 
@@ -5285,6 +5320,7 @@
     loadMcpServers().then(function () {
       if (editingDefinitionID !== def.id) return;
       renderToolMatrix(document.getElementById("agent-def-edit-tools"), { granted: def.tools == null ? null : def.tools });
+      renderPeerChoices(document.getElementById("agent-def-edit-peers"), definitionsCache, def.peers || []);
     });
   }
 
@@ -5309,7 +5345,8 @@
     var model = createModel ? String(createModel.value || "").trim() : "";
     var createMode = document.getElementById("agent-def-mode");
     var mode = createMode ? createMode.value : "auto";
-    var body = { name: name, instructions: instructions, model: model, tools: tools, mode: mode };
+    var peers = checkedPeerIDs(document.getElementById("agent-def-create-peers"));
+    var body = { name: name, instructions: instructions, model: model, tools: tools, peers: peers, mode: mode };
     if (mode === "auto") {
       var prompt = reviewPromptPayload(document.getElementById("agent-def-review") && document.getElementById("agent-def-review").value);
       if (prompt.error) {
@@ -5351,7 +5388,8 @@
     var tools = checkedToolNames(document.getElementById("agent-def-edit-tools"));
     var editMode = document.getElementById("agent-def-edit-mode");
     var mode = editMode ? editMode.value : "auto";
-    var body = { id: editingDefinitionID, name: name, instructions: instructions, model: model, tools: tools, mode: mode };
+    var peers = checkedPeerIDs(document.getElementById("agent-def-edit-peers"));
+    var body = { id: editingDefinitionID, name: name, instructions: instructions, model: model, tools: tools, peers: peers, mode: mode };
     if (mode === "auto") {
       var prompt = reviewPromptPayload(document.getElementById("agent-def-edit-review") && document.getElementById("agent-def-edit-review").value);
       if (prompt.error) {
@@ -5422,6 +5460,7 @@
         recipe_id: selectedDefinitionID,
         name: name,
         workspace_id: currentWorkspaceID,
+        peers: checkedPeerIDs(document.getElementById("agent-instance-peers")),
       }),
     })
       .then(readAPIResult)
@@ -10671,6 +10710,7 @@
       loadModelSuggestions();
       loadMcpServers().then(function () {
         renderToolMatrix(document.getElementById("agent-def-create-tools"), { granted: null });
+        renderPeerChoices(document.getElementById("agent-def-create-peers"), definitionsCache, []);
         var createMode = document.getElementById("agent-def-mode");
         if (createMode) createMode.value = "auto";
         var createReview = document.getElementById("agent-def-review");

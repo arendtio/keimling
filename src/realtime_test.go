@@ -35,6 +35,93 @@ func TestRealtimeSeedKeepsChatText(t *testing.T) {
 	}
 }
 
+func TestRealtimeCallInAnotherThreadIgnoresTheRunningChat(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, runSession, err := createThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, otherSession, err := createParkedThread(ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func(threadID, session, text string) {
+		j, err := OpenJournal(session, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := &Agent{Cfg: Config{WorkspaceID: ws.ID, ThreadID: threadID}, Journal: j}
+		if err := a.add(map[string]any{"role": "user", "content": text}); err != nil {
+			t.Fatal(err)
+		}
+		_ = j.Close()
+	}
+	seed(running.ID, runSession, "running hello")
+	seed(other.ID, otherSession, "other hello")
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	writeModelConfig(t, cfgPath, fileConfig{ModelProviders: []modelProvider{{
+		ID: "oa", Name: "OpenAI", BaseURL: "http://127.0.0.1:1/v1", APIKey: "k", Kind: "openai",
+	}}})
+	j, err := OpenJournal(runSession, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	a := &Agent{
+		Cfg: Config{
+			ConfigPath: cfgPath, WorkspaceID: ws.ID, ThreadID: running.ID, SessionPath: runSession,
+			Mode: "ask", RealtimeProviderID: "oa", RealtimeModel: "gpt-realtime-2.1",
+			RealtimeVoice: "marin", HasModelProvider: true,
+		},
+		Journal: j,
+		Client:  &Client{},
+	}
+	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})
+	srv.mu.Lock()
+	srv.busy = true
+	srv.viewThread = other.ID
+	srv.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/realtime/session", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session while another chat runs: %d %s", rec.Code, rec.Body.String())
+	}
+	var setup struct {
+		History []map[string]string `json:"history"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &setup); err != nil {
+		t.Fatal(err)
+	}
+	sawOther, sawRunning := false, false
+	for _, item := range setup.History {
+		if item["text"] == "other hello" {
+			sawOther = true
+		}
+		if item["text"] == "running hello" {
+			sawRunning = true
+		}
+	}
+	if !sawOther || sawRunning {
+		t.Fatalf("call history other=%v running=%v", sawOther, sawRunning)
+	}
+	srv.mu.Lock()
+	callThread := srv.realtimeThread
+	srv.mu.Unlock()
+	if callThread != other.ID {
+		t.Fatalf("call belongs to %q, want %q", callThread, other.ID)
+	}
+	srv.endRealtimeCall()
+}
+
 func TestRealtimeHTTPErrorUsesTheMessage(t *testing.T) {
 	err := realtimeHTTPError("realtime secret", []byte(`{"error":{"message":"Incorrect API key provided"}}`))
 	if err == nil || err.Error() != "realtime secret: Incorrect API key provided" {

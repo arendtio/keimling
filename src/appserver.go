@@ -56,9 +56,14 @@ type appServer struct {
 	realtimeGen           uint64
 	realtimeCtx           context.Context
 	realtimeCancel        context.CancelFunc
-	speakerMu             sync.Mutex
-	speaker               *speakerPipe
-	speakerDrop           bool
+	// realtimeThread is the chat the live call belongs to. The call reads and
+	// writes that thread's journal, not whichever run currently holds the
+	// shell agent.
+	realtimeThread string
+	realtimeAgent  *Agent
+	speakerMu      sync.Mutex
+	speaker        *speakerPipe
+	speakerDrop    bool
 
 	// peerWoken records that the last run started here came from a peer
 	// message. A further peer message does not wake the thread until the
@@ -502,9 +507,21 @@ func (s *appServer) drainThreadQueue() {
 		view = s.agent.Cfg.ThreadID
 	}
 	ws := s.agent.Cfg.WorkspaceID
+	callOn := s.realtimeOn
+	callThread := s.realtimeThread
 	s.mu.Unlock()
 	item, ok, err := dequeueThreadMessage(ws, view)
 	if err != nil || !ok {
+		return
+	}
+	// A live call already owns the journal of its chat. Hand the queued text to
+	// that call instead of opening the same journal a second time for a run.
+	if callOn && callThread != "" && view == callThread {
+		if !s.injectRealtimeWake(threadWakeText(item), view) {
+			s.requeueThreadItem(ws, view, item)
+			return
+		}
+		s.finishThreadWake(ws, view, item)
 		return
 	}
 	if view != s.agent.Cfg.ThreadID {
@@ -835,11 +852,27 @@ func (s *appServer) handleThreadSwitch(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	busy := s.busy
 	_, forkOwns := s.runs[id]
+	callOn := s.realtimeOn
+	callThread := s.realtimeThread
 	shellID := ""
 	if s.agent != nil {
 		shellID = s.agent.Cfg.ThreadID
 	}
 	s.mu.Unlock()
+	// The live call owns this thread's journal. Show the chat without moving
+	// the shell agent's journal onto the same file.
+	if callOn && callThread != "" && id == callThread {
+		if st, err := os.Stat(threadDir(s.agent.Cfg.WorkspaceID, id)); err != nil || !st.IsDir() {
+			http.Error(w, "unknown thread", http.StatusBadRequest)
+			return
+		}
+		s.mu.Lock()
+		s.viewThread = id
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "thread_id": id})
+		return
+	}
 	if forkOwns || (busy && id != shellID) {
 		if st, err := os.Stat(threadDir(s.agent.Cfg.WorkspaceID, id)); err != nil || !st.IsDir() {
 			http.Error(w, "unknown thread", http.StatusBadRequest)
@@ -3211,14 +3244,19 @@ func (s *appServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.realtimeCallOpen() {
-		if err := s.agent.add(map[string]any{"role": "user", "content": text}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.mu.Lock()
+		callThread := s.realtimeThread
+		s.mu.Unlock()
+		if callThread == "" || strings.TrimSpace(body.ThreadID) == "" || strings.TrimSpace(body.ThreadID) == callThread {
+			if err := s.realtimeCallAgent().add(map[string]any{"role": "user", "content": text}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "realtime": true, "text": text})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "realtime": true, "text": text})
-		return
 	}
 	if !s.agent.Cfg.HasModelProvider {
 		http.Error(w, "no model provider is configured", http.StatusConflict)
@@ -3493,18 +3531,20 @@ func (s *appServer) acceptAgentText(text, from, kind, view string) (queued bool,
 		s.mu.Lock()
 		busy := s.busy
 		s.mu.Unlock()
-		if !busy && view != "" && view != run && !s.threadBusy(view) {
-			if err := s.agent.SwitchThread(view); err != nil {
-				return false, err
-			}
-			s.mu.Lock()
-			s.viewThread = ""
-			s.mu.Unlock()
-		}
-		if busy && view != "" && view != run {
+		if view != "" && view != run {
 			if s.threadBusy(view) {
 				return s.steerThread(view, text)
 			}
+			if !busy {
+				if err := s.agent.SwitchThread(view); err != nil {
+					return false, err
+				}
+				s.mu.Lock()
+				s.viewThread = ""
+				s.mu.Unlock()
+			}
+		}
+		if busy && view != "" && view != run {
 			if err := s.startForkedRun(view, text); err != nil {
 				return false, err
 			}
@@ -3648,11 +3688,17 @@ func (s *appServer) startAgentRunWake(text, ws, threadID string, item AgentQueue
 		s.agent.preloadMCPTools()
 	}
 	if s.realtimeCallOpen() {
-		if s.injectRealtimeWake(text) {
-			s.finishThreadWake(ws, threadID, item)
-			return true
+		s.mu.Lock()
+		callThread := s.realtimeThread
+		s.mu.Unlock()
+		if callThread == "" || callThread == threadID {
+			if s.injectRealtimeWake(text, threadID) {
+				s.finishThreadWake(ws, threadID, item)
+				return true
+			}
+			return false
 		}
-		return false
+		// The live call belongs to another chat. This thread still gets its run.
 	}
 	s.mu.Lock()
 	if s.busy || s.agent == nil {
@@ -3776,6 +3822,13 @@ func (s *appServer) startForkedRunWake(threadID, text, ws string, item AgentQueu
 	if s.agent == nil || s.agent.Client == nil {
 		return fmt.Errorf("no model client")
 	}
+	s.mu.Lock()
+	callOn := s.realtimeOn
+	callThread := s.realtimeThread
+	s.mu.Unlock()
+	if callOn && callThread != "" && callThread == threadID {
+		return fmt.Errorf("thread is on a call")
+	}
 	b := &Agent{
 		Cfg:         s.agent.Cfg,
 		Client:      &Client{APIKey: s.agent.Client.APIKey, BaseURL: s.agent.Client.BaseURL, HTTP: s.agent.Client.HTTP, Parallel: s.agent.Client.Parallel, Spend: s.agent.Client.Spend},
@@ -3783,6 +3836,8 @@ func (s *appServer) startForkedRunWake(threadID, text, ws string, item AgentQueu
 		MCP:         s.agent.MCP,
 		Credentials: s.agent.Credentials,
 		SessionCtx:  s.agent.SessionCtx,
+		Shares:      s.agent.Shares,
+		Artifacts:   s.agent.Artifacts,
 		ApprovalCh:  make(chan bool, 1),
 		dirs:        s.agent.dirTable(),
 	}
@@ -3972,6 +4027,8 @@ func (s *appServer) drainThreadQueueFor(ws, threadID string, now time.Time) bool
 	}
 	shellThread := s.agent.Cfg.ThreadID
 	shellBusy := s.busy && shellThread == threadID
+	callOn := s.realtimeOn
+	callThread := s.realtimeThread
 	s.mu.Unlock()
 	if shellBusy {
 		return false
@@ -3981,6 +4038,16 @@ func (s *appServer) drainThreadQueueFor(ws, threadID string, now time.Time) bool
 		return false
 	}
 	text := threadWakeText(item)
+	// The live call already owns this chat's journal, so hand the wake to it
+	// instead of opening a second writer for the same thread.
+	if callOn && callThread != "" && callThread == threadID {
+		if !s.injectRealtimeWake(text, threadID) {
+			s.requeueThreadItem(ws, threadID, item)
+			return false
+		}
+		s.finishThreadWake(ws, threadID, item)
+		return true
+	}
 	if shellThread == threadID && !s.isBusy() {
 		if s.startAgentRunWake(text, ws, threadID, item) {
 			return true

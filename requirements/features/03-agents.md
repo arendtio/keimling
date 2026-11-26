@@ -10,12 +10,12 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 
 | Term | Meaning |
 | --- | --- |
-| **Definition** | Reusable agent recipe: name, instructions/prompt, optional model defaults. Config store. (API: `recipes`.) |
+| **Definition** | Reusable agent recipe: name, instructions/prompt, optional model defaults, optional contact definitions. Config store. (API: `recipes`.) |
 | **Instance** | Embodiment: ACL (workspaces + peer instances), main thread, inbound queue, alarms. Data store. |
 | **Main thread** | Single conversation journal for an instance. |
 | **Idle / Busy** | Idle = not in a run loop (no green status). Busy = executing (green). |
 | **Alarm** | Relative (`in 2m`) or absolute (`at 15:04` / RFC3339) wake; persists; injects a user wake message and starts a run if idle. |
-| **Peer ACL** | Instance ids this agent may message via `message_agent`. |
+| **Peer ACL** | Instance ids this agent may message via `message_agent`. A spawn may name instances explicitly; contacts declared by a definition apply to all its instances and follow later definition edits. |
 | **Inbound queue** | Durable messages (human, peer, alarm) while busy; drained when idle. |
 | **Team** | Named set of definition ids; spawning creates one instance per definition in the current workspace. |
 | **Stop / Delete** | Stop cancels run; delete instance removes data. Delete definition removes recipe (blocked if instances remain, or cascade-none). |
@@ -53,8 +53,8 @@ Human workspace **threads** stay as they are. Agents are created explicitly (no 
 ## UI
 
 - Threads then Agents (stable thread list when an agent is open).
-- New agent: pick/create definition → instance name.
-- Definitions manager in the same dialog: edit + delete.
+- New agent: pick/create definition → instance name, optional contacts.
+- Definitions manager in the same dialog: edit + delete, including contact definitions.
 - Teams: list/create/spawn (optional section in dialog).
 - Green status only while busy.
 

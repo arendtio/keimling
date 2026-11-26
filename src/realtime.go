@@ -488,6 +488,91 @@ func (s *appServer) realtimeCallOpen() bool {
 	return s.realtimeOn
 }
 
+// realtimeTargetLocked names the chat a new call belongs to. An empty result
+// means this worker has no workspace thread (an agent instance or a test), so
+// the shell agent is the only target. The call must not follow whichever run
+// happens to own the shell agent.
+func (s *appServer) realtimeTargetLocked() string {
+	if s.agent == nil || strings.TrimSpace(s.agent.Cfg.WorkspaceID) == "" {
+		return ""
+	}
+	if t := strings.TrimSpace(s.viewThread); t != "" {
+		return t
+	}
+	return strings.TrimSpace(s.agent.Cfg.ThreadID)
+}
+
+// realtimeTargetBusyLocked reports a run in the chat the call would join. A
+// run in another chat does not block the call.
+func (s *appServer) realtimeTargetBusyLocked(target string) bool {
+	if target == "" {
+		return s.busy
+	}
+	if s.busy && s.agent != nil && s.agent.Cfg.ThreadID == target {
+		return true
+	}
+	_, busy := s.runs[target]
+	return busy
+}
+
+// realtimeCallAgent is the agent that reads and writes the live call's chat.
+func (s *appServer) realtimeCallAgent() *Agent {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.realtimeAgent != nil {
+		return s.realtimeAgent
+	}
+	return s.agent
+}
+
+// openRealtimeCallAgent gives the call its own journal for the visible chat.
+// It opens a second agent only while another chat owns the shell agent.
+func (s *appServer) openRealtimeCallAgent(target string) (*Agent, error) {
+	src := s.agent
+	if src == nil {
+		return nil, fmt.Errorf("no agent")
+	}
+	if target == "" || target == strings.TrimSpace(src.Cfg.ThreadID) {
+		return src, nil
+	}
+	if src.Client == nil {
+		return nil, fmt.Errorf("no model client")
+	}
+	b := &Agent{
+		Cfg:    src.Cfg,
+		Client: &Client{APIKey: src.Client.APIKey, BaseURL: src.Client.BaseURL, HTTP: src.Client.HTTP, Parallel: src.Client.Parallel, Spend: src.Client.Spend},
+		Skills: src.Skills, MCP: src.MCP, Credentials: src.Credentials,
+		SessionCtx: src.SessionCtx, Shares: src.Shares, Artifacts: src.Artifacts,
+		ApprovalCh: make(chan bool, 1), dirs: src.dirTable(),
+	}
+	if err := b.attachThreadJournal(target); err != nil {
+		return nil, err
+	}
+	b.Emit = func(kind, text string) { s.emitFork(b, kind, text) }
+	return b, nil
+}
+
+// detachRealtimeAgentLocked drops the call binding and returns the agent whose
+// journal must be closed outside the lock. The shell agent keeps its journal.
+func (s *appServer) detachRealtimeAgentLocked() *Agent {
+	a := s.realtimeAgent
+	s.realtimeAgent = nil
+	s.realtimeThread = ""
+	if a != nil && a != s.agent {
+		return a
+	}
+	return nil
+}
+
+func (s *appServer) closeCallAgent(a *Agent) {
+	if a != nil && a.Journal != nil {
+		_ = a.Journal.Close()
+	}
+}
+
 func (s *appServer) realtimeReady() bool {
 	if s == nil || s.agent == nil {
 		return false
@@ -505,30 +590,48 @@ func (s *appServer) handleRealtimeSession(w http.ResponseWriter, r *http.Request
 		http.Error(w, "no agent", http.StatusServiceUnavailable)
 		return
 	}
-	if s.realtimeCallOpen() {
+	s.mu.Lock()
+	if s.realtimeOn {
+		s.mu.Unlock()
 		http.Error(w, "a call is already open", http.StatusConflict)
 		return
 	}
-	s.mu.Lock()
-	busy := s.busy
+	target := s.realtimeTargetLocked()
+	busy := s.realtimeTargetBusyLocked(target)
+	old := s.detachRealtimeAgentLocked()
 	s.mu.Unlock()
+	s.closeCallAgent(old)
 	if busy {
-		http.Error(w, "finish the current run before calling", http.StatusConflict)
+		http.Error(w, "finish the current run in this chat before calling", http.StatusConflict)
 		return
 	}
-	_, ep, err := s.agent.realtimeClient()
+	callAgent, err := s.openRealtimeCallAgent(target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	tools := realtimeToolList(s.agent)
-	history := realtimeSeedFrom(s.agent.modelInput())
+	_, ep, err := callAgent.realtimeClient()
+	if err != nil {
+		if callAgent != s.agent {
+			s.closeCallAgent(callAgent)
+		}
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.mu.Lock()
+	s.realtimeThread = target
+	if callAgent != s.agent {
+		s.realtimeAgent = callAgent
+	}
+	s.mu.Unlock()
+	tools := realtimeToolList(callAgent)
+	history := realtimeSeedFrom(callAgent.modelInput())
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"model":               ep.Model,
 		"voice":               ep.Voice,
 		"transcription_model": realtimeTranscriptionModel,
-		"instructions":        s.agent.realtimeInstructions(),
+		"instructions":        callAgent.realtimeInstructions(),
 		"tools":               tools,
 		"history":             history,
 	})
@@ -551,13 +654,22 @@ func (s *appServer) handleRealtimeSDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	busy := s.busy
+	target := s.realtimeThread
+	if target == "" {
+		target = s.realtimeTargetLocked()
+	}
+	busy := s.realtimeTargetBusyLocked(target)
 	s.mu.Unlock()
 	if busy {
-		http.Error(w, "finish the current run before calling", http.StatusConflict)
+		http.Error(w, "finish the current run in this chat before calling", http.StatusConflict)
 		return
 	}
-	c, ep, err := s.agent.realtimeClient()
+	callAgent := s.realtimeCallAgent()
+	if callAgent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	c, ep, err := callAgent.realtimeClient()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -622,6 +734,7 @@ func (s *appServer) endRealtimeCallGen(gen uint64) {
 		return
 	}
 	cancel := s.realtimeCancel
+	old := s.detachRealtimeAgentLocked()
 	s.realtimeOn = false
 	s.realtimeCtx = nil
 	s.realtimeCancel = nil
@@ -630,6 +743,7 @@ func (s *appServer) endRealtimeCallGen(gen uint64) {
 	if cancel != nil {
 		cancel()
 	}
+	s.closeCallAgent(old)
 }
 
 func (s *appServer) endRealtimeCall() {
@@ -638,6 +752,7 @@ func (s *appServer) endRealtimeCall() {
 	}
 	s.mu.Lock()
 	cancel := s.realtimeCancel
+	old := s.detachRealtimeAgentLocked()
 	s.realtimeOn = false
 	s.realtimeCtx = nil
 	s.realtimeCancel = nil
@@ -646,6 +761,7 @@ func (s *appServer) endRealtimeCall() {
 	if cancel != nil {
 		cancel()
 	}
+	s.closeCallAgent(old)
 }
 
 func (s *appServer) handleRealtimeLine(w http.ResponseWriter, r *http.Request) {
@@ -677,7 +793,7 @@ func (s *appServer) handleRealtimeLine(w http.ResponseWriter, r *http.Request) {
 	} else {
 		item = map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": text}}}
 	}
-	if err := s.agent.add(item); err != nil {
+	if err := s.realtimeCallAgent().add(item); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -799,7 +915,7 @@ func (s *appServer) handleRealtimeTool(w http.ResponseWriter, r *http.Request) {
 	if ctx == nil {
 		ctx = r.Context()
 	}
-	out, err := s.agent.runRealtimeTool(ctx, body.Name, body.CallID, realtimeArgs(body.Arguments))
+	out, err := s.realtimeCallAgent().runRealtimeTool(ctx, body.Name, body.CallID, realtimeArgs(body.Arguments))
 	if err != nil && out == "" {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -808,14 +924,24 @@ func (s *appServer) handleRealtimeTool(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"output": out})
 }
 
-func (s *appServer) injectRealtimeWake(text string) bool {
+func (s *appServer) injectRealtimeWake(text, threadID string) bool {
 	if s == nil || s.agent == nil || strings.TrimSpace(text) == "" {
 		return false
 	}
-	if err := s.agent.add(map[string]any{"role": "user", "content": text}); err != nil {
+	s.mu.Lock()
+	callThread := s.realtimeThread
+	s.mu.Unlock()
+	if callThread != "" && threadID != "" && callThread != threadID {
 		return false
 	}
-	threadID := s.agent.Cfg.ThreadID
+	agent := s.realtimeCallAgent()
+	if agent == nil {
+		return false
+	}
+	if err := agent.add(map[string]any{"role": "user", "content": text}); err != nil {
+		return false
+	}
+	threadID = agent.Cfg.ThreadID
 	if notice, ok := watchDisplayText(text); ok {
 		s.hub.Broadcast("message", map[string]any{"role": "watch", "name": "Watch", "text": notice, "thread_id": threadID})
 	} else if name, body, ok := parsePeerUserText(text); ok {

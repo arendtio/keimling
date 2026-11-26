@@ -211,6 +211,6 @@ func openRuntimeAgent(configPath, workspaceID, agentInstanceID string) (*Agent, 
 		return nil, nil, err
 	}
 	a.LastTaskMessage, a.ResumeAvailable = pendingTask(sessPath)
-	go a.reloadMCP(sessionCtx)
+	go a.startMCP(sessionCtx)
 	return a, cancel, nil
 }

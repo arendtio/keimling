@@ -54,13 +54,22 @@ func (s *appServer) handleRealtimeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	busy := s.busy
+	target := s.realtimeThread
+	if target == "" {
+		target = s.realtimeTargetLocked()
+	}
+	busy := s.realtimeTargetBusyLocked(target)
 	s.mu.Unlock()
 	if busy {
-		http.Error(w, "finish the current run before calling", http.StatusConflict)
+		http.Error(w, "finish the current run in this chat before calling", http.StatusConflict)
 		return
 	}
-	c, ep, err := s.agent.realtimeClient()
+	callAgent := s.realtimeCallAgent()
+	if callAgent == nil {
+		http.Error(w, "no agent", http.StatusServiceUnavailable)
+		return
+	}
+	c, ep, err := callAgent.realtimeClient()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return

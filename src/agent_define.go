@@ -32,10 +32,20 @@ func defineAgentTools() []map[string]any {
 		"description": "Always send this field. Tool names this definition may use (catalog names such as exec, read_file, write_file, message_agent; mcp for every MCP server). Required on create; an empty array grants no tools. On update, null keeps the saved choice.",
 		"items":       map[string]any{"type": "string"},
 	}
+	peers := map[string]any{
+		"type":        []any{"array", "null"},
+		"description": "Definition ids or unique definition names this kind of agent may contact. Empty or null means no declared contacts. On update, null keeps the saved list and an empty array clears it.",
+		"items":       map[string]any{"type": "string"},
+	}
+	spawnPeers := map[string]any{
+		"type":        []any{"array", "null"},
+		"description": "Existing agent instance ids or unique instance names the new instance may contact. Empty or null adds none beyond the definition’s declared contacts.",
+		"items":       map[string]any{"type": "string"},
+	}
 	return []map[string]any{
 		toolDef("agent_instructions", "Return the instructions a new agent definition starts from. Call this before save_agent when writing or revising a prompt, and start from this text. Pass unused as an empty string.", map[string]any{"unused": str("Pass empty string")}, "unused"),
-		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto, and tools is required: a definition without a tool list grants nothing. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged; tools null keeps the saved choice. Send every parameter. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text."), "tools": tools}, "id", "name", "instructions", "tools"),
-		toolDef("spawn_agent", "Start one instance of a definition. definition is an id or a unique name. name empty uses the definition name. path is an existing directory that becomes the current workspace of the instance, for example a git worktree; empty uses the workspace this call is running in. task is the first message, or empty when the instance should wait. spend_limit_usd and spend_limit_tokens cap that instance for its whole life. Empty keeps the definition ceiling. 0 means no ceiling for that unit. Send every parameter. The instance runs in the background; the view of the user does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "path": str("Existing directory the instance works in (a git worktree), or empty for the workspace of this call"), "task": str("First message for the new instance, or empty."), "spend_limit_usd": str("Dollar ceiling for the life of the instance, 0 for none, or empty to keep the definition ceiling."), "spend_limit_tokens": str("Token ceiling for the life of the instance, 0 for none, or empty to keep the definition ceiling.")}, "definition", "name", "path", "task", "spend_limit_usd", "spend_limit_tokens"),
+		toolDef("save_agent", "Create an agent definition, or replace the instructions of an existing one. id empty creates. On create, instructions empty stores the agent_instructions text and the mode is auto, and tools is required: a definition without a tool list grants nothing. On update, instructions empty keeps the saved text; a non-empty value replaces it and leaves the mode unchanged; tools null keeps the saved choice. peers names other definitions this kind of agent may contact; instances of those definitions may message each other in a shared workspace. Send every parameter. Returns the definition id.", map[string]any{"id": str("Definition id to update, or empty to create"), "name": str("Name. Required on create. Empty on update keeps the saved name."), "instructions": str("Job text. Empty on create uses the starting instructions. Empty on update keeps the saved text."), "tools": tools, "peers": peers}, "id", "name", "instructions", "tools", "peers"),
+		toolDef("spawn_agent", "Start one instance of a definition. definition is an id or a unique name. name empty uses the definition name. path is an existing directory that becomes the current workspace of the instance, for example a git worktree; empty uses the workspace this call is running in. task is the first message, or empty when the instance should wait. peers names existing agent instances (ids or unique names) the new instance may contact, in addition to the contacts its definition declares. spend_limit_usd and spend_limit_tokens cap that instance for its whole life. Empty keeps the definition ceiling. 0 means no ceiling for that unit. Send every parameter. The instance runs in the background; the view of the user does not switch to it.", map[string]any{"definition": str("Definition id or unique definition name"), "name": str("Instance name, or empty to use the definition name"), "path": str("Existing directory the instance works in (a git worktree), or empty for the workspace of this call"), "task": str("First message for the new instance, or empty."), "peers": spawnPeers, "spend_limit_usd": str("Dollar ceiling for the life of the instance, 0 for none, or empty to keep the definition ceiling."), "spend_limit_tokens": str("Token ceiling for the life of the instance, 0 for none, or empty to keep the definition ceiling.")}, "definition", "name", "path", "task", "peers", "spend_limit_usd", "spend_limit_tokens"),
 		toolDef("set_agent_limit", "Change the spend ceiling of an existing agent instance. Requires the same grant as save_agent. instance_id is an id or a unique name. spend_limit_usd and spend_limit_tokens replace that unit. 0 or empty clears it. The ceiling lasts for the life of the instance. An instance cannot change its own ceiling. Send every parameter.", map[string]any{"instance_id": str("Instance id or unique name"), "spend_limit_usd": str("Dollar ceiling, or 0 to clear it"), "spend_limit_tokens": str("Token ceiling, or 0 to clear it")}, "instance_id", "spend_limit_usd", "spend_limit_tokens"),
 		toolDef("save_team", "Create a team of agent definitions, or replace the definitions of an existing team. id empty creates. definitions are definition ids or unique names. On update, an empty list keeps the saved definitions. Send every parameter.", map[string]any{"id": str("Team id to update, or empty to create"), "name": str("Team name. Required on create. Empty on update keeps the saved name."), "definitions": defs}, "id", "name", "definitions"),
 		toolDef("spawn_team", "Start one instance per definition of a team. team is an id or a unique name. path is an existing directory that becomes the current workspace of every instance, for example a git worktree; empty uses the workspace this call is running in. Send every parameter. Teammates may message each other. The instances run in the background; the view of the user does not switch to them.", map[string]any{"team": str("Team id or unique team name"), "path": str("Existing directory the instances work in (a git worktree), or empty for the workspace of this call")}, "team", "path"),
@@ -67,6 +77,7 @@ func (a *Agent) saveAgentTool(args string) string {
 		Name         string    `json:"name"`
 		Instructions string    `json:"instructions"`
 		Tools        *[]string `json:"tools"`
+		Peers        *[]string `json:"peers"`
 	}
 	if err := decodeArgs(args, &x); err != nil {
 		return "save_agent error: " + err.Error()
@@ -87,6 +98,12 @@ func (a *Agent) saveAgentTool(args string) string {
 			_ = deleteAgentRecipe(rec.ID)
 			return "save_agent error: " + err.Error()
 		}
+		if x.Peers != nil {
+			if rec, err = setRecipePeers(rec.ID, *x.Peers); err != nil {
+				_ = deleteAgentRecipe(rec.ID)
+				return "save_agent error: " + err.Error()
+			}
+		}
 		return formatDefinition(rec, true)
 	}
 	if _, err := readAgentRecipe(id); err != nil {
@@ -99,6 +116,11 @@ func (a *Agent) saveAgentTool(args string) string {
 	}
 	if x.Tools != nil {
 		if rec, err = setRecipeTools(rec.ID, *x.Tools); err != nil {
+			return "save_agent error: " + err.Error()
+		}
+	}
+	if x.Peers != nil {
+		if rec, err = setRecipePeers(rec.ID, *x.Peers); err != nil {
 			return "save_agent error: " + err.Error()
 		}
 	}
@@ -148,12 +170,13 @@ func (a *Agent) setAgentLimitTool(args string) string {
 
 func (a *Agent) spawnAgentTool(args string) string {
 	var x struct {
-		Definition       string `json:"definition"`
-		Name             string `json:"name"`
-		Path             string `json:"path"`
-		Task             string `json:"task"`
-		SpendLimitUSD    string `json:"spend_limit_usd"`
-		SpendLimitTokens string `json:"spend_limit_tokens"`
+		Definition       string   `json:"definition"`
+		Name             string   `json:"name"`
+		Path             string   `json:"path"`
+		Task             string   `json:"task"`
+		Peers            []string `json:"peers"`
+		SpendLimitUSD    string   `json:"spend_limit_usd"`
+		SpendLimitTokens string   `json:"spend_limit_tokens"`
 	}
 	if err := decodeArgs(args, &x); err != nil {
 		return "spawn_agent error: " + err.Error()
@@ -166,12 +189,13 @@ func (a *Agent) spawnAgentTool(args string) string {
 	if err != nil {
 		return "spawn_agent error: " + err.Error()
 	}
-	started, body, err := postHostJSON("/api/agents/instances", map[string]string{
+	started, body, err := postHostJSON("/api/agents/instances", map[string]any{
 		"recipe_id":          rec.ID,
 		"name":               strings.TrimSpace(x.Name),
 		"path":               strings.TrimSpace(x.Path),
 		"workspace_id":       ws,
 		"spawner_id":         a.spawnerInstanceID(),
+		"peers":              x.Peers,
 		"spend_limit_usd":    x.SpendLimitUSD,
 		"spend_limit_tokens": x.SpendLimitTokens,
 	})
@@ -191,6 +215,10 @@ func (a *Agent) spawnAgentTool(args string) string {
 		return "spawn_agent error: " + err.Error()
 	}
 	if err := linkSpawnedInstances(a.spawnerInstanceID(), []AgentInstanceMeta{inst}); err != nil {
+		rollbackSpawn([]AgentInstanceMeta{inst})
+		return "spawn_agent error: " + err.Error()
+	}
+	if err := applySpawnContacts(inst, x.Peers); err != nil {
 		rollbackSpawn([]AgentInstanceMeta{inst})
 		return "spawn_agent error: " + err.Error()
 	}
@@ -341,6 +369,7 @@ func (a *Agent) spawnTeamLocal(team AgentTeam, ws, path string) string {
 		}
 		inst, err := createAgentInstanceForPath(rec, ws, path, rec.Name, a.spawnerInstanceID())
 		if err != nil {
+			rollbackSpawn(created)
 			return "spawn_team error: " + err.Error()
 		}
 		created = append(created, inst)
@@ -348,6 +377,12 @@ func (a *Agent) spawnTeamLocal(team AgentTeam, ws, path string) string {
 	if err := linkSpawnedInstances(a.spawnerInstanceID(), created); err != nil {
 		rollbackSpawn(created)
 		return "spawn_team error: " + err.Error()
+	}
+	for _, inst := range created {
+		if err := applySpawnContacts(inst, nil); err != nil {
+			rollbackSpawn(created)
+			return "spawn_team error: " + err.Error()
+		}
 	}
 	var b strings.Builder
 	for _, inst := range created {

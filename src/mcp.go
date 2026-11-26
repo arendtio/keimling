@@ -69,8 +69,9 @@ type MCPManager struct {
 	// refresh token is not presented twice.
 	oauthMu    sync.Mutex
 	oauthLocks map[string]*sync.Mutex
-	// startMu guards the process start script. A success is reused until
-	// Reload asks for it again or the command changes.
+	// startMu guards startCmd against a settings change while a run reads it.
+	// The success itself lives in mcpStartGate: MCP servers belong to the
+	// process, so every workspace worker shares the same start hook.
 	startMu  sync.Mutex
 	startCmd string
 	startRan string
@@ -750,6 +751,20 @@ func (a *Agent) reloadMCP(ctx context.Context) {
 	m.setServerSources(sources, names)
 	m.setStartScript(readMCPStart(a.Cfg.ConfigPath))
 	m.Reload(ctx, configs)
+}
+
+// startMCP connects the servers when a worker opens. The start hook is process
+// wide, so opening another workspace reuses a start that already succeeded.
+func (a *Agent) startMCP(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	configs, sources, names := loadMCPServers(a.Cfg.ConfigPath)
+	m := a.ensureMCP()
+	m.setServerSources(sources, names)
+	m.setStartScript(readMCPStart(a.Cfg.ConfigPath))
+	m.Close()
+	m.ConnectAll(ctx, configs)
 }
 
 // reconnectMCP replaces one server. A sign-in for that server does not

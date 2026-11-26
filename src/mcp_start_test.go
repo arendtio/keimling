@@ -92,6 +92,32 @@ func TestScriptNoticeWhileTheStartScriptRuns(t *testing.T) {
 	}
 }
 
+func TestStartScriptRunsOncePerProcess(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "runs")
+	cmd := "printf x >> " + marker
+	configs := map[string]MCPServerConfig{"quiet": {Command: "true", Disabled: true}}
+	first := NewMCPManager()
+	first.setStartScript(cmd)
+	first.ConnectAll(context.Background(), configs)
+	second := NewMCPManager()
+	second.setStartScript(cmd)
+	second.ConnectAll(context.Background(), configs)
+	b, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "x" {
+		t.Fatalf("start script ran %d times across workspaces", len(b))
+	}
+	if err := second.runStart(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(marker)
+	if string(b) != "xx" {
+		t.Fatalf("force did not run the start script again: %d", len(b))
+	}
+}
+
 func TestMCPScriptTimeoutIsFiveMinutes(t *testing.T) {
 	if mcpScriptTimeout != 5*time.Minute {
 		t.Fatal(mcpScriptTimeout)

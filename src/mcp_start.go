@@ -10,12 +10,23 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 // mcpScriptTimeout bounds a start script and a per-server script.
 // The command often waits on a sign-in, so a short limit stops it too soon.
 const mcpScriptTimeout = 5 * time.Minute
+
+// mcpStartGate is process wide. Every workspace worker opens its own MCP
+// manager, but the MCP servers and their start hook are shared by the whole
+// process, so a successful start is reused instead of running again when
+// another workspace is opened.
+var mcpStartGate struct {
+	mu  sync.Mutex
+	cmd string
+	ok  bool
+}
 
 func readMCPStart(configPath string) string {
 	configPath = strings.TrimSpace(configPath)
@@ -110,16 +121,14 @@ func (m *MCPManager) setStartScript(command string) {
 	}
 	command = strings.TrimSpace(command)
 	m.startMu.Lock()
-	if command != m.startCmd {
-		m.startOK = false
-		m.startRan = ""
-	}
 	m.startCmd = command
 	m.startMu.Unlock()
 }
 
 // runStart runs the process start script. force runs it again after a success.
 // An empty command is success. A failure is shared by every server in that pass.
+// The cache and the running command are process wide, so opening another
+// workspace does not repeat a hook that already succeeded.
 func (m *MCPManager) runStart(ctx context.Context, force bool) error {
 	if m == nil {
 		return nil
@@ -130,18 +139,19 @@ func (m *MCPManager) runStart(ctx context.Context, force bool) error {
 	if cmd == "" {
 		return nil
 	}
-	if !force && m.startOK && m.startRan == cmd {
+	mcpStartGate.mu.Lock()
+	defer mcpStartGate.mu.Unlock()
+	if !force && mcpStartGate.ok && mcpStartGate.cmd == cmd {
 		return nil
 	}
 	m.beginScript("start", "")
 	defer m.endScript()
 	err := runShellCommand(ctx, cmd)
-	m.startRan = cmd
+	mcpStartGate.cmd = cmd
+	mcpStartGate.ok = err == nil
 	if err != nil {
-		m.startOK = false
 		return fmt.Errorf("start script failed: %w", err)
 	}
-	m.startOK = true
 	return nil
 }
 

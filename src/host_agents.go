@@ -28,6 +28,7 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 			Instructions      string    `json:"instructions"`
 			Model             *string   `json:"model"`
 			Tools             *[]string `json:"tools"`
+			Peers             *[]string `json:"peers"`
 			Mode              string    `json:"mode"`
 			ReviewPrompt      *string   `json:"review_prompt"`
 			ReviewPromptReset *bool     `json:"review_prompt_reset"`
@@ -55,6 +56,14 @@ func (h *Host) handleAgentRecipes(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Tools != nil {
 			rec, err = setRecipeTools(rec.ID, *body.Tools)
+			if err != nil {
+				_ = deleteAgentRecipe(rec.ID)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if body.Peers != nil {
+			rec, err = setRecipePeers(rec.ID, *body.Peers)
 			if err != nil {
 				_ = deleteAgentRecipe(rec.ID)
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -144,13 +153,14 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"instances": out, "attached": attached})
 	case http.MethodPost:
 		var body struct {
-			RecipeID         string `json:"recipe_id"`
-			Name             string `json:"name"`
-			Path             string `json:"path"`
-			WorkspaceID      string `json:"workspace_id"`
-			SpawnerID        string `json:"spawner_id"`
-			SpendLimitUSD    string `json:"spend_limit_usd"`
-			SpendLimitTokens string `json:"spend_limit_tokens"`
+			RecipeID         string   `json:"recipe_id"`
+			Name             string   `json:"name"`
+			Path             string   `json:"path"`
+			WorkspaceID      string   `json:"workspace_id"`
+			SpawnerID        string   `json:"spawner_id"`
+			Peers            []string `json:"peers"`
+			SpendLimitUSD    string   `json:"spend_limit_usd"`
+			SpendLimitTokens string   `json:"spend_limit_tokens"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -189,6 +199,14 @@ func (h *Host) handleAgentInstances(w http.ResponseWriter, r *http.Request) {
 		// that cannot be written fails the spawn; the instance is not left
 		// behind unable to answer.
 		if err := linkSpawnedInstances(body.SpawnerID, []AgentInstanceMeta{inst}); err != nil {
+			rollbackSpawn([]AgentInstanceMeta{inst})
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Definition contacts and the peers named for this spawn join the
+		// spawner link. A missing contact fails the spawn instead of leaving an
+		// instance that cannot reach the agents it was started with.
+		if err := applySpawnContacts(inst, body.Peers); err != nil {
 			rollbackSpawn([]AgentInstanceMeta{inst})
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -361,6 +379,7 @@ func (h *Host) handleAgentRecipeUpdate(w http.ResponseWriter, r *http.Request) {
 		Instructions      string    `json:"instructions"`
 		Model             *string   `json:"model"`
 		Tools             *[]string `json:"tools"`
+		Peers             *[]string `json:"peers"`
 		Mode              string    `json:"mode"`
 		ReviewPrompt      *string   `json:"review_prompt"`
 		ReviewPromptReset *bool     `json:"review_prompt_reset"`
@@ -370,7 +389,7 @@ func (h *Host) handleAgentRecipeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reset := body.ReviewPromptReset != nil && *body.ReviewPromptReset
-	if reset && strings.TrimSpace(body.Name) == "" && body.Instructions == "" && body.Tools == nil && body.Model == nil {
+	if reset && strings.TrimSpace(body.Name) == "" && body.Instructions == "" && body.Tools == nil && body.Peers == nil && body.Model == nil {
 		rec, err := setRecipeApproval(body.ID, body.Mode, nil, true)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -394,6 +413,13 @@ func (h *Host) handleAgentRecipeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Tools != nil {
 		rec, err = setRecipeTools(rec.ID, *body.Tools)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if body.Peers != nil {
+		rec, err = setRecipePeers(rec.ID, *body.Peers)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -564,8 +590,9 @@ func (h *Host) handleAgentInstanceAccess(w http.ResponseWriter, r *http.Request)
 			if other.ID == m.ID {
 				continue
 			}
+			fixed := definitionPeersAllow(m, other)
 			peers = append(peers, map[string]any{
-				"id": other.ID, "name": other.Name, "granted": agentsMayContact(m, other),
+				"id": other.ID, "name": other.Name, "granted": agentsMayContact(m, other), "fixed": fixed,
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -821,6 +848,14 @@ func (h *Host) handleAgentTeamSpawn(w http.ResponseWriter, r *http.Request) {
 		rollbackSpawn(created)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	// A member also reaches the instances its definition names as contacts.
+	for _, inst := range created {
+		if err := applySpawnContacts(inst, nil); err != nil {
+			rollbackSpawn(created)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	h.mu.Lock()
 	h.focusWorkspace = wsID

@@ -590,8 +590,25 @@ func peersContain(list []string, id string) bool {
 	return false
 }
 
-// agentsMayContact is true when either instance lists the other. A saved link
-// works in both directions so the receiver can reply.
+// definitionPeersAllow reports a contact declared by either definition. It is
+// read at call time, so editing a definition changes existing instances too.
+// The two instances must share a workspace.
+func definitionPeersAllow(a, b AgentInstanceMeta) bool {
+	if !workspacesOverlap(a.Workspaces, b.Workspaces) {
+		return false
+	}
+	if rec, err := readAgentRecipe(a.RecipeID); err == nil && peersContain(rec.Peers, b.RecipeID) {
+		return true
+	}
+	if rec, err := readAgentRecipe(b.RecipeID); err == nil && peersContain(rec.Peers, a.RecipeID) {
+		return true
+	}
+	return false
+}
+
+// agentsMayContact is true when either instance lists the other, their
+// definitions declare the contact, or one spawned the other. A saved link works
+// in both directions so the receiver can reply.
 func agentsMayContact(a, b AgentInstanceMeta) bool {
 	if a.ID == "" || b.ID == "" || a.ID == b.ID {
 		return false
@@ -601,7 +618,10 @@ func agentsMayContact(a, b AgentInstanceMeta) bool {
 	if a.Spawner == b.ID || b.Spawner == a.ID {
 		return true
 	}
-	return peersContain(a.Peers, b.ID) || peersContain(b.Peers, a.ID)
+	if peersContain(a.Peers, b.ID) || peersContain(b.Peers, a.ID) {
+		return true
+	}
+	return definitionPeersAllow(a, b)
 }
 
 // setAgentInstancePeers stores the instances id may contact and writes the
@@ -713,6 +733,45 @@ func linkAgentInstances(a, b string) error {
 		return err
 	}
 	return writeSpawnPeerLink(b, a)
+}
+
+func workspacesOverlap(a, b []string) bool {
+	for _, one := range a {
+		for _, two := range b {
+			if strings.TrimSpace(one) != "" && strings.TrimSpace(one) == strings.TrimSpace(two) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// linkExplicitPeers connects a new instance with the instances a spawn names.
+func linkExplicitPeers(instID string, refs []string) error {
+	for _, ref := range refs {
+		if strings.TrimSpace(ref) == "" {
+			continue
+		}
+		peer, err := resolveAgentInstance(ref)
+		if err != nil {
+			return err
+		}
+		if peer.ID == instID {
+			continue
+		}
+		if err := linkAgentInstances(instID, peer.ID); err != nil {
+			return fmt.Errorf("contact %s and %s: %w", instID, peer.ID, err)
+		}
+	}
+	return nil
+}
+
+// applySpawnContacts writes the contacts a spawn asked for explicitly. Contacts
+// declared by a definition are not copied into the instance: agentsMayContact
+// reads them from the definition, so editing the definition reaches every
+// existing instance.
+func applySpawnContacts(inst AgentInstanceMeta, explicit []string) error {
+	return linkExplicitPeers(inst.ID, explicit)
 }
 
 // dropAgentInstancePeers removes ids from the contacts of every instance that

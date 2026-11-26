@@ -144,6 +144,180 @@ func TestSpawnTeamLinksEveryMember(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentLinksDefinitionAndExplicitPeers(t *testing.T) {
+	withTempAgentHomes(t)
+	noHostEnv(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	watcher, err := createAgentRecipe("Watcher", "Watch.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := createAgentRecipe("Target", "Be watched.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buddyRecipe, err := createAgentRecipe("Buddy", "Help.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipePeers(watcher.ID, []string{target.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(target, ws.ID, "Target One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(buddyRecipe, ws.ID, "Buddy One"); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{WorkspaceID: ws.ID}}
+	if out := a.runDefineAgentTool("spawn_agent", `{"definition":"Watcher","name":"Watcher One","peers":["Buddy One"]}`); strings.Contains(out, "error") {
+		t.Fatal(out)
+	}
+	spawned := instanceNamed(t, "Watcher One")
+	one := instanceNamed(t, "Target One")
+	buddy := instanceNamed(t, "Buddy One")
+	if !agentsMayContact(spawned, one) || !agentsMayContact(one, spawned) {
+		t.Fatalf("definition contact missing: spawned %v target %v", spawned.Peers, one.Peers)
+	}
+	if !peersContain(spawned.Peers, buddy.ID) || !peersContain(buddy.Peers, spawned.ID) {
+		t.Fatalf("explicit contact missing: spawned %v buddy %v", spawned.Peers, buddy.Peers)
+	}
+}
+
+func TestDefinitionPeerEditReachesExistingInstances(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	aRec, err := createAgentRecipe("A", "A.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bRec, err := createAgentRecipe("B", "B.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(aRec, ws.ID, "A One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(bRec, ws.ID, "B One"); err != nil {
+		t.Fatal(err)
+	}
+	a := instanceNamed(t, "A One")
+	b := instanceNamed(t, "B One")
+	if agentsMayContact(a, b) {
+		t.Fatal("unexpected contact before the definition names one")
+	}
+	if _, err := setRecipePeers(aRec.ID, []string{bRec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if !agentsMayContact(a, b) || !agentsMayContact(b, a) {
+		t.Fatal("definition contact is not visible to existing instances")
+	}
+	if _, err := setRecipePeers(aRec.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if agentsMayContact(a, b) || agentsMayContact(b, a) {
+		t.Fatal("removed definition contact still works")
+	}
+	if _, err := setRecipePeers(bRec.ID, []string{aRec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if !agentsMayContact(a, b) || !agentsMayContact(b, a) {
+		t.Fatal("contact declared by the other definition is missing")
+	}
+}
+
+func TestDefinitionPeersStayInsideSharedWorkspaces(t *testing.T) {
+	withTempAgentHomes(t)
+	noHostEnv(t)
+	one, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	watcher, err := createAgentRecipe("Watcher", "Watch.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := createAgentRecipe("Target", "Be watched.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setRecipePeers(watcher.ID, []string{target.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(target, two.ID, "Far Target"); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{WorkspaceID: one.ID}}
+	if out := a.runDefineAgentTool("spawn_agent", `{"definition":"Watcher","name":"Near Watcher"}`); strings.Contains(out, "error") {
+		t.Fatal(out)
+	}
+	spawned := instanceNamed(t, "Near Watcher")
+	far := instanceNamed(t, "Far Target")
+	if agentsMayContact(spawned, far) || agentsMayContact(far, spawned) {
+		t.Fatalf("contact crossed workspaces: spawned %v far %v", spawned.Peers, far.Peers)
+	}
+}
+
+func TestSaveAgentStoresDefinitionPeers(t *testing.T) {
+	withTempAgentHomes(t)
+	a := &Agent{}
+	if out := a.runDefineAgentTool("save_agent", `{"id":"","name":"A","instructions":"A.","tools":["exec"],"peers":[]}`); strings.Contains(out, "error") {
+		t.Fatal(out)
+	}
+	if out := a.runDefineAgentTool("save_agent", `{"id":"","name":"B","instructions":"B.","tools":["exec"]}`); strings.Contains(out, "error") {
+		t.Fatal(out)
+	}
+	if out := a.runDefineAgentTool("save_agent", `{"id":"","name":"C","instructions":"C.","tools":["exec"],"peers":["A"]}`); strings.Contains(out, "error") {
+		t.Fatal(out)
+	}
+	c := recipeNamed(t, "C")
+	var aRec AgentRecipe
+	for _, rec := range mustRecipes(t) {
+		if rec.Name == "A" {
+			aRec = rec
+		}
+	}
+	if len(c.Peers) != 1 || c.Peers[0] != aRec.ID {
+		t.Fatalf("peers: %v", c.Peers)
+	}
+	if out := a.runDefineAgentTool("save_agent", `{"id":"`+c.ID+`","peers":[]}`); strings.Contains(out, "error") {
+		t.Fatal(out)
+	}
+	if got := recipeNamed(t, "C"); len(got.Peers) != 0 {
+		t.Fatalf("peers not cleared: %v", got.Peers)
+	}
+}
+
+func recipeNamed(t *testing.T, name string) AgentRecipe {
+	t.Helper()
+	for _, rec := range mustRecipes(t) {
+		if rec.Name == name {
+			return rec
+		}
+	}
+	t.Fatalf("no definition named %q", name)
+	return AgentRecipe{}
+}
+
+func mustRecipes(t *testing.T) []AgentRecipe {
+	t.Helper()
+	list, err := listAgentRecipes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return list
+}
+
 func TestSpawnTeamLinksTheSpawningAgentWithEveryMember(t *testing.T) {
 	withTempAgentHomes(t)
 	noHostEnv(t)
@@ -328,6 +502,37 @@ func TestHostTeamSpawnReportsAContactThatCannotBeWritten(t *testing.T) {
 	list, err := listAgentInstances()
 	if err != nil || len(list) != 1 || list[0].ID != caller.ID {
 		t.Fatalf("host team spawn left unlinked instances: %v %v", instanceIDs(list), err)
+	}
+}
+
+func TestHostSpawnAgentLinksNamedPeers(t *testing.T) {
+	withTempAgentHomes(t)
+	ws, err := ensureWorkspaceForRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, err := createAgentRecipe("Pair", "Talk.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buddyRecipe, err := createAgentRecipe("Buddy", "Help.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := createAgentInstance(buddyRecipe, ws.ID, "Buddy One"); err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{}
+	body := `{"recipe_id":"` + recipe.ID + `","name":"Child","workspace_id":"` + ws.ID + `","peers":["Buddy One"]}`
+	rec := httptest.NewRecorder()
+	h.handleAgentInstances(rec, httptest.NewRequest(http.MethodPost, "/api/agents/instances", strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("spawn: %d %s", rec.Code, rec.Body.String())
+	}
+	child := instanceNamed(t, "Child")
+	buddy := instanceNamed(t, "Buddy One")
+	if !peersContain(child.Peers, buddy.ID) || !peersContain(buddy.Peers, child.ID) {
+		t.Fatalf("named contact missing: child %v buddy %v", child.Peers, buddy.Peers)
 	}
 }
 

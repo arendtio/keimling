@@ -721,6 +721,11 @@
               <p class="hint">Read and write are separate. The names beside a check are the tools it turns on. An instance can only narrow this.</p>
               <div id="agent-def-create-tools" class="agent-tool-matrix"></div>
             </section>
+            <section>
+              <h3 class="settings-section-title">Contacts</h3>
+              <p class="hint">Definitions this kind of agent may message. Instances of those definitions may contact each other in a shared workspace. An edit applies to existing instances too.</p>
+              <div id="agent-def-create-peers" class="agent-check-grid"></div>
+            </section>
             <div class="skills-row">
               <button type="button" id="agent-def-create-back" class="ghost">Back</button>
               <button type="button" id="agent-def-create-save">Save definition</button>
@@ -764,6 +769,11 @@
               <p class="hint">Read and write are separate. The names beside a check are the tools it turns on. An instance can only narrow this.</p>
               <div id="agent-def-edit-tools" class="agent-tool-matrix"></div>
             </section>
+            <section>
+              <h3 class="settings-section-title">Contacts</h3>
+              <p class="hint">Definitions this kind of agent may message. Instances of those definitions may contact each other in a shared workspace. An edit applies to existing instances too.</p>
+              <div id="agent-def-edit-peers" class="agent-check-grid"></div>
+            </section>
             <div class="skills-row">
               <button type="button" id="agent-def-edit-back" class="ghost">Back</button>
               <button type="button" id="agent-def-edit-save">Save</button>
@@ -779,6 +789,11 @@
               <input id="agent-instance-name" type="text" autocomplete="off" placeholder="Name in the sidebar">
             </label>
             <p class="hint">Starts in the current workspace and uses the definition’s tools. Workspaces and a narrower tool set are set with Access.</p>
+            <section>
+              <h3 class="settings-section-title">Contacts</h3>
+              <p class="hint">Instances this one may message, in addition to the contacts its definition declares.</p>
+              <div id="agent-instance-peers" class="agent-check-grid"></div>
+            </section>
             <div class="skills-row">
               <button type="button" id="agent-def-instance-back" class="ghost">Back</button>
               <button type="button" id="agent-def-instance-create">Create instance</button>

@@ -24,7 +24,11 @@ type AgentRecipe struct {
 	// day. Nil or zero means no cap.
 	SpendLimitUSD *float64 `json:"spend_limit_usd,omitempty"`
 	// Tools is nil until the definition saves a tool choice. Nil grants every tool.
-	Tools      *[]string `json:"tools,omitempty"`
+	Tools *[]string `json:"tools,omitempty"`
+	// Peers lists definition ids this kind of agent may contact. Every instance
+	// of the definition reads this list at call time, so an edit reaches
+	// instances that already exist.
+	Peers      []string  `json:"peers,omitempty"`
 	Skills     []string  `json:"skills,omitempty"`
 	MCPServers []string  `json:"mcp_servers,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -277,6 +281,22 @@ func setRecipeTools(id string, tools []string) (AgentRecipe, error) {
 		return AgentRecipe{}, err
 	}
 	r.Tools = &next
+	if err := writeAgentRecipe(r); err != nil {
+		return AgentRecipe{}, err
+	}
+	return r, nil
+}
+
+func setRecipePeers(id string, peers []string) (AgentRecipe, error) {
+	r, err := readAgentRecipe(id)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	next, err := resolveRecipeRefs(peers)
+	if err != nil {
+		return AgentRecipe{}, err
+	}
+	r.Peers = next
 	if err := writeAgentRecipe(r); err != nil {
 		return AgentRecipe{}, err
 	}

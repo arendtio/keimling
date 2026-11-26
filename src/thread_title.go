@@ -112,7 +112,11 @@ func callTitleSeed(history []json.RawMessage) string {
 }
 
 func (s *appServer) noteCallThreadTitle() {
-	if s == nil || s.agent == nil || strings.TrimSpace(s.agent.Cfg.AgentInstanceID) != "" || s.agent.Cfg.WorkspaceID == "" {
+	if s == nil {
+		return
+	}
+	agent := s.realtimeCallAgent()
+	if agent == nil || strings.TrimSpace(agent.Cfg.AgentInstanceID) != "" || agent.Cfg.WorkspaceID == "" {
 		return
 	}
 	s.mu.Lock()
@@ -125,7 +129,6 @@ func (s *appServer) noteCallThreadTitle() {
 		s.callTitleStarted = time.Now()
 	}
 	started := s.callTitleStarted
-	agent := s.agent
 	s.mu.Unlock()
 	go func() {
 		defer func() {
