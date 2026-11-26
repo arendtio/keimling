@@ -42,10 +42,11 @@ const (
 
 // prepared is the workspace a scenario run starts in.
 type prepared struct {
-	Root        string
-	DataHome    string
-	PriorResult string
-	Watch       map[string]string
+	Root          string
+	DataHome      string
+	PriorResult   string
+	AgentInstance string
+	Watch         map[string]string
 }
 
 func prepare(id, specSetup string) (*prepared, error) {
@@ -110,6 +111,9 @@ func prepare(id, specSetup string) (*prepared, error) {
 	case "operations-watch":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, operationsWatchPrior(), 0o600)
+		if err == nil {
+			err = p.writeAgentInstance()
+		}
 	case "large-page":
 		p.PriorResult = filepath.Join(data, "prior.json")
 		err = os.WriteFile(p.PriorResult, largePagePrior(), 0o600)
@@ -396,6 +400,46 @@ func transformPrior() []byte {
 	}
 	b, _ := json.Marshal(doc)
 	return b
+}
+
+func (p *prepared) writeAgentInstance() error {
+	wsid := workspaceID(p.Root)
+	ws := filepath.Join(p.DataHome, "keimling", "workspaces", wsid)
+	if err := os.MkdirAll(ws, 0o700); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if err := writeJSON(filepath.Join(ws, "meta.json"), map[string]any{
+		"id": wsid, "name": "Scenario", "root": canonical(p.Root), "updated_at": now,
+	}); err != nil {
+		return err
+	}
+	id := "agent-scenario-watch"
+	recipeID := "recipe-scenario-watch"
+	dir := filepath.Join(p.DataHome, "keimling", "agent-instances", id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	agents := filepath.Join(p.DataHome, "config-home", "keimling", "agents")
+	if err := os.MkdirAll(agents, 0o700); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(agents, recipeID+".json"), map[string]any{
+		"id": recipeID, "name": "Watch Agent", "instructions": "Run the scenario task.",
+		"tools":      []string{"create_watch", "list_watches", "cancel_watch", "exec", "read_file", "data_processing", "update_plan", "finish_task", "find_tools"},
+		"updated_at": now,
+	}); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(dir, "meta.json"), map[string]any{
+		"id": id, "recipe_id": recipeID, "name": "Watch Agent", "workspaces": []string{wsid},
+		"current_workspace": wsid, "status": "idle",
+		"created_at": now, "updated_at": now,
+	}); err != nil {
+		return err
+	}
+	p.AgentInstance = id
+	return nil
 }
 
 func (p *prepared) writeOtherChat() error {

@@ -2,6 +2,7 @@
   "task": "Ein Projekt-Update fuer 02-keimling laeuft bereits. In der letzten Tool-Antwort steht expected_finish_at. Sorge dafuer, dass du genau zu diesem Zeitpunkt weiterarbeitest. Beende diesen Turn nach dem Vereinbaren der Fortsetzung und nenne das Projekt und den geplanten Zeitpunkt.",
   "setup": "operations-watch",
   "answer_needles": ["02-keimling"],
+  "require_tools": ["create_watch"],
   "prefer_every": ["create_watch"],
-  "forbid_arguments": ["sleep"]
+  "forbid_exec": ["sleep"]
 }

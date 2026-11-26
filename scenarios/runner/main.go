@@ -215,6 +215,9 @@ func oneRun(repo, bin, id string, spec scenarioSpec, commit string, n int) (scen
 		return scenarioCard{}, err
 	}
 	args := []string{"--cli", "--oneshot", "--mode", "yolo", "--web=false", "--autopilot=false", "--resume=false", "--check-model=false", "--config", cfg}
+	if prep.AgentInstance != "" {
+		args = append(args, "--agent-instance", prep.AgentInstance)
+	}
 	if prep.PriorResult != "" {
 		args = append(args, "--prior-result", prep.PriorResult)
 	}
@@ -240,6 +243,11 @@ func oneRun(repo, bin, id string, spec scenarioSpec, commit string, n int) (scen
 		results, _ = os.ReadFile(session + ".results.json")
 	}
 	card := scoreRun(id, spec, items, results, unchanged(prep.Watch), model, commit, inTok, outTok, dur)
+	if session == "" && runErr != nil {
+		card.Passed = false
+		card.OutcomeOK = false
+		card.Failures = append(card.Failures, "no session: "+strings.TrimSpace(stderr.String()+" "+runErr.Error()))
+	}
 	if runErr != nil && card.OutcomeOK {
 		card.Passed = false
 		card.OutcomeOK = false

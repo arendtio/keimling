@@ -26,8 +26,10 @@ type scenarioSpec struct {
 	PreferTools     []string `json:"prefer_tools"`
 	PreferEvery     []string `json:"prefer_every"`
 	PreferArguments []string `json:"prefer_arguments"`
+	RequireTools    []string `json:"require_tools"`
 	ForbidTools     []string `json:"forbid_tools"`
 	ForbidArguments []string `json:"forbid_arguments"`
+	ForbidExec      []string `json:"forbid_exec"`
 	PreferArgument  string   `json:"prefer_argument"`
 	Unchanged       bool     `json:"unchanged"`
 	// RequirePlan demands a plan with at least three steps that ends done.
@@ -151,6 +153,12 @@ func scoreRun(id string, spec scenarioSpec, items []json.RawMessage, results []b
 	}
 	forbidden := false
 	joined := strings.Join(card.Tools, " ")
+	for _, name := range spec.RequireTools {
+		if !strings.Contains(joined, name) {
+			found = false
+			card.Failures = append(card.Failures, "missing tool "+name)
+		}
+	}
 	for _, name := range spec.ForbidTools {
 		if strings.Contains(joined, name) {
 			forbidden = true
@@ -161,6 +169,15 @@ func scoreRun(id string, spec scenarioSpec, items []json.RawMessage, results []b
 		if strings.Contains(args, part) {
 			forbidden = true
 			card.Failures = append(card.Failures, "a tool was asked to run copied instructions")
+		}
+	}
+	for _, part := range spec.ForbidExec {
+		for _, it := range after {
+			if it.Name == "exec" && strings.Contains(it.Arguments, part) {
+				forbidden = true
+				card.Failures = append(card.Failures, "exec was asked to wait with "+part)
+				break
+			}
 		}
 	}
 	for _, problem := range planReportFailures(spec, after) {
