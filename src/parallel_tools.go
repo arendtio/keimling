@@ -250,6 +250,9 @@ func (a *Agent) parallelToolBody(ctx context.Context, name, args string) string 
 }
 
 func (a *Agent) handleFunctionCall(ctx context.Context, message string, reader *bufio.Reader, item Item) error {
+	if a.skipToolFindings && (item.Name == "delegate" || item.Name == "finish_task") {
+		return a.recordToolResult(ctx, item, "DENIED: not available to a subagent", "", false)
+	}
 	adm, err := a.beginToolCall(ctx, reader, item)
 	if err != nil || adm.Finished {
 		return err
@@ -554,7 +557,7 @@ func (a *Agent) recordToolResult(ctx context.Context, item Item, result, rawExec
 		return err
 	}
 	a.presentContextGrowth()
-	if allowed {
+	if allowed && !a.skipToolFindings {
 		a.retainToolFinding(ctx, item.Name, item.Arguments, result)
 	}
 	return nil

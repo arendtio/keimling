@@ -53,6 +53,10 @@ type Agent struct {
 	// toolData holds tool results the model can name without receiving the bytes.
 	toolData        *dataStore
 	toolDataPending *dataPending
+	// skipToolFindings keeps a nested delegate run from spending a model call
+	// on a finding for every tool result. The raw result is already in its
+	// temporary transcript.
+	skipToolFindings bool
 	// branchHold is the parent tail for a continuation that has not been written yet.
 	branchHold      *tailSnap
 	branchPending   int

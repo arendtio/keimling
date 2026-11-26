@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -365,4 +366,69 @@ func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	u, _ := copy.URL.Parse(r.endpoint)
 	copy.URL = u
 	return r.base.RoundTrip(copy)
+}
+
+func TestDelegateToolGrantDropsRecursionAndFinish(t *testing.T) {
+	got := delegateToolGrant(true, nil, nil)
+	joined := " " + strings.Join(got, " ") + " "
+	for _, want := range []string{" exec ", " read_file ", " data_processing "} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("grant misses %s: %v", want, got)
+		}
+	}
+	for _, no := range []string{" delegate ", " finish_task "} {
+		if strings.Contains(joined, no) {
+			t.Fatalf("grant keeps %s: %v", no, got)
+		}
+	}
+	got = delegateToolGrant(true, nil, []string{"exec", "delegate", "finish_task"})
+	if len(got) != 1 || got[0] != "exec" {
+		t.Fatalf("explicit grant = %v", got)
+	}
+}
+
+func TestDelegateRejectsUnknownToolsAndSourceWithTools(t *testing.T) {
+	a := &Agent{Client: &Client{}}
+	if _, err := a.runDelegate(context.Background(), DelegateArgs{Task: "x", Profile: "fast", Tools: "bogus"}); err == nil || !strings.Contains(err.Error(), "none or all") {
+		t.Fatalf("unknown tools: %v", err)
+	}
+	if _, err := a.runDelegate(context.Background(), DelegateArgs{Task: "x", Profile: "fast", Tools: "all", Source: "notes.txt"}); err == nil || !strings.Contains(err.Error(), "not a source") {
+		t.Fatalf("source with tools: %v", err)
+	}
+}
+
+func TestDelegateAgentUsesToolsAndReturnsOnlyTheAnswer(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			fmt.Fprint(w, `{"status":"completed","output":[{"type":"function_call","name":"read_file","call_id":"c1","arguments":"{\"path\":\"note.txt\",\"start_line\":0,\"end_line\":0}"}],"usage":{"input_tokens":10,"output_tokens":3}}`)
+			return
+		}
+		fmt.Fprint(w, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ANSWER: hello"}]}],"usage":{"input_tokens":12,"output_tokens":4}}`)
+	}))
+	defer srv.Close()
+	c := NewClient("")
+	c.BaseURL = srv.URL
+	c.HTTP = srv.Client()
+	a := &Agent{Client: c, Cfg: Config{Mode: "yolo", DelegateFast: "mock-model", WorkspaceRoot: dir, ThreadID: "test"}}
+	answer, err := a.runDelegate(context.Background(), DelegateArgs{Task: "read note.txt", Profile: "fast", Tools: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer != "ANSWER: hello" || calls != 2 {
+		t.Fatalf("answer=%q calls=%d", answer, calls)
+	}
 }

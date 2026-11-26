@@ -20,6 +20,7 @@ type DelegateArgs struct {
 	Profile string `json:"profile"`
 	Image   string `json:"image"`
 	Source  string `json:"source"`
+	Tools   string `json:"tools"`
 }
 
 // delegateImage is the picture attached to one isolated call.
@@ -54,6 +55,20 @@ func readDelegateImage(path string) (delegateImage, error) {
 func (a *Agent) runDelegate(ctx context.Context, args DelegateArgs) (string, error) {
 	if a == nil || a.Client == nil {
 		return "", errors.New("no API client")
+	}
+	switch strings.TrimSpace(args.Tools) {
+	case "", "none":
+	case "all":
+		if strings.TrimSpace(args.Source) != "" || strings.TrimSpace(args.Image) != "" {
+			return "", errors.New("delegate with tools=all takes a task and context, not a source or image")
+		}
+		model, effort, err := a.delegateProfile(args.Profile)
+		if err != nil {
+			return "", err
+		}
+		return a.runDelegateAgent(ctx, args, model, effort)
+	default:
+		return "", fmt.Errorf("delegate tools must be none or all, not %q", args.Tools)
 	}
 	if strings.TrimSpace(args.Source) != "" {
 		if strings.TrimSpace(args.Image) != "" {

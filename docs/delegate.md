@@ -1,41 +1,33 @@
 # Delegate and subagents
 
-`delegate` is currently one model call. It has no tools, no MCP, no file
-access, and no main conversation history; `source`, `context`, and `image` are
-the only inputs. That is why a request to fetch a wiki page through `delegate`
-must fail: the delegate cannot call the wiki tool.
+`delegate` has two modes.
 
-The open question is whether `delegate` should also be able to act as a
-subagent with the caller's tools, permission-scoped.
+`tools: "none"` (the default) is one model call. It has no tools, no MCP, no
+file access, and no main conversation history; `source`, `context`, and `image`
+are the only inputs. This is the bounded second opinion.
 
-## Options
+`tools: "all"` runs a nested agent loop with the caller's tools. It takes a
+task and context only; a source or image belongs to the tool-less mode.
 
-1. **One tool, `tools` parameter.** `tools: "none"` keeps today's bounded
-   second opinion. `tools: "all"` runs a nested agent loop with the caller's
-   granted tools. This keeps one name and one mental model.
-2. **Two tools.** `delegate` stays a model call; `subagent` is a separate tool
-   for work that needs tools. Clearer, but the model has to choose between two
-   similar names.
+## The nested loop
 
-## Shape of `tools: "all"`
-
-- The nested loop uses the caller's model profile, instructions, credentials,
-  MCP manager, approval channel, and workspace.
-- Its tool list is `filterGrantedTools(caller.chatExtraTools(),
-  caller.instanceToolGrant())`, minus `delegate`. No recursion.
+- It uses the caller's model profile, workspace, credentials, MCP manager, and
+  approval channel.
+- The tool list is `filterGrantedTools(caller.chatExtraTools(),
+  caller.instanceToolGrant())`, with `delegate` and `finish_task` removed.
+  `delegate` would recurse; `finish_task` belongs to the parent task. A caller
+  that grants nothing still grants nothing.
 - Every tool call goes through the normal approval gate. A subagent cannot
   approve an action; a call that would ask the user asks the same user.
-- The nested journal is temporary. Only the final answer returns to the parent;
-  the parent's history does not receive every subagent tool result. This is the
-  token saving.
-- A step cap (start with 12) and the caller's spend budget bound the loop.
-- The answer says which tools ran and what was verified. Unverified claims stay
-  unverified.
+- The subagent writes a temporary journal. Only its final answer returns to the
+  parent, so its tool results do not flood the parent transcript.
+- The loop stops after 12 steps. A missing final answer is an error, not a
+  half-finished transcript.
+- Tool findings are skipped inside the subagent: the raw result is already in
+  its temporary transcript, and a finding would cost one more model call per
+  tool.
 
-## Recommendation
+## Why not always `all`
 
-Add the `tools` parameter, keep `"none"` as the default for cost and
-predictability, and make `"all"` opt-in. `"all"` is not a wider permission: it
-is exactly the caller's grant, and it still asks when the caller would ask.
-A separate `subagent` tool only becomes worthwhile if its prompt or budget
-should differ from `delegate`.
+The tool-less call is cheaper, predictable, and has no side effects. A
+subagent that can edit files or run commands should be a deliberate choice.
