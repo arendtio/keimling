@@ -87,6 +87,9 @@ func TestReadFileLargeWholeFileIsAPreview(t *testing.T) {
 	if strings.Contains(got, "MARKER-TAIL") || !strings.Contains(got, "path: big.txt") || !strings.Contains(got, "preview:") {
 		t.Fatalf("whole file: %s", got)
 	}
+	if !strings.Contains(got, "only the head is shown") {
+		t.Fatalf("whole file preview must say the tail is missing: %s", got)
+	}
 	got = executeTool(context.Background(), "read_file", `{"path":"big.txt","start_line":2001,"end_line":2001}`)
 	if !strings.Contains(got, "MARKER-TAIL") || !strings.Contains(got, "hash:") {
 		t.Fatalf("range: %s", got)

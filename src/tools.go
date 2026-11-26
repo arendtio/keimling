@@ -92,13 +92,19 @@ func readFilePreview(path string, st os.FileInfo) string {
 		return fmt.Sprintf("path: %s\nbytes: %d\nlines: %d\nshape:\n%s", path, len(data), len(fileLines(data)), shape)
 	}
 	prev := data
+	truncated := false
 	if len(prev) > preview {
 		prev = prev[:preview]
 		if i := bytes.LastIndexByte(prev, '\n'); i > 0 {
 			prev = prev[:i+1]
 		}
+		truncated = true
 	}
-	return fmt.Sprintf("path: %s\nbytes: %d\nlines: %d\npreview:\n%s", path, len(data), len(fileLines(data)), prev)
+	out := fmt.Sprintf("path: %s\nbytes: %d\nlines: %d\npreview:\n%s", path, len(data), len(fileLines(data)), prev)
+	if truncated {
+		out += "note: only the head is shown; read a line range for the rest.\n"
+	}
+	return out
 }
 
 func binaryFileNote(path string, size int64, sample []byte) string {
