@@ -114,6 +114,7 @@ func TestShowArtifactRejectsOutside(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	outsideTemp(t)
 
 	a := &Agent{Cfg: Config{WorkspaceID: "ws-art"}, Shares: newFileShareHub(), Artifacts: newArtifactHub()}
 	out := a.showArtifact(`{"path":` + mustJSON(outside) + `,"title":"x"}`)
@@ -134,6 +135,7 @@ func TestAutoApprovedShowArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	outsideTemp(t)
 	_ = os.WriteFile("a.html", []byte("<html></html>"), 0o644)
 	if !autoApproved("show_artifact", `{"path":"a.html","title":"t"}`) {
 		t.Fatal("expected auto approve inside cwd")

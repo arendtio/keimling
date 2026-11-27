@@ -64,6 +64,7 @@ func TestAutoApprovedFileEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chdir(old)
+	outsideTemp(t)
 	if err := os.WriteFile("a.txt", []byte("alpha\n"), 0600); err != nil {
 		t.Fatal(err)
 	}

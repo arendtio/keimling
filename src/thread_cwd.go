@@ -192,12 +192,38 @@ func locatePath(root, cwd, path string) string {
 	return out
 }
 
+// workspaceSideRoots lists directories outside the workspace that count as part
+// of it: the temp directory for scratch work, and this workspace's artifact
+// copies under the data home. Thread journals and meta.json stay out, so the
+// artifact directory is the only side dir taken over.
+func workspaceSideRoots(root string) []string {
+	var out []string
+	if tmp := strings.TrimSpace(os.TempDir()); tmp != "" {
+		if abs, err := filepath.Abs(tmp); err == nil && abs != string(filepath.Separator) {
+			out = append(out, abs)
+		}
+	}
+	if strings.TrimSpace(root) != "" {
+		out = append(out, workspaceArtifactsDir(workspaceIDForRoot(root)))
+	}
+	return out
+}
+
 func inWorkspace(root, cwd, path string) bool {
 	abs := locatePath(root, cwd, path)
-	if strings.TrimSpace(root) == "" {
-		return insideWorkingDir(abs)
+	inside := insideWorkingDir(abs)
+	if strings.TrimSpace(root) != "" {
+		inside = pathInside(root, abs)
 	}
-	return pathInside(root, abs)
+	if inside {
+		return true
+	}
+	for _, extra := range workspaceSideRoots(root) {
+		if pathInside(extra, abs) {
+			return true
+		}
+	}
+	return false
 }
 
 func pathInWorkspace(ctx context.Context, path string) bool {

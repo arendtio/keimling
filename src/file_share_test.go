@@ -103,6 +103,7 @@ func TestShareFileAutoApproved(t *testing.T) {
 	cwd, _ := os.Getwd()
 	_ = os.Chdir(dir)
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	outsideTemp(t)
 	_ = os.WriteFile("x.txt", []byte("x"), 0o600)
 	if !autoApproved("share_file", `{"path":"x.txt"}`) {
 		t.Fatal("expected auto approve in cwd")

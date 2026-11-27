@@ -103,7 +103,13 @@ func TestPolicyFileEditTargetsAreChecked(t *testing.T) {
 	if forced, why := forceApproval("write_file", `{"path":"new.txt","content":"x\n"}`); forced {
 		t.Fatalf("new write should not force: %v %q", forced, why)
 	}
-	if forced, why := forceApproval("write_file", `{"path":"../x.txt","content":"x\n"}`); !forced || why != "write outside working directory" {
+	// The temp tree counts as part of the workspace; a path outside it is still
+	// a hard-floor write.
+	if forced, why := forceApproval("write_file", `{"path":`+jsonQuote(filepath.Join(os.TempDir(), "scratch.txt"))+`,"content":"x\n"}`); forced {
+		t.Fatalf("temp write should not force: %v %q", forced, why)
+	}
+	outside := filepath.Join(os.TempDir(), "..", "etc", "x.txt")
+	if forced, why := forceApproval("write_file", `{"path":`+jsonQuote(outside)+`,"content":"x\n"}`); !forced || why != "write outside working directory" {
 		t.Fatalf("unexpected verdict: %v %q", forced, why)
 	}
 	if forced, why := forceApproval("edit_file", `{"path":"a.txt","old_string":"x\n","new_string":"y\n","replace_all":false}`); forced {

@@ -364,21 +364,46 @@ func insideWorkingDir(path string) bool {
 	return pathInside(cwd, path)
 }
 
-// pathInside reports whether path resolves inside root.
+// pathInside reports whether path resolves inside root. Both sides are
+// canonicalised first, so a symlink cannot point past the boundary.
 func pathInside(root, path string) bool {
-	root, err := filepath.Abs(root)
-	if err != nil {
+	if _, err := filepath.Abs(root); err != nil {
 		return false
 	}
-	p, err := filepath.Abs(path)
-	if err != nil {
+	if _, err := filepath.Abs(path); err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(root, p)
+	rel, err := filepath.Rel(canonicalForCheck(root), canonicalForCheck(path))
 	if err != nil {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// canonicalForCheck resolves symlinks the way the file would be opened, also for
+// a path that does not exist yet: the deepest existing ancestor is resolved and
+// the missing tail is appended.
+func canonicalForCheck(path string) string {
+	p, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	tail := ""
+	cur := p
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		tail = filepath.Join(filepath.Base(cur), tail)
+		cur = parent
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(resolved, tail)
+		}
+	}
 }
 
 const defaultPolicy = `You are a command approval reviewer, independent from the acting assistant. Prefer approve for clearly read-only, low-risk work; ask only when there is a real safety concern.

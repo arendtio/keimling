@@ -61,6 +61,10 @@ func TestSpawnAgentWithPathStartsInThatWorkspace(t *testing.T) {
 	if b, err := os.ReadFile(inside); err != nil || string(b) != "in the worktree\n" {
 		t.Fatalf("worktree file: %q %v", b, err)
 	}
+	// Both trees live in the temp directory, which counts as part of every
+	// workspace. Move the temp allowance into the instance's own root so the
+	// caller's tree is genuinely outside it.
+	t.Setenv("TMPDIR", filepath.Join(want.Root, "tmp"))
 	outside := filepath.Join(caller.Root, "leak.txt")
 	if got := executeTool(ctx, "write_file", `{"path":"`+outside+`","content":"outside\n"}`); !strings.Contains(got, "outside working directory") {
 		t.Fatalf("write outside: %s", got)

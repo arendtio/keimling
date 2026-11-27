@@ -12,6 +12,9 @@
 - Terminal errors look like errors. A failed edit never shows a green checkmark.
 - `edit_file` / `write_file` confine targets to the working directory, reject
   protected paths, and write atomically (temp file + rename), keeping permissions.
+  The temp directory and this workspace's artifact directory count as part of the
+  workspace. Both sides are canonicalised before the check, so a symlink cannot
+  carry a write past the boundary.
 
 ## Observability
 

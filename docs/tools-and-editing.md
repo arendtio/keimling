@@ -54,7 +54,9 @@ Deletes go through `exec`.
 ## Safety properties
 
 - Paths must stay inside the working directory and may not touch protected
-  locations such as `~/.ssh` or credentials files.
+  locations such as `~/.ssh` or credentials files. The temp directory and this
+  workspace's artifact directory under the data home count as part of the working
+  directory; symlinks are resolved before the check, so they cannot point out.
 - Failed edits never partially apply.
 
 ## Plans and completion

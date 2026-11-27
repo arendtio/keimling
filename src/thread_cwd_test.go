@@ -50,7 +50,10 @@ func TestThreadDirectoryChangeStaysOnThatThread(t *testing.T) {
 	if !inWorkspace(root, sub, "note.txt") {
 		t.Fatal("a path inside the workspace was treated as outside")
 	}
-	if inWorkspace(root, sub, "../..") {
+	// The temp tree counts as part of the workspace, and this root lives in it,
+	// so climbing above the root stays inside. A path outside the temp tree
+	// must still be refused.
+	if inWorkspace(root, sub, filepath.Join(os.TempDir(), "..", "etc", "passwd")) {
 		t.Fatal("a path outside the workspace was treated as inside")
 	}
 }
