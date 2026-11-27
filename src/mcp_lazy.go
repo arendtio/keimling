@@ -315,6 +315,16 @@ func (m *MCPManager) findServerLocked(server string) (*mcpSession, string) {
 	return nil, ""
 }
 
+// exposedName resolves the offered name of one server tool.
+func (m *MCPManager) exposedName(server, tool string) string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.exposedLocked(server, tool)
+}
+
 func (m *MCPManager) exposedLocked(server, tool string) string {
 	want := mcpExposedName(server, tool)
 	if _, ok := m.routes[want]; ok {

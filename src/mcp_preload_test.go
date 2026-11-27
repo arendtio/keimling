@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestMCPToolNamesInHistoryNewestFirstWithoutDuplicates(t *testing.T) {
@@ -37,5 +39,55 @@ func TestMCPToolNamesInHistoryHonoursTheLimit(t *testing.T) {
 
 func TestPreloadMCPToolsNeedsAManager(t *testing.T) {
 	a := &Agent{}
-	a.preloadMCPTools() // must not panic without a manager
+	if note := a.preloadMCPTools(); note != "" { // must not panic without a manager
+		t.Fatalf("note %q", note)
+	}
+}
+
+func mcpHistoryWith(names ...string) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(names))
+	for _, name := range names {
+		out = append(out, json.RawMessage(`{"type":"function_call","name":"`+name+`"}`))
+	}
+	return out
+}
+
+func TestPreloadMCPToolsNamesWhatStayedOut(t *testing.T) {
+	m := NewMCPManager()
+	m.sessions["Operations"] = &mcpSession{name: "Operations", status: "starting"}
+	a := &Agent{MCP: m, History: mcpHistoryWith("mcp__Operations__project_update_status")}
+	note := a.preloadMCPTools()
+	if !strings.Contains(note, "mcp__Operations__project_update_status") || !strings.Contains(note, "find_tools") {
+		t.Fatalf("note %q", note)
+	}
+}
+
+func TestPreloadMCPToolsLoadsAToolTheThreadUsed(t *testing.T) {
+	m := testMCPServer("Operations", "Ops.", mcpToolsNamed("project_update_status"))
+	a := &Agent{MCP: m, History: mcpHistoryWith("mcp__Operations__project_update_status")}
+	if note := a.preloadMCPTools(); note != "" {
+		t.Fatalf("note %q", note)
+	}
+	if len(a.mcpToolDefs()) != 1 {
+		t.Fatalf("defs %v", a.mcpToolDefs())
+	}
+}
+
+// The tools are memory only, so a run that starts while the servers are still
+// connecting has to wait for the connect instead of reading an empty list.
+func TestPreloadMCPToolsWaitsForTheRunningStart(t *testing.T) {
+	m := testMCPServer("Operations", "Ops.", mcpToolsNamed("project_update_status"))
+	a := &Agent{MCP: m, History: mcpHistoryWith("mcp__Operations__project_update_status")}
+	m.beginStart()
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		m.finishStart()
+	}()
+	start := time.Now()
+	if note := a.preloadMCPTools(); note != "" {
+		t.Fatalf("note %q", note)
+	}
+	if waited := time.Since(start); waited < 40*time.Millisecond {
+		t.Fatalf("returned after %v, did not wait for the start", waited)
+	}
 }

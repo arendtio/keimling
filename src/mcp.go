@@ -81,6 +81,10 @@ type MCPManager struct {
 	scriptRunning bool
 	scriptKind    string
 	scriptServer  string
+	// startDone is open while a start runs and closed when it ends, so a run
+	// that begins right after a restart waits for the servers instead of
+	// reading an empty tool list.
+	startDone chan struct{}
 }
 
 // mcpLogLimit is the newest process output and connection errors kept per server.
@@ -763,8 +767,52 @@ func (a *Agent) startMCP(ctx context.Context) {
 	m := a.ensureMCP()
 	m.setServerSources(sources, names)
 	m.setStartScript(readMCPStart(a.Cfg.ConfigPath))
+	m.beginStart()
+	defer m.finishStart()
 	m.Close()
 	m.ConnectAll(ctx, configs)
+}
+
+// beginStart and finishStart bracket a connect so a run can wait for it.
+func (m *MCPManager) beginStart() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.startDone == nil {
+		m.startDone = make(chan struct{})
+	}
+	m.mu.Unlock()
+}
+
+func (m *MCPManager) finishStart() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.startDone != nil {
+		close(m.startDone)
+		m.startDone = nil
+	}
+	m.mu.Unlock()
+}
+
+// waitStart blocks while a connect runs, at most timeout. A caller that finds
+// no connect in progress returns at once.
+func (m *MCPManager) waitStart(timeout time.Duration) {
+	if m == nil {
+		return
+	}
+	m.mu.RLock()
+	done := m.startDone
+	m.mu.RUnlock()
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
 }
 
 // reconnectMCP replaces one server. A sign-in for that server does not

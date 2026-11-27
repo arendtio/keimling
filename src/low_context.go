@@ -52,6 +52,26 @@ func (a *Agent) threadToolSet(all map[string]map[string]struct{}) map[string]str
 	return all[a.Cfg.ThreadID]
 }
 
+// rememberMCPTool keeps a loaded MCP tool in this thread's request. find_tools
+// and the restart preload both fill this set; the defs alone are process wide.
+func (a *Agent) rememberMCPTool(name string) {
+	if a == nil || strings.TrimSpace(name) == "" {
+		return
+	}
+	a.builtinMu.Lock()
+	if a.mcpByThread == nil {
+		a.mcpByThread = map[string]map[string]struct{}{}
+	}
+	key := a.Cfg.ThreadID
+	set := a.mcpByThread[key]
+	if set == nil {
+		set = map[string]struct{}{}
+		a.mcpByThread[key] = set
+	}
+	set[name] = struct{}{}
+	a.builtinMu.Unlock()
+}
+
 func (a *Agent) mcpLoadedNames() []string {
 	if a == nil {
 		return nil

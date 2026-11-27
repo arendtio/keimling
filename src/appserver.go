@@ -3687,7 +3687,9 @@ func (s *appServer) startAgentRunWake(text, ws, threadID string, item AgentQueue
 	// Lazy MCP tools do not survive a restart. A resumed thread gets back the
 	// ones it used before, so its plan does not hit a missing tool.
 	if s.agent != nil {
-		s.agent.preloadMCPTools()
+		if note := s.agent.preloadMCPTools(); note != "" {
+			s.agent.println(note)
+		}
 	}
 	if s.realtimeCallOpen() {
 		s.mu.Lock()
