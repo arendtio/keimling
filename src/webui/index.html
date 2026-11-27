@@ -354,7 +354,16 @@
         <p class="hint">How many MCP calls may talk to servers at once. Each stdio server still runs one call at a time.</p>
         <label class="check"><input id="set-idle-sound" type="checkbox"> Sound when a run goes idle</label>
         <label class="check"><input id="set-idle-notify" type="checkbox"> Desktop notification when a run goes idle</label>
-        <p class="hint">Both stay quiet while this window is focused. The sound is generated when it plays.</p>
+        <label>Idle sound tone
+          <select id="set-idle-tone">
+            <option value="soft">Soft triad – three soft notes</option>
+            <option value="double">Double tone – quiet, two notes</option>
+            <option value="bell">Bell – two struck notes</option>
+            <option value="bubble">Bubble – rising sweep</option>
+            <option value="kalimba">Kalimba – single soft strike</option>
+          </select>
+        </label>
+        <p class="hint">Both stay quiet while this window is focused. The sound is generated when it plays; picking a tone plays it once.</p>
         <div class="skills-row">
           <button type="button" id="set-behaviour-save">Save behaviour</button>
         </div>

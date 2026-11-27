@@ -269,8 +269,11 @@
   var setSpeechModel = document.getElementById("set-speech-model");
   var setIdleSound = document.getElementById("set-idle-sound");
   var setIdleNotify = document.getElementById("set-idle-notify");
+  var setIdleTone = document.getElementById("set-idle-tone");
   var idleSoundOn = false;
   var idleNotifyOn = false;
+  var idleTone = "soft";
+  try { idleTone = localStorage.getItem("keimling.idle_tone") || "soft"; } catch (e) {}
   var setVoiceProvider = document.getElementById("set-voice-provider");
   var setRealtimeProvider = document.getElementById("set-realtime-provider");
   var setRealtimeModel = document.getElementById("set-realtime-model");
@@ -3349,14 +3352,72 @@
     return !!(document.hasFocus && document.hasFocus() && document.visibilityState !== "hidden");
   }
 
-  function idlePingURL() {
+  // Idle tones are synthesized when they play, so the page needs no audio files.
+  // Each event is one sine partial: at = start in seconds, glides to "to" over "dur".
+  var idleToneEvents = {
+    soft: [
+      { at: 0, freq: 523.25, dur: 0.46, gain: 0.32, decay: 7, atk: 0.012 },
+      { at: 0.085, freq: 659.25, dur: 0.46, gain: 0.29, decay: 7, atk: 0.012 },
+      { at: 0.17, freq: 783.99, dur: 0.66, gain: 0.27, decay: 6, atk: 0.012 }
+    ],
+    double: [
+      { at: 0, freq: 740, dur: 0.16, gain: 0.3, decay: 7, atk: 0.014 },
+      { at: 0.17, freq: 740, dur: 0.2, gain: 0.26, decay: 7, atk: 0.014 }
+    ],
+    bell: [
+      { at: 0, freq: 880, dur: 0.9, gain: 0.22, decay: 4 },
+      { at: 0, freq: 1760, dur: 0.5, gain: 0.07, decay: 8 },
+      { at: 0, freq: 2648, dur: 0.35, gain: 0.04, decay: 12 },
+      { at: 0.16, freq: 1174.66, dur: 1.1, gain: 0.19, decay: 3.6 },
+      { at: 0.16, freq: 2349.3, dur: 0.6, gain: 0.06, decay: 8 },
+      { at: 0.16, freq: 3533, dur: 0.4, gain: 0.03, decay: 12 }
+    ],
+    bubble: [
+      { at: 0, freq: 480, to: 960, dur: 0.2, gain: 0.3, decay: 3, atk: 0.02 }
+    ],
+    kalimba: [
+      { at: 0, freq: 659.25, dur: 0.6, gain: 0.3, decay: 5 },
+      { at: 0, freq: 1819.5, dur: 0.25, gain: 0.09, decay: 12 },
+      { at: 0, freq: 3560, dur: 0.12, gain: 0.03, decay: 20 }
+    ]
+  };
+
+  function idleSoundURL() {
+    var events = idleToneEvents[idleTone] || idleToneEvents.soft;
     var rate = 22050;
-    var n = Math.floor(rate * 0.12);
+    var i, k, last = 0;
+    for (i = 0; i < events.length; i++) last = Math.max(last, events[i].at + events[i].dur);
+    var n = Math.ceil(last * rate) + 1;
+    var out = new Float32Array(n);
+    for (i = 0; i < events.length; i++) {
+      var e = events[i];
+      var start = Math.floor(e.at * rate);
+      var count = Math.min(Math.floor(e.dur * rate), n - start);
+      var atk = e.atk || 0.008;
+      var decay = e.decay || 7;
+      var phase = 0;
+      for (k = 0; k < count; k++) {
+        var t = k / rate;
+        var f = e.to ? e.freq * Math.pow(e.to / e.freq, t / e.dur) : e.freq;
+        phase += 2 * Math.PI * f / rate;
+        out[start + k] += Math.sin(phase) * Math.min(1, t / atk) * Math.exp(-t * decay) * e.gain;
+      }
+    }
+    // Soften the top end and fade the tail so nothing clicks.
+    var y = 0;
+    var fade = Math.max(1, Math.min(n, Math.floor(0.03 * rate)));
+    for (i = 0; i < n; i++) {
+      y += 0.5 * (out[i] - y);
+      out[i] = i > n - fade ? y * (n - i) / fade : y;
+    }
+    var peak = 0;
+    for (i = 0; i < n; i++) if (Math.abs(out[i]) > peak) peak = Math.abs(out[i]);
+    var scale = peak > 0 ? 0.45 / peak : 0;
     var data = n * 2;
     var buf = new ArrayBuffer(44 + data);
     var view = new DataView(buf);
     function write(at, text) {
-      for (var i = 0; i < text.length; i++) view.setUint8(at + i, text.charCodeAt(i));
+      for (var j = 0; j < text.length; j++) view.setUint8(at + j, text.charCodeAt(j));
     }
     write(0, "RIFF");
     view.setUint32(4, 36 + data, true);
@@ -3371,23 +3432,21 @@
     view.setUint16(34, 16, true);
     write(36, "data");
     view.setUint32(40, data, true);
-    for (var i = 0; i < n; i++) {
-      var env = Math.min(1, i / 220) * Math.min(1, (n - i) / 900);
-      var sample = Math.sin(2 * Math.PI * 880 * i / rate) * env * 0.35;
-      view.setInt16(44 + i * 2, sample * 32767, true);
-    }
+    for (i = 0; i < n; i++) view.setInt16(44 + i * 2, out[i] * scale * 32767, true);
     return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  }
+
+  function playIdleSound() {
+    try {
+      var audio = new Audio(idleSoundURL());
+      var played = audio.play();
+      if (played && played.catch) played.catch(function () {});
+    } catch (e) {}
   }
 
   function noticeIdle() {
     if (idleWindowQuiet()) return;
-    if (idleSoundOn) {
-      try {
-        var audio = new Audio(idlePingURL());
-        var played = audio.play();
-        if (played && played.catch) played.catch(function () {});
-      } catch (e) {}
-    }
+    if (idleSoundOn) playIdleSound();
     if (idleNotifyOn && typeof Notification === "function" && Notification.permission === "granted") {
       try { new Notification("Keimling", { body: "The run is idle." }); } catch (e) {}
     }
@@ -8148,6 +8207,14 @@
       Notification.requestPermission();
     }
   });
+  if (setIdleTone) {
+    setIdleTone.value = idleToneEvents[idleTone] ? idleTone : "soft";
+    setIdleTone.addEventListener("change", function () {
+      idleTone = setIdleTone.value;
+      try { localStorage.setItem("keimling.idle_tone", idleTone); } catch (e) {}
+      playIdleSound();
+    });
+  }
   if (setSearchKind) setSearchKind.addEventListener("change", syncSearchFields);
   var providerDialogAdd = document.getElementById("provider-dialog-add");
   var providerDialogSkip = document.getElementById("provider-dialog-skip");
