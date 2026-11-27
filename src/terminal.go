@@ -169,6 +169,23 @@ func readInteractiveLine(reader *bufio.Reader, client *Client, model string) (st
 		repaint()
 		return "", false
 	}
+	// One gate for every key that starts a recording, so a missing voice model
+	// never costs the user a clip that cannot be transcribed.
+	beginRecording := func() {
+		if client == nil {
+			fmt.Print("\r\033[2K\033[31mvoice transcription is off\033[0m · set a voice provider and model in Settings")
+			repaint()
+			return
+		}
+		var startErr error
+		recording, startErr = startCapture()
+		if startErr != nil {
+			fmt.Printf("\nMicrophone: %v\n", startErr)
+		} else {
+			fmt.Print("\r\033[2K\033[31m● Recording\033[0m · F1/Space/Enter to stop · max 15 min")
+		}
+		repaint()
+	}
 	// Exactly one synchronous stdin reader. Never leave a blocked reader behind.
 	// A per-prompt goroutine previously stole keys from later approval prompts.
 	fd := int(os.Stdin.Fd())
@@ -303,13 +320,7 @@ func readInteractiveLine(reader *bufio.Reader, client *Client, model string) (st
 				if recording != nil {
 					transcribe(false)
 				} else {
-					recording, e = startCapture()
-					if e != nil {
-						fmt.Printf("\nMicrophone: %v\n", e)
-					} else {
-						fmt.Print("\r\033[2K\033[31m● Recording\033[0m · F1/Space to stop · max 15 min")
-					}
-					repaint()
+					beginRecording()
 				}
 			}
 			repaint()
@@ -346,24 +357,13 @@ func readInteractiveLine(reader *bufio.Reader, client *Client, model string) (st
 			}
 		case '\r', '\n':
 			if len(draft) == 0 {
-				recording, e = startCapture()
-				if e != nil {
-					fmt.Printf("\nMicrophone: %v\n", e)
-					repaint()
-				} else {
-					fmt.Print("\r\033[2K\033[31m● Recording\033[0m · F1/Space/Enter to stop · max 15 min")
-				}
+				beginRecording()
 				continue
 			}
 			text := strings.TrimSpace(string(draft))
 			fmt.Print("\n")
 			if text == "/voice" {
-				recording, e = startCapture()
-				if e != nil {
-					fmt.Printf("Microphone: %v\n", e)
-				} else {
-					fmt.Print("\r\033[2K\033[31m● Recording\033[0m · F1/Space to stop · max 15 min")
-				}
+				beginRecording()
 				draft = nil
 				cursor = 0
 				repaint()
@@ -378,13 +378,7 @@ func readInteractiveLine(reader *bufio.Reader, client *Client, model string) (st
 			return text, nil
 		case ' ':
 			if len(draft) == 0 {
-				recording, e = startCapture()
-				if e != nil {
-					fmt.Printf("\nMicrophone: %v\n", e)
-					repaint()
-				} else {
-					fmt.Print("\r\033[2K\033[31m● Recording\033[0m · F1/Space to stop · max 15 min")
-				}
+				beginRecording()
 				continue
 			}
 			draft = insertRune(draft, cursor, ' ')

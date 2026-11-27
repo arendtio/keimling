@@ -239,7 +239,7 @@ func main() {
 	workspaceFlag := flag.String("workspace", "", "Workspace id (default: resolve from CWD / gui-prefs / global)")
 	agentInstanceFlag := flag.String("agent-instance", "", "Run as worker for this agent instance id")
 	resume := flag.Bool("resume", true, "Resume last session (default: true)")
-	voiceModel := flag.String("voice-model", "gpt-transcribe", "Transcription model")
+	voiceModel := flag.String("voice-model", "", "Transcription model (empty keeps transcription off)")
 	uiMode := flag.Bool("ui", false, "Force native WebView UI (fail if unavailable)")
 	cliMode := flag.Bool("cli", false, "Force shell client")
 	serverMode := flag.Bool("server", false, "Run HTTP agent server only")
@@ -685,7 +685,12 @@ func main() {
 		return
 	}
 	input := bufio.NewReader(os.Stdin)
-	fmt.Printf("keimling | %s | mode=%s | web=%v\nWorkspace: %s (%s)\nThread: %s\nSession: %s\nF1/Space/Enter on empty prompt: record; F1/Space/Enter: stop; Enter: send draft; /newchat, /mode, /status, /help, /exit\n", c.Model, c.Mode, c.Web, c.WorkspaceID, c.WorkspaceRoot, c.ThreadID, c.SessionPath)
+	_, _, voiceErr := a.voiceClient()
+	voiceHint := "F1/Space/Enter on empty prompt: record; F1/Space/Enter: stop; Enter: send draft"
+	if voiceErr != nil {
+		voiceHint = voiceErr.Error() + "; set a voice provider and model in Settings"
+	}
+	fmt.Printf("keimling | %s | mode=%s | web=%v\nWorkspace: %s (%s)\nThread: %s\nSession: %s\n%s; /newchat, /mode, /status, /help, /exit\n", c.Model, c.Mode, c.Web, c.WorkspaceID, c.WorkspaceRoot, c.ThreadID, c.SessionPath, voiceHint)
 	for {
 		discardPendingInput()
 		voiceClient, voiceModelName, _ := a.voiceClient()
@@ -702,7 +707,7 @@ func main() {
 			return
 		}
 		if line == "/help" {
-			printHelp()
+			printHelp(voiceErr == nil)
 			continue
 		}
 		if line == "/mode" {
@@ -869,7 +874,7 @@ func main() {
 	}
 }
 
-func printHelp() {
+func printHelp(voiceOn bool) {
 	fmt.Println("\n\033[1mCommands\033[0m")
 	fmt.Println("  /help             Show this help")
 	fmt.Println("  /status           Show model, context estimate, tokens and settings")
@@ -903,8 +908,12 @@ func printHelp() {
 	fmt.Println("  During work: type a message to steer the next step")
 	fmt.Println("  /exit             Quit")
 	fmt.Println("\n\033[1mVoice\033[0m")
-	fmt.Println("  F1/Space/Enter on empty prompt: start recording")
-	fmt.Println("  Enter: transcribe and send | F1/Space: transcribe to draft")
+	if voiceOn {
+		fmt.Println("  F1/Space/Enter on empty prompt: start recording")
+		fmt.Println("  Enter: transcribe and send | F1/Space: transcribe to draft")
+	} else {
+		fmt.Println("  Off: set a voice provider and model in Settings")
+	}
 	fmt.Println("\n\033[1mInput\033[0m")
 	fmt.Println("  Arrow keys: move cursor/history | Home/End: line boundaries | Tab: complete slash commands")
 }
@@ -939,7 +948,11 @@ func printStatus(a *Agent) {
 	}
 	fmt.Printf("  Tokens billed/reported this process: input %d, output %d, total %d\n", a.Client.InputTokens, a.Client.OutputTokens, a.Client.InputTokens+a.Client.OutputTokens)
 	c := a.ensureCharter()
-	fmt.Printf("  Recent tail items: %d | Charter findings: %d | Transcription: %s\n\n", len(a.History), len(c.Findings), a.Cfg.VoiceModel)
+	transcription := strings.TrimSpace(a.Cfg.VoiceModel)
+	if transcription == "" {
+		transcription = "off"
+	}
+	fmt.Printf("  Recent tail items: %d | Charter findings: %d | Transcription: %s\n\n", len(a.History), len(c.Findings), transcription)
 }
 
 func setAutopilot(a *Agent, arg string) {

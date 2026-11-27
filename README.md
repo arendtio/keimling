@@ -85,7 +85,7 @@ Run `./keimling --help` for the generated list. Flags override the configuration
 | `--delegate-fast-model` | auxiliary model or the chat model | Fast delegate model |
 | `--delegate-balanced-model` | `gpt-6.1-sol` | Balanced delegate model |
 | `--delegate-deep-model` | `gpt-6.1-sol` | Deep delegate model |
-| `--voice-model` | `gpt-transcribe` | Transcription model |
+| `--voice-model` | empty (transcription off) | Transcription model; `gpt-transcribe` is the sensible one for OpenAI |
 | `--disable-external-services` | `false` | Disable web search and transcription |
 | `--openai-api-key-file` | none | Separate OpenAI key file for web search and transcription when those services use OpenAI |
 

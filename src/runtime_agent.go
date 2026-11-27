@@ -83,10 +83,6 @@ func openRuntimeAgent(configPath, workspaceID, agentInstanceID string) (*Agent, 
 	if reasoning == "" {
 		reasoning = "high"
 	}
-	voiceModel := strings.TrimSpace(fc.VoiceModel)
-	if voiceModel == "" {
-		voiceModel = "gpt-transcribe"
-	}
 	var external *Client
 	voiceProviderID := strings.TrimSpace(fc.VoiceProviderID)
 	realtimeProviderID := strings.TrimSpace(fc.RealtimeProviderID)
@@ -159,7 +155,7 @@ func openRuntimeAgent(configPath, workspaceID, agentInstanceID string) (*Agent, 
 	}
 	cfg := Config{
 		Model: model, CompactionModel: "", Mode: mode, Key: key, SessionPath: sessPath,
-		VoiceModel: voiceModel, ApprovalPolicy: policyText, Reasoning: reasoning,
+		VoiceModel: strings.TrimSpace(fc.VoiceModel), ApprovalPolicy: policyText, Reasoning: reasoning,
 		BaseURL: resolvedURL, ApprovalPolicyReplace: policyReplace,
 		DelegateBalanced: "gpt-6.1-sol", DelegateDeep: "gpt-6.1-sol",
 		PilotReasoning: "high",
