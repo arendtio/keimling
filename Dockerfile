@@ -1,4 +1,5 @@
-# Keimling HTTP agent server image (no native GUI).
+# Keimling HTTP agent server image. It ships the nogui binary; the agent can
+# still build the native GUI inside the container.
 # TLS terminates at your reverse proxy; this process speaks plain HTTP.
 #
 #   docker build -t keimling .
@@ -16,6 +17,8 @@
 #
 # Runtime is Debian slim (not distroless): the agent exec tool needs a usable
 # Unix toolchain (shell, git/ssh, make/gcc, Go, Python, Node) inside the container.
+# GTK3 + WebKitGTK 4.1 headers are part of that toolchain, so `make build` inside
+# the container picks -tags webkitgtk_41 instead of falling back to nogui.
 
 # ---- build keimling binary only ----
 FROM golang:1.26-trixie AS build
@@ -45,6 +48,8 @@ RUN apt-get update \
       git \
       grep \
       jq \
+      libgtk-3-dev \
+      libwebkit2gtk-4.1-dev \
       nodejs \
       npm \
       openssh-client \
