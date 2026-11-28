@@ -261,7 +261,9 @@ func openCodeGoURL(baseURL, suffix string) string {
 }
 
 // markGoModels copies Go membership onto the plain catalog. Models only in the
-// Go list are appended, because a Go key can call them and nothing else.
+// Go list are appended, because a Go key can call them and nothing else. The
+// Go endpoint replaces the plain one, so the subscription pays for the call
+// instead of the credit balance.
 func markGoModels(models, goModels []catalogModel) []catalogModel {
 	byID := map[string]*catalogModel{}
 	for i := range models {
@@ -270,8 +272,11 @@ func markGoModels(models, goModels []catalogModel) []catalogModel {
 	for _, gm := range goModels {
 		if m, ok := byID[gm.ID]; ok {
 			m.Go = true
-			if m.GoMonthly == "" {
+			if gm.GoMonthly != "" {
 				m.GoMonthly = gm.GoMonthly
+			}
+			if gm.BaseURL != "" {
+				m.BaseURL = gm.BaseURL
 			}
 			continue
 		}

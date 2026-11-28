@@ -47,9 +47,10 @@ an `opencode.ai` host and skips the LiteLLM management probes.
 For an `opencode` provider the prefill also reads the Go catalog
 (`{root}/inference/go/v1/models`) and marks every model the Go subscription
 covers with `go` and its monthly allowance (`$100/mo` on the plain Go plan).
-Go-only models are added to the list with their Go base URL. The marker is a
-prefill hint, not stored state, and a Go model bills through the subscription
-only when the base URL under `/inference/go/` is used.
+Go-only models are added to the list. Picking a Go model fills its base URL
+under `/inference/go/…`, so the subscription pays for the call; delete the
+`/go/` segment in the model form to pay per request instead. The marker itself
+is not stored state; the model's `base_url` is.
 
 ## Wire formats
 

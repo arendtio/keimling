@@ -1907,10 +1907,11 @@
         var meta = [p.name || p.id];
         if (m.context_limit) meta.push(m.context_limit + " ctx");
         if (m.base_url) {
+          var viaGo = /\/inference\/go\//.test(m.base_url);
           var fam = /chat\/completions$/.test(m.base_url) ? "chat" :
             /anthropic|\/messages$/.test(m.base_url) ? "messages" :
             /google|generativelanguage/.test(m.base_url) ? "gemini" : "responses";
-          meta.push(fam);
+          meta.push(viaGo ? fam + " go" : fam);
         }
         if (m.transcribes) meta.push("transcribes");
         if (m.speaks) meta.push("speaks");
@@ -2054,7 +2055,7 @@
       provCatalogStatus.hidden = false;
       provCatalogStatus.textContent = "Included in OpenCode Go" +
         (entry.go_monthly ? " · " + entry.go_monthly + " on the Go plan" : "") +
-        ". Go models answer at /inference/go/…; paste that base URL to bill through the subscription.";
+        ". The base URL points at /inference/go/…, so the subscription pays. Remove the /go/ segment to pay per request instead.";
     }
   }
 

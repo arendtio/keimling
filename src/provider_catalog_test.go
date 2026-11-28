@@ -154,7 +154,10 @@ func TestOpenCodeGoURL(t *testing.T) {
 
 func TestMarkGoModels(t *testing.T) {
 	plain := []catalogModel{{ID: "shared"}, {ID: "paid"}}
-	goList := []catalogModel{{ID: "shared", Go: true, GoMonthly: "$100/mo"}, {ID: "go-only", Go: true, GoMonthly: "$15/mo"}}
+	goList := []catalogModel{
+		{ID: "shared", Go: true, GoMonthly: "$100/mo", BaseURL: "https://opencode.ai/inference/go/openai/v1"},
+		{ID: "go-only", Go: true, GoMonthly: "$15/mo"},
+	}
 	got := markGoModels(plain, goList)
 	if len(got) != 3 {
 		t.Fatalf("%#v", got)
@@ -165,6 +168,9 @@ func TestMarkGoModels(t *testing.T) {
 	}
 	if !byID["shared"].Go || byID["shared"].GoMonthly != "$100/mo" || byID["paid"].Go {
 		t.Fatalf("%#v", got)
+	}
+	if byID["shared"].BaseURL != "https://opencode.ai/inference/go/openai/v1" {
+		t.Fatalf("shared base %q", byID["shared"].BaseURL)
 	}
 	if !byID["go-only"].Go || byID["go-only"].GoMonthly != "$15/mo" {
 		t.Fatalf("%#v", got)
