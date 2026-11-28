@@ -280,9 +280,12 @@
   var setRealtimeVoice = document.getElementById("set-realtime-voice");
   var setSearchKind = document.getElementById("set-search-kind");
   var setSearchURL = document.getElementById("set-search-url");
+  var setSearchModel = document.getElementById("set-search-model");
   var setSearchKey = document.getElementById("set-search-key");
   var searchURLLabel = document.getElementById("search-url-label");
   var searchURLHint = document.getElementById("search-url-hint");
+  var searchModelLabel = document.getElementById("search-model-label");
+  var searchModelHint = document.getElementById("search-model-hint");
   var searchKeyLabel = document.getElementById("search-key-label");
   var searchKeyHint = document.getElementById("search-key-hint");
   var providerBanner = document.getElementById("provider-banner");
@@ -2259,6 +2262,10 @@
     }
     if (setSearchKind) setSearchKind.value = j.search_kind || "";
     if (setSearchURL) setSearchURL.value = j.search_url || "";
+    if (setSearchModel) {
+      setSearchModel.value = j.search_model || "";
+      setSearchModel.placeholder = j.search_model_default || "";
+    }
     if (setSearchKey) {
       setSearchKey.value = "";
       setSearchKey.placeholder = j.search_api_key_set ? "Set — leave blank to keep" : "Not set";
@@ -2398,15 +2405,12 @@
 
   function syncSearchFields() {
     var kind = setSearchKind ? setSearchKind.value : "";
-    if (searchURLLabel) searchURLLabel.hidden = kind === "" || kind === "openai";
-    if (searchURLHint) searchURLHint.hidden = kind !== "url" && kind !== "brave";
+    if (searchURLLabel) searchURLLabel.hidden = kind !== "url";
+    if (searchURLHint) searchURLHint.hidden = kind !== "url";
+    if (searchModelLabel) searchModelLabel.hidden = kind !== "openai";
+    if (searchModelHint) searchModelHint.hidden = kind !== "openai";
     if (searchKeyLabel) searchKeyLabel.hidden = kind === "";
     if (searchKeyHint) searchKeyHint.hidden = kind === "";
-    if (setSearchURL && kind === "brave" && !setSearchURL.placeholder) {
-      setSearchURL.placeholder = "https://api.search.brave.com/res/v1/web/search";
-    }
-    if (kind === "brave" && setSearchURL) setSearchURL.placeholder = "https://api.search.brave.com/res/v1/web/search";
-    if (kind === "url" && setSearchURL) setSearchURL.placeholder = "https://search.example/search?q={query}";
   }
 
   function openProviderSetup() {
@@ -2624,6 +2628,7 @@
       body.web = setWeb ? setWeb.checked : false;
       body.search_kind = setSearchKind ? setSearchKind.value : "";
       body.search_url = setSearchURL ? setSearchURL.value.trim() : "";
+      body.search_model = setSearchModel ? setSearchModel.value.trim() : "";
       var searchKey = setSearchKey ? setSearchKey.value.trim() : "";
       if (searchKey) body.search_api_key = searchKey;
     }

@@ -18,8 +18,14 @@ const braveSearchURL = "https://api.search.brave.com/res/v1/web/search"
 type searchConfig struct {
 	Kind   string `json:"kind,omitempty"`
 	URL    string `json:"url,omitempty"`
+	Model  string `json:"model,omitempty"` // openai kind only
 	APIKey string `json:"api_key,omitempty"`
 }
+
+// openAISearchModel runs the official web_search tool when the service has no
+// model of its own. Search is a tool, not a model: the chat model may belong
+// to another provider and is never sent to OpenAI.
+const openAISearchModel = "gpt-4.1-mini"
 
 func (s searchConfig) enabled() bool {
 	switch strings.TrimSpace(s.Kind) {
@@ -36,10 +42,10 @@ func (a *Agent) searchWeb(ctx context.Context, query string) (string, error) {
 	if a == nil || a.Cfg.DisableExternal || !a.Cfg.Web || !a.Cfg.Search.enabled() {
 		return "", fmt.Errorf("web search is off")
 	}
-	return runSearch(ctx, a.Cfg.Search, a.auxiliaryModel(auxSearch), query)
+	return runSearch(ctx, a.Cfg.Search, query)
 }
 
-func runSearch(ctx context.Context, s searchConfig, model, query string) (string, error) {
+func runSearch(ctx context.Context, s searchConfig, query string) (string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return "", fmt.Errorf("search query is empty")
@@ -48,6 +54,10 @@ func runSearch(ctx context.Context, s searchConfig, model, query string) (string
 		return "", fmt.Errorf("web search is off")
 	}
 	if s.Kind == "openai" {
+		model := strings.TrimSpace(s.Model)
+		if model == "" {
+			model = openAISearchModel
+		}
 		c := NewClient(s.APIKey)
 		if u := strings.TrimSpace(s.URL); u != "" {
 			nu, err := normalizeBaseURL(u)

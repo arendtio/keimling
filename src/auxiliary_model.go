@@ -30,7 +30,6 @@ const (
 	auxFilter
 	auxPilot
 	auxDelegate
-	auxSearch
 )
 
 // auxiliarySetting maps one task to its own flag and to the saved setting it
@@ -47,8 +46,6 @@ func (c Config) auxiliarySetting(task auxiliaryTask) (flagValue, saved string) {
 		return "", c.AuxiliaryModel
 	case auxDelegate:
 		return c.DelegateFast, ""
-	case auxSearch:
-		return "", ""
 	default:
 		return "", ""
 	}

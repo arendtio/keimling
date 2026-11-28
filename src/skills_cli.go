@@ -108,7 +108,7 @@ func handleSkillsCommand(a *Agent, arg string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		fmt.Println("⌕ Searching for skills…")
-		cands, _, err := SearchSkillsOnline(ctx, a.Cfg.Search, a.auxiliaryModel(auxSearch), q)
+		cands, _, err := SearchSkillsOnline(ctx, a.Cfg.Search, q)
 		if err != nil {
 			fmt.Println("skills search:", err)
 			return

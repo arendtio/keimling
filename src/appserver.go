@@ -1850,7 +1850,7 @@ func (s *appServer) handleSkillsSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web search is off", http.StatusServiceUnavailable)
 		return
 	}
-	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, s.agent.auxiliaryModel(auxSearch), body.Query)
+	cands, raw, err := SearchSkillsOnline(r.Context(), s.agent.Cfg.Search, body.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -2164,6 +2164,7 @@ type agentSettings struct {
 	IdleNotify                 *bool           `json:"idle_notify,omitempty"`
 	SearchKind                 *string         `json:"search_kind,omitempty"`
 	SearchURL                  *string         `json:"search_url,omitempty"`
+	SearchModel                *string         `json:"search_model,omitempty"`
 	SearchAPIKey               *string         `json:"search_api_key,omitempty"`
 	APIKey                     *string         `json:"api_key,omitempty"`        // write-only
 	OpenAIAPIKey               *string         `json:"openai_api_key,omitempty"` // write-only
@@ -2230,6 +2231,8 @@ func (s *appServer) settingsSnapshot() map[string]any {
 		"needs_provider":                !s.agent.Cfg.HasModelProvider,
 		"search_kind":                   s.agent.Cfg.Search.Kind,
 		"search_url":                    s.agent.Cfg.Search.URL,
+		"search_model":                  s.agent.Cfg.Search.Model,
+		"search_model_default":          openAISearchModel,
 		"search_api_key_set":            strings.TrimSpace(s.agent.Cfg.Search.APIKey) != "",
 		"api_key_set":                   providerKey != "",
 		"openai_api_key_set":            openaiSet,
@@ -2495,6 +2498,9 @@ func (s *appServer) applySettings(body agentSettings) error {
 		cfg.Search.Kind = kind
 		if body.SearchURL != nil {
 			cfg.Search.URL = strings.TrimSpace(*body.SearchURL)
+		}
+		if body.SearchModel != nil {
+			cfg.Search.Model = strings.TrimSpace(*body.SearchModel)
 		}
 		if body.SearchAPIKey != nil && strings.TrimSpace(*body.SearchAPIKey) != "" {
 			cfg.Search.APIKey = strings.TrimSpace(*body.SearchAPIKey)

@@ -188,6 +188,31 @@ func TestAppServerTranscribeRequiresAudio(t *testing.T) {
 	}
 }
 
+func TestAppServerSettingsCarryTheSearchModel(t *testing.T) {
+	a := &Agent{Cfg: Config{}, Client: &Client{APIKey: "k"}}
+	h := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a}).Handler()
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"search_kind":"openai","search_api_key":"k","search_model":"gpt-5-mini"}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings: %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["search_kind"] != "openai" || body["search_model"] != "gpt-5-mini" || body["search_api_key_set"] != true {
+		t.Fatalf("search settings %#v", body)
+	}
+	if body["search_model_default"] != openAISearchModel {
+		t.Fatalf("search default %#v", body["search_model_default"])
+	}
+}
+
 func TestAppServerVoiceFlag(t *testing.T) {
 	a := &Agent{Client: &Client{APIKey: "k"}}
 	srv := newAppServer(appServerOpts{AccessSecret: "tok", Agent: a})

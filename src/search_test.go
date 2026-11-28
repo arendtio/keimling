@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -18,7 +19,7 @@ func TestBraveSearchUsesSubscriptionToken(t *testing.T) {
 		_, _ = w.Write([]byte(`{"web":{"results":[{"title":"Docs","url":"https://example.com/a","description":"A page"}]}}`))
 	}))
 	defer srv.Close()
-	text, err := runSearch(context.Background(), searchConfig{Kind: "brave", URL: srv.URL, APIKey: "brave-key"}, "aux-model", "keimling")
+	text, err := runSearch(context.Background(), searchConfig{Kind: "brave", URL: srv.URL, APIKey: "brave-key"}, "keimling")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestURLSearchPlacesQuery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[{"title":"Hit","url":"https://example.com/b","content":"snip"}]}`))
 	}))
 	defer srv.Close()
-	text, err := runSearch(context.Background(), searchConfig{Kind: "url", URL: srv.URL + "/search?q={query}", APIKey: "url-key"}, "aux-model", "hello world")
+	text, err := runSearch(context.Background(), searchConfig{Kind: "url", URL: srv.URL + "/search?q={query}", APIKey: "url-key"}, "hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,9 +54,36 @@ func TestURLSearchPlacesQuery(t *testing.T) {
 }
 
 func TestSearchOffDoesNotCall(t *testing.T) {
-	_, err := runSearch(context.Background(), searchConfig{}, "aux-model", "q")
+	_, err := runSearch(context.Background(), searchConfig{}, "q")
 	if err == nil || !strings.Contains(err.Error(), "off") {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestOpenAISearchUsesItsOwnModel(t *testing.T) {
+	var gotModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotModel = body.Model
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output":[{"content":[{"type":"output_text","text":"ok"}]}]}`))
+	}))
+	defer srv.Close()
+	if _, err := runSearch(context.Background(), searchConfig{Kind: "openai", URL: srv.URL, APIKey: "k", Model: "search-model"}, "q"); err != nil {
+		t.Fatal(err)
+	}
+	if gotModel != "search-model" {
+		t.Fatalf("search model: %q", gotModel)
+	}
+	gotModel = ""
+	if _, err := runSearch(context.Background(), searchConfig{Kind: "openai", URL: srv.URL, APIKey: "k"}, "q"); err != nil {
+		t.Fatal(err)
+	}
+	if gotModel != openAISearchModel {
+		t.Fatalf("default search model: %q", gotModel)
 	}
 }
 

@@ -309,7 +309,11 @@
         <label id="search-url-label">URL
           <input id="set-search-url" type="url" autocomplete="off" placeholder="https://search.example/search?q={query}">
         </label>
-        <p id="search-url-hint" class="hint">GET this URL with the query. Put <code>{query}</code> in the URL to place it yourself. Brave and SearXNG JSON are read as a result list.</p>
+        <p id="search-url-hint" class="hint">GET this URL with the query. Put <code>{query}</code> in the URL to place it yourself. SearXNG JSON is read as a result list.</p>
+        <label id="search-model-label">Model
+          <input id="set-search-model" type="text" autocomplete="off" placeholder="gpt-4.1-mini">
+        </label>
+        <p id="search-model-hint" class="hint">Runs the official web_search tool at OpenAI. Your chat model is not used.</p>
         <label id="search-key-label">API key
           <input id="set-search-key" type="password" autocomplete="off">
         </label>

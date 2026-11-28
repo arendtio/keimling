@@ -54,14 +54,11 @@ func TestAuxiliaryModelPrecedence(t *testing.T) {
 		{"autopilot flag beats the setting", auxPilot, Config{Model: "chat-model", AuxiliaryModel: "aux-model", PilotModel: "flag-model"}, "", "flag-model"},
 		{"fast delegate flag beats the setting", auxDelegate, Config{Model: "chat-model", AuxiliaryModel: "aux-model", DelegateFast: "flag-model"}, "", "flag-model"},
 		{"a delegate uses the chat model", auxDelegate, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "chat-model"},
-		{"web search ignores the side-task model", auxSearch, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "chat-model"},
 		{"blank flag is not a choice", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model", ReviewModel: "  "}, "", "aux-model"},
 		{"the setting beats the chat model", auxReview, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "", "aux-model"},
 		{"the setting beats the run chat model", auxFilter, Config{Model: "chat-model", AuxiliaryModel: "aux-model"}, "run-model", "aux-model"},
-		{"empty uses the chat model", auxSearch, Config{Model: "chat-model"}, "", "chat-model"},
 		{"empty uses the run chat model", auxPilot, Config{Model: "chat-model"}, "run-model", "run-model"},
 		{"the review flag stays with the review", auxFilter, Config{Model: "chat-model", ReviewModel: "flag-model"}, "", "chat-model"},
-		{"the review flag does not move the search", auxSearch, Config{Model: "chat-model", ReviewModel: "flag-model"}, "", "chat-model"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			a := &Agent{Cfg: test.cfg}
@@ -212,22 +209,22 @@ func TestSideTasksUseTheResolvedModel(t *testing.T) {
 		}
 	})
 
-	t.Run("web search", func(t *testing.T) {
+	t.Run("web search uses its own model", func(t *testing.T) {
 		srv, models := replyServer(t, "Result https://example.com")
 		a := &Agent{Cfg: Config{
 			Model: "chat-model", AuxiliaryModel: "aux-model", Web: true,
-			Search: searchConfig{Kind: "openai", URL: srv.URL, APIKey: "search-key"},
+			Search: searchConfig{Kind: "openai", URL: srv.URL, APIKey: "search-key", Model: "search-model"},
 		}}
 		text, err := a.searchWeb(ctx, "keimling")
 		if err != nil || !strings.Contains(text, "example.com") {
 			t.Fatalf("%q %v", text, err)
 		}
-		if got := models(); len(got) != 1 || got[0] != "chat-model" {
+		if got := models(); len(got) != 1 || got[0] != "search-model" {
 			t.Fatalf("search models %v", got)
 		}
 	})
 
-	t.Run("web search falls back to the chat model", func(t *testing.T) {
+	t.Run("web search never sends the chat model", func(t *testing.T) {
 		srv, models := replyServer(t, "Result https://example.com")
 		a := &Agent{Cfg: Config{
 			Model: "chat-model", Web: true,
@@ -236,7 +233,7 @@ func TestSideTasksUseTheResolvedModel(t *testing.T) {
 		if _, err := a.searchWeb(ctx, "keimling"); err != nil {
 			t.Fatal(err)
 		}
-		if got := models(); len(got) != 1 || got[0] != "chat-model" {
+		if got := models(); len(got) != 1 || got[0] != openAISearchModel {
 			t.Fatalf("search models %v", got)
 		}
 	})
