@@ -385,4 +385,27 @@ func TestRespondGeminiStream(t *testing.T) {
 	if _, has := sent.Tools[0].FunctionDeclarations[0].Parameters["additionalProperties"]; has {
 		t.Fatalf("gemini schema kept additionalProperties")
 	}
+	if raw, _ := json.Marshal(sent.Tools); strings.Contains(string(raw), `"type":[`) {
+		t.Fatalf("gemini schema kept a type union: %s", raw)
+	}
+}
+
+func TestGeminiSchemaFlattensUnions(t *testing.T) {
+	got, _ := geminiSchema(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"tools": map[string]any{"type": []any{"array", "null"}, "items": map[string]any{"type": "string"}},
+			"name":  map[string]any{"type": "string"},
+		},
+		"additionalProperties": false,
+	}).(map[string]any)
+	props, _ := got["properties"].(map[string]any)
+	tools, _ := props["tools"].(map[string]any)
+	if tools["type"] != "array" || tools["nullable"] != true {
+		t.Fatalf("tools %#v", tools)
+	}
+	name, _ := props["name"].(map[string]any)
+	if _, has := name["nullable"]; has {
+		t.Fatalf("name %#v", name)
+	}
 }

@@ -61,10 +61,17 @@ func geminiSchema(v any) any {
 	switch typed := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
+		nullable := false
 		for key, value := range typed {
 			switch key {
-			case "additionalProperties", "strict":
+			case "additionalProperties", "strict", "anyOf", "oneOf", "allOf":
 				continue
+			case "type":
+				// JSON Schema unions such as ["array","null"] are not valid
+				// Gemini schemas: one type plus nullable keeps the meaning.
+				typ, isNullable := geminiType(value)
+				nullable = nullable || isNullable
+				out[key] = typ
 			case "properties":
 				props := map[string]any{}
 				if m, ok := value.(map[string]any); ok {
@@ -79,6 +86,9 @@ func geminiSchema(v any) any {
 				out[key] = value
 			}
 		}
+		if nullable {
+			out["nullable"] = true
+		}
 		return out
 	case []any:
 		out := make([]any, 0, len(typed))
@@ -88,6 +98,33 @@ func geminiSchema(v any) any {
 		return out
 	}
 	return v
+}
+
+// geminiType picks the one type Gemini accepts from a schema type value and
+// reports whether null was one of the alternatives.
+func geminiType(v any) (any, bool) {
+	if s, ok := v.(string); ok {
+		return s, false
+	}
+	list, ok := v.([]any)
+	if !ok {
+		return v, false
+	}
+	var first any
+	nullable := false
+	for _, item := range list {
+		if name, _ := item.(string); name == "null" {
+			nullable = true
+			continue
+		}
+		if first == nil {
+			first = item
+		}
+	}
+	if first == nil {
+		return "string", nullable
+	}
+	return first, nullable
 }
 
 func geminiContents(turns []chatTurn) []map[string]any {
