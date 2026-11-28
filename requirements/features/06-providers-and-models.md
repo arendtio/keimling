@@ -10,7 +10,8 @@ remote catalogs.
 ## Provider
 
 - Fields: `id`, `name`, `base_url`, `api_key`, `kind` (`auto` | `openai` |
-  `openrouter` | `litellm` | `local`), `models[]`, `active_model_id`.
+  `openrouter` | `litellm` | `opencode` | `local`), `models[]`,
+  `active_model_id`.
 - Legacy single `model` / `reasoning` on the provider migrate into one model
   entry when `models` is empty.
 - Active provider still mirrors into legacy `api.*` for CLI/workers.
@@ -38,6 +39,10 @@ remote catalogs.
   REQ-PM-9.
 - Compaction and context use the context length stored on the model in
   effect. There is no global context-length setting. See REQ-PM-14.
+
+`kind` labels the vendor for the UI and for vendor-specific behaviour; the
+base URL still decides the wire format (see below). `opencode` is detected from
+an `opencode.ai` host and skips the LiteLLM management probes.
 
 ## Wire formats
 

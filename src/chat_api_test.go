@@ -57,7 +57,7 @@ func TestClientHeaders(t *testing.T) {
 	if _, err := c.Respond(context.Background(), "gemini-4-argon", "", testHistory(), false, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if ua != "keimling/1.0" || auth != "Bearer key" {
+	if ua != "keimling/"+buildVersion || auth != "Bearer key" {
 		t.Fatalf("ua %q auth %q", ua, auth)
 	}
 	if session != "" {

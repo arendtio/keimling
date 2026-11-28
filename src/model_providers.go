@@ -12,7 +12,7 @@ type modelProvider struct {
 	APIKey  string `json:"api_key,omitempty"`
 	// ManagementKey reads the account total. It is not sent with chat calls.
 	ManagementKey string          `json:"management_key,omitempty"`
-	Kind          string          `json:"kind,omitempty"` // auto|openai|openrouter|litellm|local
+	Kind          string          `json:"kind,omitempty"` // auto|openai|openrouter|litellm|opencode|local
 	Models        []providerModel `json:"models,omitempty"`
 	ActiveModelID string          `json:"active_model_id,omitempty"`
 	// Legacy single-model fields; mirrored from ActiveModelID for older clients.

@@ -2580,7 +2580,7 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 		}
 		p.BaseURL = resolved
 		switch strings.ToLower(p.Kind) {
-		case "", "auto", "openai", "openrouter", "litellm", "local":
+		case "", "auto", "openai", "openrouter", "litellm", "local", "opencode":
 			if p.Kind == "" {
 				p.Kind = "auto"
 			}

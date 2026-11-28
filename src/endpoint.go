@@ -25,8 +25,9 @@ func (c *Client) authorize(req *http.Request) {
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	// Name the client rather than a generic library, as providers ask.
-	req.Header.Set("User-Agent", "keimling/1.0")
+	// Name the client rather than a generic library, as providers ask. The
+	// commit stamp doubles as the version.
+	req.Header.Set("User-Agent", "keimling/"+buildVersion)
 	// opencode routes and caches per conversation; other providers ignore it.
 	if c.SessionID != "" && openCodeSessionHost(req.URL.Hostname()) {
 		req.Header.Set("x-opencode-session", c.SessionID)

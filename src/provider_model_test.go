@@ -37,6 +37,21 @@ func TestEnsureProviderModelsActiveWins(t *testing.T) {
 	}
 }
 
+func TestDetectProviderKindOpenCode(t *testing.T) {
+	cases := []struct{ base, kind, want string }{
+		{"https://opencode.ai/inference/openai/v1", "", "opencode"},
+		{"https://opencode.ai/inference/anthropic/v1", "auto", "opencode"},
+		{"https://opencode.ai/inference/v1", "openai", "openai"},
+		{"https://openrouter.ai/api/v1", "", "openrouter"},
+		{"http://localhost:8080/v1", "", "local"},
+	}
+	for _, c := range cases {
+		if got := detectProviderKind(c.base, c.kind); got != c.want {
+			t.Fatalf("%s kind=%q: %s want %s", c.base, c.kind, got, c.want)
+		}
+	}
+}
+
 func TestDetectProviderKind(t *testing.T) {
 	cases := []struct {
 		url, kind, want string

@@ -60,9 +60,11 @@ func fetchProviderModelCatalog(ctx context.Context, baseURL, apiKey, kind string
 }
 
 // liteLLMCatalogRoot reports the proxy root to ask for LiteLLM model metadata.
-// OpenRouter is excluded so its catalog stays the /v1/models response alone.
+// OpenRouter and opencode are excluded so their catalog stays the /v1/models
+// response alone.
 func liteLLMCatalogRoot(baseURL, kind string) (string, bool) {
-	if detectProviderKind(baseURL, kind) == "openrouter" {
+	switch detectProviderKind(baseURL, kind) {
+	case "openrouter", "opencode":
 		return "", false
 	}
 	root := providerRootURL(baseURL)

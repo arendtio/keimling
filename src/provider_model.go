@@ -136,13 +136,15 @@ func (p *modelProvider) activeModel() *providerModel {
 func detectProviderKind(baseURL, kind string) string {
 	k := strings.ToLower(strings.TrimSpace(kind))
 	switch k {
-	case "openai", "openrouter", "litellm", "local", "auto":
+	case "openai", "openrouter", "litellm", "local", "opencode", "auto":
 		if k != "auto" {
 			return k
 		}
 	}
 	u := strings.ToLower(baseURL)
 	switch {
+	case strings.Contains(u, "opencode.ai"):
+		return "opencode"
 	case strings.Contains(u, "openrouter"):
 		return "openrouter"
 	case strings.Contains(u, "litellm"):
