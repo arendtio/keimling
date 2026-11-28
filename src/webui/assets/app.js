@@ -2050,6 +2050,12 @@
     if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = usdPerMillionFromToken(entry.prompt_price);
     if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = usdPerMillionFromToken(entry.completion_price);
     if (entry.capabilities_known) setModelCapabilities(entry);
+    if (provCatalogStatus && entry.go) {
+      provCatalogStatus.hidden = false;
+      provCatalogStatus.textContent = "Included in OpenCode Go" +
+        (entry.go_monthly ? " · " + entry.go_monthly + " on the Go plan" : "") +
+        ". Go models answer at /inference/go/…; paste that base URL to bill through the subscription.";
+    }
   }
 
   function setModelCapabilities(m) {
@@ -2069,6 +2075,7 @@
       opt.value = m.id;
       opt.label = m.name ? (m.name + " (" + m.id + ")") : m.id;
       if (m.outputs) opt.label += " · " + m.outputs;
+      if (m.go) opt.label += " · Go" + (m.go_monthly ? " " + m.go_monthly : "");
       provCatalogDatalist.appendChild(opt);
     });
     if (provCatalogStatus && !catalogCache.length) {
@@ -7263,7 +7270,11 @@
     if (prov.supported) {
       if (prov.account_remaining_usd != null) parts.push("account " + formatUSD(prov.account_remaining_usd));
       else if (prov.account_error) parts.push("account ?");
-      if (prov.error) parts.push("key budget ?");
+      if (prov.go_monthly) {
+        parts.push("Go " + prov.go_monthly.percent + "%" +
+          (prov.go_monthly.status === "rate-limited" ? " used up" : ""));
+      }
+      if (prov.error) parts.push(prov.error.indexOf("403") === 0 ? "no Go plan" : "key budget ?");
       else if (prov.remaining_usd != null) {
         var kind = prov.kind || "";
         parts.push((kind === "openrouter" ? "key left " : "left ") + formatUSD(prov.remaining_usd));
@@ -7275,6 +7286,12 @@
     if (prov.supported && prov.error) tip.push(prov.error);
     if (prov.account_remaining_usd != null) tip.push("OpenRouter account credits minus usage");
     if (prov.account_error) tip.push(prov.account_error);
+    if (prov.go_monthly) {
+      tip.push("OpenCode Go monthly limit " + prov.go_monthly.percent + "% used" +
+        (prov.go_monthly.resets_at ? ", resets " + prov.go_monthly.resets_at : ""));
+    }
+    if (prov.go_weekly) tip.push("Go weekly " + prov.go_weekly.percent + "% used");
+    if (prov.go_rolling) tip.push("Go 5-hour " + prov.go_rolling.percent + "% used");
     if (prov.supported && !prov.error && prov.remaining_usd != null) {
       tip.push(prov.kind === "openrouter"
         ? "OpenRouter key limit remaining"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -130,6 +131,60 @@ func TestParseModelCatalogModelsDevFamilies(t *testing.T) {
 		if m.ID == "embed" {
 			t.Fatalf("embedding model kept")
 		}
+	}
+}
+
+func TestOpenCodeGoURL(t *testing.T) {
+	cases := map[string]string{
+		"https://opencode.ai/inference/openai/v1":     "https://opencode.ai/inference/go/v1/models",
+		"https://opencode.ai/inference/anthropic/v1/": "https://opencode.ai/inference/go/v1/models",
+		"https://opencode.ai/inference/v1":            "https://opencode.ai/inference/go/v1/models",
+		"https://opencode.ai/inference/go/openai/v1":  "https://opencode.ai/inference/go/v1/models",
+		"https://api.openai.com/v1":                   "https://api.openai.com/inference/go/v1/models",
+	}
+	for base, want := range cases {
+		if got := openCodeGoURL(base, "/v1/models"); got != want {
+			t.Fatalf("%s: %q want %q", base, got, want)
+		}
+	}
+	if got := openCodeGoURL("https://opencode.ai/inference/v1", "/v1/usage"); got != "https://opencode.ai/inference/go/v1/usage" {
+		t.Fatalf("usage url %q", got)
+	}
+}
+
+func TestMarkGoModels(t *testing.T) {
+	plain := []catalogModel{{ID: "shared"}, {ID: "paid"}}
+	goList := []catalogModel{{ID: "shared", Go: true, GoMonthly: "$100/mo"}, {ID: "go-only", Go: true, GoMonthly: "$15/mo"}}
+	got := markGoModels(plain, goList)
+	if len(got) != 3 {
+		t.Fatalf("%#v", got)
+	}
+	byID := map[string]catalogModel{}
+	for _, m := range got {
+		byID[m.ID] = m
+	}
+	if !byID["shared"].Go || byID["shared"].GoMonthly != "$100/mo" || byID["paid"].Go {
+		t.Fatalf("%#v", got)
+	}
+	if !byID["go-only"].Go || byID["go-only"].GoMonthly != "$15/mo" {
+		t.Fatalf("%#v", got)
+	}
+}
+
+func TestFetchOpenCodeGoUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer key" {
+			t.Errorf("auth %q", r.Header.Get("Authorization"))
+		}
+		_, _ = io.WriteString(w, `{"usage":{"rolling":{"status":"ok","percent":30,"resetsAt":"2026-11-21T15:00:00.000Z"},"weekly":{"status":"rate-limited","percent":100,"resetsAt":"2026-11-23T00:00:00.000Z"},"monthly":{"status":"ok","percent":50}}}`)
+	}))
+	defer srv.Close()
+	rolling, weekly, monthly, err := fetchOpenCodeGoUsage(context.Background(), srv.URL+"/inference/v1", "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rolling == nil || rolling.Percent != 30 || weekly.Status != "rate-limited" || monthly.Percent != 50 {
+		t.Fatalf("%#v %#v %#v", rolling, weekly, monthly)
 	}
 }
 

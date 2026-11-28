@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -34,10 +35,21 @@ type catalogModel struct {
 	// BaseURL is the endpoint the catalog names for this model. Its path picks
 	// the wire format, which is how one provider serves several API families.
 	BaseURL string `json:"base_url,omitempty"`
+	// Go and GoMonthly mark a model the opencode Go subscription pays for, and
+	// its monthly allowance on the plain Go plan.
+	Go        bool   `json:"go,omitempty"`
+	GoMonthly string `json:"go_monthly,omitempty"`
 }
 
 func fetchProviderModelCatalog(ctx context.Context, baseURL, apiKey, kind string) ([]catalogModel, error) {
 	models, err := fetchOpenAIModelList(ctx, baseURL, apiKey, openAIModelsPath(baseURL, kind))
+	if detectProviderKind(baseURL, kind) == "opencode" {
+		// The Go subscription has its own catalog: same fields plus the plan
+		// allowance per model. Marking costs one extra request and no state.
+		if goModels, goErr := fetchOpenAIModelList(ctx, openCodeGoURL(baseURL, "/v1"), apiKey, "models"); goErr == nil {
+			models = markGoModels(models, goModels)
+		}
+	}
 	root, probe := liteLLMCatalogRoot(baseURL, kind)
 	if !probe {
 		return models, err
@@ -155,7 +167,10 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 					Supported bool `json:"supported"`
 				} `json:"reasoning"`
 			} `json:"capabilities"`
-			API          map[string]catalogAPIEntry `json:"api"`
+			API map[string]catalogAPIEntry `json:"api"`
+			Go  *struct {
+				MonthlyUsage map[string]float64 `json:"monthly_usage"`
+			} `json:"go"`
 			Architecture *struct {
 				Modality         string   `json:"modality"`
 				InputModalities  []string `json:"input_modalities"`
@@ -216,11 +231,54 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 		if base := catalogAPIBase(row.API); base != "" {
 			m.BaseURL = base
 		}
+		if row.Go != nil {
+			m.Go = true
+			if v := row.Go.MonthlyUsage["go"]; v > 0 {
+				m.GoMonthly = "$" + strconv.FormatFloat(v, 'g', -1, 64) + "/mo"
+			}
+		}
 		m.CapabilitiesKnown = row.Architecture != nil || len(endpoints) > 0 || row.Modalities != nil
 		m.SeesImages, m.HearsAudio, m.Transcribes, m.Speaks, m.Realtime = catalogCapabilities(inputs, modality, outputs, endpoints)
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// openCodeGoURL is a path under opencode's Go prefix, for any base URL form:
+// a family base, the plain catalog, or the Go prefix itself.
+func openCodeGoURL(baseURL, suffix string) string {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	path := strings.TrimRight(u.Path, "/")
+	if i := strings.Index(path, "/inference"); i >= 0 {
+		path = path[:i]
+	} else {
+		path = ""
+	}
+	return u.Scheme + "://" + u.Host + path + "/inference/go" + suffix
+}
+
+// markGoModels copies Go membership onto the plain catalog. Models only in the
+// Go list are appended, because a Go key can call them and nothing else.
+func markGoModels(models, goModels []catalogModel) []catalogModel {
+	byID := map[string]*catalogModel{}
+	for i := range models {
+		byID[models[i].ID] = &models[i]
+	}
+	for _, gm := range goModels {
+		if m, ok := byID[gm.ID]; ok {
+			m.Go = true
+			if m.GoMonthly == "" {
+				m.GoMonthly = gm.GoMonthly
+			}
+			continue
+		}
+		gm.Go = true
+		models = append(models, gm)
+	}
+	return models
 }
 
 // catalogAPIEntry is one wire format a catalog model is served on.

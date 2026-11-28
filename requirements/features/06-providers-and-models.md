@@ -44,6 +44,13 @@ remote catalogs.
 base URL still decides the wire format (see below). `opencode` is detected from
 an `opencode.ai` host and skips the LiteLLM management probes.
 
+For an `opencode` provider the prefill also reads the Go catalog
+(`{root}/inference/go/v1/models`) and marks every model the Go subscription
+covers with `go` and its monthly allowance (`$100/mo` on the plain Go plan).
+Go-only models are added to the list with their Go base URL. The marker is a
+prefill hint, not stored state, and a Go model bills through the subscription
+only when the base URL under `/inference/go/` is used.
+
 ## Wire formats
 
 - A provider profile is one base URL plus key. The base URL picks the wire
@@ -74,10 +81,14 @@ an `opencode.ai` host and skips the LiteLLM management probes.
     (that key's cap). `GET {base}/credits` with the provider's management
     key → account credits minus usage. See REQ-PM-7.
   - LiteLLM: `GET {base}/key/info` with the key as the bearer. The key’s `max_budget` minus its `spend` is the remaining amount. `GET /user/info` is the user, not the key.
-  - Others: omit remaining. opencode.ai exposes no balance, credit, or budget
-    endpoint (only `console/api/v1/models` and `console/api/v2/usage/export`,
-    a CSV of past daily spend that needs a key with `Usage › Read`), so its
-    remaining stays blank.
+  - opencode.ai: `GET {go root}/v1/usage` with the same key → one meter each
+    for `rolling` (5 h), `weekly`, and `monthly`, with `status`, `percent` and
+    `resetsAt`. Shown as "Go 30%" with the reset in the tooltip; a key without
+    a Go subscription answers 403 and the line says so. There is no dollar
+    balance endpoint (only `console/api/v1/models` and
+    `console/api/v2/usage/export`, a CSV of past daily spend that needs a key
+    with `Usage › Read`).
+  - Others: omit remaining.
 - Fetch sparsely: on session load, when status becomes idle, manual refresh;
   server cache TTL ~90s.
 - Chat label for OpenRouter: `key left $…` so it is not confused with credits.

@@ -24,6 +24,17 @@ type providerBudgetInfo struct {
 	FetchedAt           string   `json:"fetched_at,omitempty"`
 	Error               string   `json:"error,omitempty"`
 	CacheHit            bool     `json:"cache_hit,omitempty"`
+	// Go subscription meters: percent used of each limit, from opencode.
+	GoRolling *goUsageMeter `json:"go_rolling,omitempty"`
+	GoWeekly  *goUsageMeter `json:"go_weekly,omitempty"`
+	GoMonthly *goUsageMeter `json:"go_monthly,omitempty"`
+}
+
+// goUsageMeter is one opencode Go limit.
+type goUsageMeter struct {
+	Status   string `json:"status"`
+	Percent  int    `json:"percent"`
+	ResetsAt string `json:"resets_at,omitempty"`
 }
 
 type sessionSpendInfo struct {
@@ -124,9 +135,66 @@ func fetchProviderBudget(ctx context.Context, kind, baseURL, apiKey, managementK
 		info.UsageUSD = usage
 		info.FetchedAt = time.Now().UTC().Format(time.RFC3339)
 		return info
+	case "opencode":
+		info.Supported = true
+		rolling, weekly, monthly, err := fetchOpenCodeGoUsage(ctx, baseURL, apiKey)
+		if err != nil {
+			info.Error = err.Error()
+			return info
+		}
+		info.GoRolling, info.GoWeekly, info.GoMonthly = rolling, weekly, monthly
+		info.FetchedAt = time.Now().UTC().Format(time.RFC3339)
+		return info
 	default:
 		return info
 	}
+}
+
+// fetchOpenCodeGoUsage reads the Go subscription meters: the 5-hour rolling
+// window, the week, and the month. A key without a Go subscription answers 403
+// and the message lands in the budget line.
+func fetchOpenCodeGoUsage(ctx context.Context, baseURL, apiKey string) (rolling, weekly, monthly *goUsageMeter, err error) {
+	url := openCodeGoURL(baseURL, "/v1/usage")
+	if url == "" {
+		return nil, nil, nil, fmt.Errorf("not an opencode endpoint")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("User-Agent", "keimling/"+buildVersion)
+	client := &http.Client{Timeout: 12 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("go usage: %w", err)
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, nil, nil, fmt.Errorf("go usage HTTP %d: %s", res.StatusCode, truncate(string(b), 200))
+	}
+	var doc struct {
+		Usage map[string]struct {
+			Status   string `json:"status"`
+			Percent  int    `json:"percent"`
+			ResetsAt string `json:"resetsAt"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, nil, nil, fmt.Errorf("go usage parse: %w", err)
+	}
+	meter := func(name string) *goUsageMeter {
+		m, ok := doc.Usage[name]
+		if !ok {
+			return nil
+		}
+		return &goUsageMeter{Status: m.Status, Percent: m.Percent, ResetsAt: m.ResetsAt}
+	}
+	return meter("rolling"), meter("weekly"), meter("monthly"), nil
 }
 
 func providerRootURL(baseURL string) string {
