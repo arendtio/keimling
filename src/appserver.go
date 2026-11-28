@@ -2612,6 +2612,13 @@ func (s *appServer) resolveModelProviders(body agentSettings) ([]modelProvider, 
 			cleaned = append(cleaned, nm)
 		}
 		p.Models = cleaned
+		if detectProviderKind(p.BaseURL, p.Kind) == "opencode" {
+			// A model saved without an endpoint falls back to the provider URL
+			// and would miss its family and the Go subscription.
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			fillOpenCodeModelBases(ctx, &p)
+			cancel()
+		}
 		if p.Reasoning != "" {
 			switch p.Reasoning {
 			case "low", "medium", "high", "xhigh", "max":

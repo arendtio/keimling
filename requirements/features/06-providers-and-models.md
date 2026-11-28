@@ -50,7 +50,12 @@ covers with `go` and its monthly allowance (`$100/mo` on the plain Go plan).
 Go-only models are added to the list. Picking a Go model fills its base URL
 under `/inference/go/…`, so the subscription pays for the call; delete the
 `/go/` segment in the model form to pay per request instead. The marker itself
-is not stored state; the model's `base_url` is.
+is not stored state; the model's `base_url` is. Saving an opencode provider
+also fills a model that has no base URL from the catalog, so a typed model id
+still reaches its family and, for a Go model, the Go endpoint. A provider whose
+own base URL sits under `/inference/go/` (for example
+`https://opencode.ai/inference/go/openai/v1`) bills every call to the Go
+subscription.
 
 ## Wire formats
 

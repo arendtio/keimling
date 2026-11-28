@@ -194,6 +194,35 @@ func TestFetchOpenCodeGoUsage(t *testing.T) {
 	}
 }
 
+func TestFillOpenCodeModelBases(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/inference/v1/models":
+			_, _ = io.WriteString(w, `{"data":[{"id":"gpt-5","api":{"responses":{"base_url":"https://paid.test/inference/openai/v1"}}},{"id":"glm-5.3","api":{"chat-completions":{"base_url":"https://paid.test/inference/openai/v1"}}}]}`)
+		case "/inference/go/v1/models":
+			_, _ = io.WriteString(w, `{"data":[{"id":"glm-5.3","go":{"monthly_usage":{"go":200}},"api":{"chat-completions":{"base_url":"https://go.test/inference/go/openai/v1"}}}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	p := modelProvider{BaseURL: srv.URL + "/inference/v1", Kind: "opencode", Models: []providerModel{
+		{ID: "glm-5.3"},
+		{ID: "gpt-5"},
+		{ID: "manual", BaseURL: "https://manual.test/v1"},
+	}}
+	fillOpenCodeModelBases(context.Background(), &p)
+	if p.Models[0].BaseURL != "https://go.test/inference/go/openai/v1/chat/completions" {
+		t.Fatalf("glm base %q", p.Models[0].BaseURL)
+	}
+	if p.Models[1].BaseURL != "https://paid.test/inference/openai/v1" {
+		t.Fatalf("gpt base %q", p.Models[1].BaseURL)
+	}
+	if p.Models[2].BaseURL != "https://manual.test/v1" {
+		t.Fatalf("manual base %q", p.Models[2].BaseURL)
+	}
+}
+
 func TestLiteLLMCatalogUsesModelInfo(t *testing.T) {
 	var modelsQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

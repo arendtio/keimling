@@ -286,6 +286,42 @@ func markGoModels(models, goModels []catalogModel) []catalogModel {
 	return models
 }
 
+// fillOpenCodeModelBases gives a model that arrived without an endpoint the one
+// the catalog names, so a typed model id still reaches its API family and, for
+// a Go model, the Go subscription. Best effort: an unreachable catalog leaves
+// the model on the provider's own endpoint.
+func fillOpenCodeModelBases(ctx context.Context, p *modelProvider) {
+	if p == nil || len(p.Models) == 0 {
+		return
+	}
+	need := false
+	for _, m := range p.Models {
+		if strings.TrimSpace(m.BaseURL) == "" {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return
+	}
+	models, err := fetchProviderModelCatalog(ctx, p.BaseURL, p.APIKey, "opencode")
+	if err != nil {
+		return
+	}
+	byID := make(map[string]catalogModel, len(models))
+	for _, c := range models {
+		byID[c.ID] = c
+	}
+	for i := range p.Models {
+		if strings.TrimSpace(p.Models[i].BaseURL) != "" {
+			continue
+		}
+		if c, ok := byID[p.Models[i].ID]; ok {
+			p.Models[i].BaseURL = c.BaseURL
+		}
+	}
+}
+
 // catalogAPIEntry is one wire format a catalog model is served on.
 type catalogAPIEntry struct {
 	BaseURL string `json:"base_url"`

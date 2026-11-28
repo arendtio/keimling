@@ -8265,16 +8265,19 @@
   if (provEditBaseURL) provEditBaseURL.addEventListener("input", syncManagementKeyField);
   if (provModelNew) provModelNew.addEventListener("click", openModelFormAdd);
   if (provModelSave) provModelSave.addEventListener("click", saveEditorModel);
-  if (provModelID) provModelID.addEventListener("change", function () {
-    if (!catalogCache.length) return;
+  function prefillFromCatalog() {
+    if (!provModelID || !catalogCache.length) return;
     var id = provModelID.value.trim();
     for (var i = 0; i < catalogCache.length; i++) {
       if (catalogCache[i].id === id) {
         applyCatalogPrefill(catalogCache[i]);
-        break;
+        return;
       }
     }
-  });
+  }
+  if (provModelID) provModelID.addEventListener("change", prefillFromCatalog);
+  // Typing the exact id is the common path; it must fill the endpoint too.
+  if (provModelID) provModelID.addEventListener("input", prefillFromCatalog);
   if (provModelCancel) provModelCancel.addEventListener("click", closeModelForm);
   if (provCatalogFetch) provCatalogFetch.addEventListener("click", fetchModelCatalog);
   if (provModelProvider) provModelProvider.addEventListener("change", function () {
@@ -8283,17 +8286,6 @@
   if (budgetLineEl) {
     budgetLineEl.style.cursor = "pointer";
     budgetLineEl.addEventListener("click", function () { refreshBudget(true); });
-  }
-  if (provModelID) {
-    provModelID.addEventListener("change", function () {
-      var id = provModelID.value.trim();
-      for (var i = 0; i < catalogCache.length; i++) {
-        if (catalogCache[i].id === id) {
-          applyCatalogPrefill(catalogCache[i]);
-          break;
-        }
-      }
-    });
   }
   openConnection.addEventListener("click", function () {
     showGate({ manage: true, keepApp: true, tab: "connection" });

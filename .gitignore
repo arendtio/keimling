@@ -6,3 +6,5 @@ __pycache__/
 scenarios/cards/
 scenarios/runs/
 scenarios/checkpoint.json
+.gomod
+.gocache
