@@ -24,6 +24,10 @@ const (
 	apiGemini          = "gemini"
 )
 
+// shortcut: side tasks (compaction, filter, transcription) still post Responses
+// requests on the provider base URL, so a side model from another API family
+// needs a provider profile of its own; upgrade by routing them through the
+// same dispatch.
 func apiFamily(baseURL string) string {
 	u := strings.ToLower(strings.TrimSpace(baseURL))
 	switch {

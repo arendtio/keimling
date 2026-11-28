@@ -2046,7 +2046,7 @@
     if (provModelID) provModelID.value = entry.id || "";
     if (provModelName && entry.name) provModelName.value = entry.name;
     if (provModelContext && entry.context_limit) provModelContext.value = String(entry.context_limit);
-    if (provModelBaseURL && entry.base_url) provModelBaseURL.value = entry.base_url;
+    if (provModelBaseURL) provModelBaseURL.value = entry.base_url || "";
     if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = usdPerMillionFromToken(entry.prompt_price);
     if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = usdPerMillionFromToken(entry.completion_price);
     if (entry.capabilities_known) setModelCapabilities(entry);

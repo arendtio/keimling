@@ -55,7 +55,9 @@ remote catalogs.
   catalog's `api` map.
 - Requests and streams are translated to and from the Responses item shape, so
   the agent loop, journal, and transcript do not change per format. Side tasks
-  (compaction, summarization, filter, transcription) still speak Responses.
+  (compaction, summarization, filter, transcription) still speak Responses on
+  the provider's own base URL, so a side model from another family needs its
+  own provider profile.
 
 ## Budget / spend
 

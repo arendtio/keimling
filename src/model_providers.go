@@ -136,9 +136,10 @@ func (fc *fileConfig) mirrorActiveModelProvider() {
 		return
 	}
 	p.ensureProviderModels()
-	if m := p.activeModel(); m != nil && strings.TrimSpace(m.BaseURL) != "" {
-		fc.API.BaseURL = strings.TrimSpace(m.BaseURL)
-	} else if u := strings.TrimSpace(p.BaseURL); u != "" {
+	// The mirrored endpoint stays the provider's. Side tasks (compaction,
+	// filter, transcription) run on this client and speak only the Responses
+	// API; the chat model's own base_url is applied per chat call instead.
+	if u := strings.TrimSpace(p.BaseURL); u != "" {
 		fc.API.BaseURL = u
 	}
 	if m := strings.TrimSpace(p.Model); m != "" {
@@ -209,9 +210,6 @@ func applyActiveProviderToAgent(a *Agent, fc fileConfig) {
 	}
 	p.ensureProviderModels()
 	base := strings.TrimSpace(p.BaseURL)
-	if m := p.activeModel(); m != nil && strings.TrimSpace(m.BaseURL) != "" {
-		base = strings.TrimSpace(m.BaseURL)
-	}
 	if base != "" {
 		a.Cfg.BaseURL = base
 		if a.Client != nil {
