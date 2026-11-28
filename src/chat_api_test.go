@@ -43,6 +43,39 @@ func testHistory() []json.RawMessage {
 	}
 }
 
+func TestClientHeaders(t *testing.T) {
+	var ua, session, auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua, session, auth = r.Header.Get("User-Agent"), r.Header.Get("x-opencode-session"), r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n")
+	}))
+	defer srv.Close()
+	c := NewClient("key")
+	c.BaseURL = srv.URL + "/google/v1beta"
+	c.SessionID = "thread-1"
+	if _, err := c.Respond(context.Background(), "gemini-4-argon", "", testHistory(), false, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ua != "keimling/1.0" || auth != "Bearer key" {
+		t.Fatalf("ua %q auth %q", ua, auth)
+	}
+	if session != "" {
+		t.Fatalf("session header sent to a foreign host: %q", session)
+	}
+	for host, want := range map[string]bool{
+		"opencode.ai":           true,
+		"inference.opencode.ai": true,
+		"opencode.ai.evil.test": false,
+		"notopencode.ai":        false,
+		"api.openai.com":        false,
+	} {
+		if got := openCodeSessionHost(host); got != want {
+			t.Fatalf("%s: %v", host, got)
+		}
+	}
+}
+
 func TestHistoryTurnsKeepsCallNames(t *testing.T) {
 	_, turns, err := historyTurns(testHistory())
 	if err != nil {

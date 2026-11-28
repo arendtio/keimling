@@ -3841,7 +3841,7 @@ func (s *appServer) startForkedRunWake(threadID, text, ws string, item AgentQueu
 	}
 	b := &Agent{
 		Cfg:         s.agent.Cfg,
-		Client:      &Client{APIKey: s.agent.Client.APIKey, BaseURL: s.agent.Client.BaseURL, HTTP: s.agent.Client.HTTP, Parallel: s.agent.Client.Parallel, Spend: s.agent.Client.Spend},
+		Client:      &Client{APIKey: s.agent.Client.APIKey, BaseURL: s.agent.Client.BaseURL, HTTP: s.agent.Client.HTTP, Parallel: s.agent.Client.Parallel, Spend: s.agent.Client.Spend, SessionID: s.agent.Client.SessionID},
 		Skills:      s.agent.Skills,
 		MCP:         s.agent.MCP,
 		Credentials: s.agent.Credentials,

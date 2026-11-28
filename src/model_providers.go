@@ -220,6 +220,7 @@ func applyActiveProviderToAgent(a *Agent, fc fileConfig) {
 		a.Cfg.Key = k
 		if a.Client != nil {
 			a.Client.APIKey = k
+			a.Client.SessionID = a.chatSessionID()
 		}
 	}
 	if m := p.activeModel(); m != nil {

@@ -442,6 +442,20 @@ func (a *Agent) threadModelViewFor(threadID string) map[string]any {
 	}
 }
 
+// chatSessionID is the stable per-conversation id that providers such as
+// opencode.ai route and cache on.
+func (a *Agent) chatSessionID() string {
+	if a == nil {
+		return ""
+	}
+	for _, id := range []string{a.Cfg.ThreadID, a.Cfg.AgentInstanceID, a.Cfg.WorkspaceID, a.Cfg.ConfigPath} {
+		if v := strings.TrimSpace(id); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // withChatEndpoint applies the chat provider only for fn.
 // The process client stays on the Settings endpoint for compaction and other roles.
 func (a *Agent) withChatEndpoint(fn func(model, reasoning string)) {
@@ -461,16 +475,18 @@ func (a *Agent) withChatEndpoint(fn func(model, reasoning string)) {
 		fn(model, reasoning)
 		return
 	}
-	prevURL, prevKey := a.Client.BaseURL, a.Client.APIKey
+	prevURL, prevKey, prevSession := a.Client.BaseURL, a.Client.APIKey, a.Client.SessionID
 	if u := strings.TrimSpace(t.BaseURL); u != "" {
 		a.Client.BaseURL = u
 	}
 	if t.ProviderID != "" {
 		a.Client.APIKey = t.APIKey
 	}
+	a.Client.SessionID = a.chatSessionID()
 	defer func() {
 		a.Client.BaseURL = prevURL
 		a.Client.APIKey = prevKey
+		a.Client.SessionID = prevSession
 	}()
 	fn(model, reasoning)
 }

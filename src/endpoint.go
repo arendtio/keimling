@@ -14,8 +14,21 @@ func (c *Client) endpoint(path string) string {
 	}
 	return base + "/" + strings.TrimLeft(path, "/")
 }
+
+// openCodeSessionHost reports a host that wants x-opencode-session.
+func openCodeSessionHost(host string) bool {
+	h := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	return h == "opencode.ai" || strings.HasSuffix(h, ".opencode.ai")
+}
+
 func (c *Client) authorize(req *http.Request) {
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	// Name the client rather than a generic library, as providers ask.
+	req.Header.Set("User-Agent", "keimling/1.0")
+	// opencode routes and caches per conversation; other providers ignore it.
+	if c.SessionID != "" && openCodeSessionHost(req.URL.Hostname()) {
+		req.Header.Set("x-opencode-session", c.SessionID)
 	}
 }

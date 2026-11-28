@@ -41,6 +41,9 @@ type Client struct {
 	// Spend, when set, receives one record per completed model response for
 	// the spend ledger. A nil hook keeps helper clients silent.
 	Spend func(spendRecord)
+	// SessionID identifies one conversation to providers that route per
+	// session, such as opencode.ai.
+	SessionID string
 	// ScriptReply, when set, answers instead of the HTTP API. Tests use it.
 	ScriptReply func(ctx context.Context, instructions string, history []json.RawMessage) (Response, error)
 	// offeredToolNames is the tool list of the last scripted reply. Tests read it.

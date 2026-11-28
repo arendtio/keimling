@@ -543,7 +543,7 @@ func (s *appServer) openRealtimeCallAgent(target string) (*Agent, error) {
 	}
 	b := &Agent{
 		Cfg:    src.Cfg,
-		Client: &Client{APIKey: src.Client.APIKey, BaseURL: src.Client.BaseURL, HTTP: src.Client.HTTP, Parallel: src.Client.Parallel, Spend: src.Client.Spend},
+		Client: &Client{APIKey: src.Client.APIKey, BaseURL: src.Client.BaseURL, HTTP: src.Client.HTTP, Parallel: src.Client.Parallel, Spend: src.Client.Spend, SessionID: src.Client.SessionID},
 		Skills: src.Skills, MCP: src.MCP, Credentials: src.Credentials,
 		SessionCtx: src.SessionCtx, Shares: src.Shares, Artifacts: src.Artifacts,
 		ApprovalCh: make(chan bool, 1), dirs: src.dirTable(),
