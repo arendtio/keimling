@@ -231,13 +231,20 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 	}
 	// Other wire formats speak their own protocol; the configured base URL
 	// picks one, so a provider profile only needs the URL its vendor documents.
-	switch apiFamily(c.BaseURL) {
-	case apiChatCompletions:
-		return c.respondChatCompletions(ctx, model, instructions, history, tools)
-	case apiMessages:
-		return c.respondMessages(ctx, model, instructions, history, tools)
-	case apiGemini:
-		return c.respondGemini(ctx, model, instructions, history, tools)
+	if family := apiFamily(c.BaseURL); family != apiResponses {
+		var out Response
+		switch family {
+		case apiChatCompletions:
+			out, err = c.respondChatCompletions(ctx, model, instructions, history, tools)
+		case apiMessages:
+			out, err = c.respondMessages(ctx, model, instructions, history, tools)
+		case apiGemini:
+			out, err = c.respondGemini(ctx, model, instructions, history, tools)
+		}
+		if err == nil {
+			c.LastMainUsage.EstimatedBefore = estimatedBefore
+		}
+		return out, err
 	}
 	reqBody := map[string]any{
 		"model": model, "store": false, "stream": true, "input": input, "tools": tools, "parallel_tool_calls": true, "include": []string{"reasoning.encrypted_content"},

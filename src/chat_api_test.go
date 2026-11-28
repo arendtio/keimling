@@ -193,6 +193,44 @@ func TestRespondMessagesStream(t *testing.T) {
 	}
 }
 
+func TestRespondGeminiJSONArray(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]},{"candidates":[{"content":{"parts":[{"text":" there"}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2}}]`)
+	}))
+	defer srv.Close()
+	c := NewClient("key")
+	c.BaseURL = srv.URL + "/google/v1beta"
+	resp, err := c.Respond(context.Background(), "gemini-4-argon", "", testHistory(), false, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg Item
+	if err := json.Unmarshal(resp.Output[0], &msg); err != nil || len(msg.Content) != 1 || msg.Content[0].Text != "Hi there" {
+		t.Fatalf("text %#v %v", msg, err)
+	}
+	if resp.Usage.InputTokens != 3 || resp.Usage.OutputTokens != 2 {
+		t.Fatalf("usage %#v", resp.Usage)
+	}
+}
+
+func TestRespondChatCompletionsJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok","tool_calls":[{"id":"call_2","function":{"name":"exec","arguments":"{}"}}]}}],"usage":{"prompt_tokens":4,"completion_tokens":1}}`)
+	}))
+	defer srv.Close()
+	c := NewClient("key")
+	c.BaseURL = srv.URL + "/openai/v1/chat/completions"
+	resp, err := c.Respond(context.Background(), "glm-5.3", "", testHistory(), false, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Output) != 2 || resp.Usage.InputTokens != 4 {
+		t.Fatalf("%#v", resp)
+	}
+}
+
 func TestRespondGeminiStream(t *testing.T) {
 	var body []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

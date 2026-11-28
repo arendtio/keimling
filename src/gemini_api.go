@@ -231,6 +231,23 @@ func (c *Client) consumeGeminiChunk(chunk *geminiChunk, text, thinking *strings.
 }
 
 func (c *Client) geminiJSON(model string, data []byte) (Response, error) {
+	// Without ?alt=sse Gemini answers a stream as a JSON array of chunks.
+	if trimmed := strings.TrimSpace(string(data)); strings.HasPrefix(trimmed, "[") {
+		var chunks []geminiChunk
+		if err := json.Unmarshal([]byte(trimmed), &chunks); err != nil {
+			return Response{}, fmt.Errorf("invalid Gemini answer: %w", err)
+		}
+		var text, thinking strings.Builder
+		var calls []chatCall
+		var inTokens, outTokens int64
+		visible := false
+		for i := range chunks {
+			if err := c.consumeGeminiChunk(&chunks[i], &text, &thinking, &calls, &inTokens, &outTokens, &visible, time.Now()); err != nil {
+				return Response{}, err
+			}
+		}
+		return c.finishChatResponse(model, text.String(), calls, inTokens, outTokens, false), nil
+	}
 	var chunk geminiChunk
 	if err := json.Unmarshal(data, &chunk); err != nil {
 		return Response{}, fmt.Errorf("invalid Gemini answer: %w", err)

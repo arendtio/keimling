@@ -254,7 +254,14 @@ func historyTurns(history []json.RawMessage) (string, []chatTurn, error) {
 			turns = append(turns, chatTurn{Role: "user", IsTool: true, Results: []chatResult{{CallID: item.CallID, Name: callNames[item.CallID], Output: out}}})
 		}
 	}
-	return strings.Join(system, "\n\n"), turns, nil
+	kept := turns[:0]
+	for _, turn := range turns {
+		if turn.Text == "" && len(turn.Parts) == 0 && len(turn.Calls) == 0 && len(turn.Results) == 0 {
+			continue
+		}
+		kept = append(kept, turn)
+	}
+	return strings.Join(system, "\n\n"), kept, nil
 }
 
 // chatParts reads a content value that is either a string or a part array.
