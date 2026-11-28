@@ -72,10 +72,13 @@ subscription.
   gets models from more than one family. Catalog prefill fills it from the
   catalog's `api` map.
 - Requests and streams are translated to and from the Responses item shape, so
-  the agent loop, journal, and transcript do not change per format. Side tasks
-  (compaction, summarization, filter, transcription) still speak Responses on
-  the provider's own base URL, so a side model from another family needs its
-  own provider profile.
+  the agent loop, journal, and transcript do not change per format. Every call
+  made as a given model uses that model's own endpoint: chat and vision, but
+  also compaction, charter refresh, thread titles, output filtering, delegate,
+  realtime, and transcription. A copy of the process client carries the model's
+  base URL, so a side call cannot move the shared client. Compaction, filtering
+  and one-shot asks translate their request to the family the endpoint speaks;
+  the model's stored `base_url` therefore decides where its work runs.
 
 ## Budget / spend
 

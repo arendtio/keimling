@@ -201,6 +201,9 @@ func (a *Agent) realtimeClient() (*Client, realtimeEndpoint, error) {
 	}
 	c := NewClient(p.APIKey)
 	c.BaseURL = p.BaseURL
+	if m := providerModelByID(p.Models, model); m != nil && strings.TrimSpace(m.BaseURL) != "" {
+		c.BaseURL = strings.TrimSpace(m.BaseURL)
+	}
 	ep = realtimeEndpoint{Model: model, Voice: voice, Kind: kind}
 	return c, ep, nil
 }

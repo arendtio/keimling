@@ -59,7 +59,7 @@ Do not invent facts. Keep findings terse. English. No markdown fences.`
 
 	var text string
 	err := a.withCompactionProgress("model", "refreshing charter with model", func() error {
-		out, e := a.Client.compactionAsk(ctx, a.compactionModel(), instr, body.String(), 4096)
+		out, e := a.sideAsk(ctx, a.compactionModel(), instr, body.String(), 4096)
 		text = out
 		return e
 	})

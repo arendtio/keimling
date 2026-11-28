@@ -35,6 +35,11 @@ func (a *Agent) compactionModel() string {
 	return a.Cfg.Model
 }
 
+// sideAsk asks the named model one instruction at that model's own endpoint.
+func (a *Agent) sideAsk(ctx context.Context, model, instructions, input string, ceiling int) (string, error) {
+	return a.modelClient(model).compactionAsk(ctx, model, instructions, input, ceiling)
+}
+
 // Dynamic output reserve depends on the input, not a fixed summary token target.
 // Some reasoning providers count hidden thinking against max_output_tokens.
 func compactionOutputCeiling(input string, ceiling int) int {
@@ -55,6 +60,9 @@ func compactionOutputCeiling(input string, ceiling int) int {
 // compactionAsk deliberately does not impose a target summary length. Its output
 // ceiling is a transport safety limit, not a requested compression ratio.
 func (c *Client) compactionAsk(ctx context.Context, model, instructions, input string, outputCeiling int) (string, error) {
+	if apiFamily(c.BaseURL) != apiResponses {
+		return c.oneShot(ctx, model, instructions, input)
+	}
 	outputCeiling = compactionOutputCeiling(input, outputCeiling)
 	payload, _ := json.Marshal(map[string]any{"model": model, "store": false, "instructions": instructions, "input": []map[string]any{{"role": "user", "content": input}}, "max_output_tokens": outputCeiling})
 	overall, cancel := context.WithTimeout(ctx, 12*time.Minute)
@@ -228,7 +236,7 @@ func (a *Agent) indexSemanticWindow(ctx context.Context, window []json.RawMessag
 	for j, raw := range window {
 		fmt.Fprintf(&source, "[EVENT %d] %s\n", j+1, raw)
 	}
-	raw, err := a.Client.compactionAsk(ctx, a.compactionModel(), semanticIndexPrompt(), "Current objective and guidance: "+instruction+"\n\n"+source.String(), 16384)
+	raw, err := a.sideAsk(ctx, a.compactionModel(), semanticIndexPrompt(), "Current objective and guidance: "+instruction+"\n\n"+source.String(), 16384)
 	if err != nil {
 		return nil, fmt.Errorf("semantic outline window %d: %w", windowIndex+1, err)
 	}
@@ -239,7 +247,7 @@ func (a *Agent) indexSemanticWindow(ctx context.Context, window []json.RawMessag
 			repairPrompt := fmt.Sprintf(`Convert the supplied answer into ONE valid JSON object matching {"sections":[{"start":1,"end":N,"title":"...","action":"keep|distill|summarize|collapse","note":"...","children":[]}]}. Restore exact contiguous ranges 1..N, do not omit events; at most %d levels. Output JSON only, no explanation.`, semanticMaxDepth)
 			input := fmt.Sprintf("EVENT COUNT: %d\nPARSING ERROR: %v\nMODEL ANSWER:\n%s", len(window), err, truncate(raw, 12000))
 			var fixed string
-			fixed, err = a.Client.compactionAsk(ctx, a.compactionModel(), repairPrompt, input, 16384)
+			fixed, err = a.sideAsk(ctx, a.compactionModel(), repairPrompt, input, 16384)
 			if err == nil {
 				sections, err = parseSemanticOutline(fixed, len(window))
 			}
@@ -275,7 +283,7 @@ func (a *Agent) compactSemantic(ctx context.Context, history []json.RawMessage, 
 	reviewPrompt := `Review this SEMANTICALLY COMPACTED history for the active working state. Return an exceptionally concise CURRENT STATE and CROSS-SECTION LINKS only: current objective, durable user constraints, verified architectural decisions, unresolved issues, and needed dependencies. Do not rewrite or repeat the entire history. Distinguish hypothesis from fact. Do not invent data. Return plain text, no secrets.`
 	draft := result.String()
 	if len(draft) < 1400000 {
-		review, err := a.Client.compactionAsk(ctx, a.compactionModel(), reviewPrompt, draft, 8192)
+		review, err := a.sideAsk(ctx, a.compactionModel(), reviewPrompt, draft, 8192)
 		if err != nil {
 			return "", fmt.Errorf("global coherence review: %w", err)
 		}

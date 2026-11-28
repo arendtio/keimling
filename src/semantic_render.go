@@ -218,9 +218,9 @@ func (a *Agent) renderLeafText(ctx context.Context, window []json.RawMessage, le
 		var summary string
 		var err error
 		if source.Len() > 1400000 {
-			summary, err = compactMaterial(ctx, a.Client, a.compactionModel(), window[s.Start-1:s.End], summaryPrompt+"\n"+arc)
+			summary, err = compactMaterial(ctx, a.modelClient(a.compactionModel()), a.compactionModel(), window[s.Start-1:s.End], summaryPrompt+"\n"+arc)
 		} else {
-			summary, err = a.Client.compactionAsk(ctx, a.compactionModel(), summaryPrompt, input, 8192)
+			summary, err = a.sideAsk(ctx, a.compactionModel(), summaryPrompt, input, 8192)
 		}
 		if err != nil {
 			return "", fmt.Errorf("summarize section %q: %w", title, err)

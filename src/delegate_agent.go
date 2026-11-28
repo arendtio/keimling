@@ -112,7 +112,7 @@ func (a *Agent) runDelegateAgent(ctx context.Context, args DelegateArgs, model, 
 	steps := delegateStepLimit(sub.Cfg.MaxSteps)
 	last := ""
 	for step := 0; step < steps; step++ {
-		resp, err := sub.Client.Respond(ctx, model, effort, sub.History, sub.Cfg.Web, instructions, extra, grant)
+		resp, err := sub.modelClient(model).Respond(ctx, model, effort, sub.History, sub.Cfg.Web, instructions, extra, grant)
 		if err != nil {
 			return "", err
 		}

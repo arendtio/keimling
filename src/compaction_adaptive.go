@@ -40,9 +40,9 @@ func (a *Agent) adaptiveCompaction(ctx context.Context, initial string, before i
 		var err error
 		if len(best) > 1400000 {
 			event, _ := json.Marshal(map[string]any{"role": "user", "content": best})
-			candidate, err = compactMaterial(ctx, a.Client, a.compactionModel(), []json.RawMessage{event}, prompt)
+			candidate, err = compactMaterial(ctx, a.modelClient(a.compactionModel()), a.compactionModel(), []json.RawMessage{event}, prompt)
 		} else {
-			candidate, err = a.Client.compactionAsk(ctx, a.compactionModel(), prompt, best, 8192)
+			candidate, err = a.sideAsk(ctx, a.compactionModel(), prompt, best, 8192)
 		}
 		if err != nil || strings.TrimSpace(candidate) == "" {
 			break
@@ -83,9 +83,9 @@ func (a *Agent) denserCompaction(ctx context.Context, initial string, _ int, tai
 	var err error
 	if len(best) > 1400000 {
 		event, _ := json.Marshal(map[string]any{"role": "user", "content": best})
-		candidate, err = compactMaterial(ctx, a.Client, a.compactionModel(), []json.RawMessage{event}, prompt)
+		candidate, err = compactMaterial(ctx, a.modelClient(a.compactionModel()), a.compactionModel(), []json.RawMessage{event}, prompt)
 	} else {
-		candidate, err = a.Client.compactionAsk(ctx, a.compactionModel(), prompt, best, 8192)
+		candidate, err = a.sideAsk(ctx, a.compactionModel(), prompt, best, 8192)
 	}
 	if err != nil {
 		return best, currentSize, err

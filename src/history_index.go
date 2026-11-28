@@ -353,7 +353,7 @@ func storylineContinues(ctx context.Context, a *Agent, idx *HistoryIndex, events
 		}
 	}
 	reply := lastAssistantTextBefore(events, at)
-	answer, err := a.Client.compactionAsk(askCtx, a.compactionModel(),
+	answer, err := a.sideAsk(askCtx, a.compactionModel(),
 		"Reply with exactly CONTINUE or NEW. CONTINUE when the new message carries the same storyline on, including a follow-up, a correction, or another check of the same job. NEW when the previous storyline is done and this message opens a different one.",
 		"Current storyline:\n"+truncate(title, 400)+"\n\nLast reply:\n"+truncate(reply, 400)+"\n\nNew message:\n"+truncate(eventLabel(events[at]), 800), 16)
 	if err != nil {
@@ -404,7 +404,7 @@ func (a *Agent) ensureChapterTitles(ctx context.Context, idx *HistoryIndex, even
 			continue
 		}
 		askCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		title, err := a.Client.compactionAsk(askCtx, a.compactionModel(),
+		title, err := a.sideAsk(askCtx, a.compactionModel(),
 			`Write a short chapter title for this agent task (3–8 words). Do NOT copy or lightly paraphrase the user message. Prefer a topic label (e.g. "PTY deadlock fix"). Title only — no quotes, no punctuation fluff.`,
 			"User request:\n"+truncate(seed, 800), 64)
 		cancel()

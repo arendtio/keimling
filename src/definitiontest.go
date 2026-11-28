@@ -473,7 +473,7 @@ func (a *Agent) judgeDefinitionMessage(ctx context.Context, check, message strin
 	if err != nil {
 		return false, "", err
 	}
-	resp, err := a.Client.Respond(ctx, model, reasoning, []json.RawMessage{raw}, false, definitionJudgeInstructions, nil, nil)
+	resp, err := a.modelClient(model).Respond(ctx, model, reasoning, []json.RawMessage{raw}, false, definitionJudgeInstructions, nil, nil)
 	if err != nil {
 		return false, "", err
 	}

@@ -34,7 +34,7 @@ func (a *Agent) maybeGenerateThreadTitle(ctx context.Context, seed string) {
 	if strings.HasPrefix(seed, "User: ") {
 		block = "Conversation:\n" + truncate(seed, 1200)
 	}
-	raw, err := a.Client.compactionAsk(askCtx, model,
+	raw, err := a.sideAsk(askCtx, model,
 		`Write a short thread title for this chat (3–8 words). Do NOT copy or lightly paraphrase the user message. Prefer a topic label (e.g. "PTY deadlock fix"). Title only — no quotes, no punctuation fluff.`,
 		block, 64)
 	if err != nil {

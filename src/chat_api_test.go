@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,65 @@ func TestClientHeaders(t *testing.T) {
 		if got := openCodeSessionHost(host); got != want {
 			t.Fatalf("%s: %v", host, got)
 		}
+	}
+}
+
+func TestModelClientUsesModelEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	fc := fileConfig{
+		ModelProviders: []modelProvider{{
+			ID:            "p1",
+			Name:          "opencode",
+			BaseURL:       "https://opencode.ai/inference/v1",
+			Kind:          "opencode",
+			APIKey:        "key",
+			ActiveModelID: "go-model",
+			Models: []providerModel{
+				{ID: "go-model", BaseURL: "https://opencode.ai/inference/go/openai/v1/chat/completions"},
+				{ID: "plain"},
+			},
+		}},
+		ActiveModelProviderID: "p1",
+	}
+	if err := writeFileConfigForTest(path, fc); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{Cfg: Config{ConfigPath: path, ThreadID: "t1"}, Client: NewClient("key")}
+	a.Client.BaseURL = "https://opencode.ai/inference/v1"
+
+	if got := a.modelClient("go-model").BaseURL; got != "https://opencode.ai/inference/go/openai/v1/chat/completions" {
+		t.Fatalf("go model base %q", got)
+	}
+	if got := a.modelClient("plain").BaseURL; got != "https://opencode.ai/inference/v1" {
+		t.Fatalf("plain model base %q", got)
+	}
+	if got := a.modelClient("go-model").SessionID; got != "t1" {
+		t.Fatalf("session %q", got)
+	}
+	// The process client must not move.
+	if a.Client.BaseURL != "https://opencode.ai/inference/v1" {
+		t.Fatalf("process client moved to %q", a.Client.BaseURL)
+	}
+}
+
+func TestOneShotOnChatCompletions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/openai/v1/chat/completions" {
+			t.Errorf("path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"summary\"}}]}\n\n")
+	}))
+	defer srv.Close()
+	c := NewClient("key")
+	c.BaseURL = srv.URL + "/openai/v1/chat/completions"
+	got, err := c.Summarize(context.Background(), "glm-5.3", "long history", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "summary" {
+		t.Fatalf("summary %q", got)
 	}
 }
 

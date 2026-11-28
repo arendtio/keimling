@@ -42,7 +42,7 @@ func (a *Agent) retainToolFinding(ctx context.Context, name, args, result string
 		"Tool purpose=%s name=%s.\nWrite ONE short finding (≤80 tokens): mutate → 'changed X → success/fail + key side effect'; query → 'answered Q with fact F'. Drop bulk stdout.\nOptional second line starting with Q: for an unresolved blocker.\nArgs: %s\nResult: %s\n",
 		purpose, name, truncate(args, 400), truncate(result, 1200),
 	)
-	text, err := a.Client.compactionAsk(ctx, a.compactionModel(), instr, input, 120)
+	text, err := a.sideAsk(ctx, a.compactionModel(), instr, input, 120)
 	if err != nil {
 		// Deterministic fallback so a retain failure never blocks the agent loop.
 		c.AppendFinding(fmt.Sprintf("%s (%s): %s", name, purpose, truncate(oneLine(result), 160)))

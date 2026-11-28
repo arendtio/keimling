@@ -273,5 +273,9 @@ func (a *Agent) voiceClient() (*Client, string, error) {
 	}
 	c := NewClient(p.APIKey)
 	c.BaseURL = p.BaseURL
+	// A transcription model can sit on its own family or the Go endpoint.
+	if m := providerModelByID(p.Models, model); m != nil && strings.TrimSpace(m.BaseURL) != "" {
+		c.BaseURL = strings.TrimSpace(m.BaseURL)
+	}
 	return c, model, nil
 }

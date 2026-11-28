@@ -87,7 +87,7 @@ func (a *Agent) startBackgroundCompaction(ctx context.Context) bool {
 goal (string), plan (array of {step,status:pending|in_progress|done}), position (1-based int),
 findings (string array), open_questions (string array), constraints (string array), recent (string array).
 Merge durable facts; clear or shrink recent after folding. Do not invent facts. English. No markdown fences.`
-		text, err := client.compactionAsk(jobCtx, model, instr, body.String(), 4096)
+		text, err := a.sideAsk(jobCtx, model, instr, body.String(), 4096)
 		close(tickDone)
 		if err != nil {
 			a.reportCompaction("background", "background refresh", started, true, err)

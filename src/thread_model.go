@@ -456,6 +456,34 @@ func (a *Agent) chatSessionID() string {
 	return ""
 }
 
+// modelClient copies the process client and points it at the endpoint of the
+// named model, so a model reaches the URL it was saved with whatever role it
+// plays. The copy keeps the spend hook; counters stay with the original.
+func (a *Agent) modelClient(modelID string) *Client {
+	if a == nil || a.Client == nil {
+		return nil
+	}
+	c := *a.Client
+	c.SessionID = a.chatSessionID()
+	providers, active, ok := a.liveProviders()
+	if !ok {
+		return &c
+	}
+	p, m := findProviderModel(providers, modelID, active)
+	if p == nil || m == nil {
+		return &c
+	}
+	if u := strings.TrimSpace(m.BaseURL); u != "" {
+		c.BaseURL = u
+	} else if u := strings.TrimSpace(p.BaseURL); u != "" {
+		c.BaseURL = u
+	}
+	if k := strings.TrimSpace(p.APIKey); k != "" {
+		c.APIKey = k
+	}
+	return &c
+}
+
 // withChatEndpoint applies the chat provider only for fn.
 // The process client stays on the Settings endpoint for compaction and other roles.
 func (a *Agent) withChatEndpoint(fn func(model, reasoning string)) {

@@ -376,6 +376,60 @@ func (c *Client) finishChatResponse(model, text string, calls []chatCall, inToke
 	return out
 }
 
+// responseText is the visible text of a finished answer.
+func responseText(resp Response) string {
+	var parts []string
+	for _, raw := range resp.Output {
+		var item Item
+		if json.Unmarshal(raw, &item) != nil {
+			continue
+		}
+		for _, part := range item.Content {
+			if part.Type == "output_text" && part.Text != "" {
+				parts = append(parts, part.Text)
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+// oneShot asks one model one instruction on whichever wire format its endpoint
+// speaks, so side tasks such as compaction and filtering work off the chat path.
+func (c *Client) oneShot(ctx context.Context, model, instructions, source string) (string, error) {
+	content, err := json.Marshal([]map[string]any{{"type": "input_text", "text": source}})
+	if err != nil {
+		return "", err
+	}
+	history := []json.RawMessage{mustRaw(map[string]any{"type": "message", "role": "user", "content": json.RawMessage(content)})}
+	var resp Response
+	switch apiFamily(c.BaseURL) {
+	case apiChatCompletions:
+		resp, err = c.respondChatCompletions(ctx, model, instructions, history, nil)
+	case apiMessages:
+		resp, err = c.respondMessages(ctx, model, instructions, history, nil)
+	case apiGemini:
+		resp, err = c.respondGemini(ctx, model, instructions, history, nil)
+	default:
+		return "", fmt.Errorf("unsupported endpoint for a one-shot request")
+	}
+	if err != nil {
+		return "", err
+	}
+	text := responseText(resp)
+	if text == "" {
+		return "", fmt.Errorf("no text in the answer")
+	}
+	return text, nil
+}
+
+func mustRaw(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 func chatStatusError(family string, status int, data []byte) error {
 	return fmt.Errorf("%s API HTTP %d: %s", family, status, truncate(string(data), 1000))
 }
