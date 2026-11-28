@@ -263,6 +263,9 @@ func chatTargetFrom(p *modelProvider, m *providerModel, globalLimit int, globalR
 	}
 	t.Model = m.ID
 	t.Label = m.displayName()
+	if u := strings.TrimSpace(m.BaseURL); u != "" {
+		t.BaseURL = u
+	}
 	if r := strings.TrimSpace(m.Reasoning); r != "" {
 		t.Reasoning = r
 	}
@@ -507,8 +510,12 @@ func (a *Agent) withVisionEndpoint(fn func(model, reasoning string)) error {
 		return nil
 	}
 	prevURL, prevKey := a.Client.BaseURL, a.Client.APIKey
-	if u := strings.TrimSpace(p.BaseURL); u != "" {
-		a.Client.BaseURL = u
+	base := strings.TrimSpace(p.BaseURL)
+	if u := strings.TrimSpace(m.BaseURL); u != "" {
+		base = u
+	}
+	if base != "" {
+		a.Client.BaseURL = base
 	}
 	a.Client.APIKey = strings.TrimSpace(p.APIKey)
 	defer func() {

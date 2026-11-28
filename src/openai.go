@@ -229,6 +229,16 @@ func (c *Client) Respond(ctx context.Context, model, reasoning string, history [
 	if c.chatTools != nil {
 		tools = *c.chatTools
 	}
+	// Other wire formats speak their own protocol; the configured base URL
+	// picks one, so a provider profile only needs the URL its vendor documents.
+	switch apiFamily(c.BaseURL) {
+	case apiChatCompletions:
+		return c.respondChatCompletions(ctx, model, instructions, history, tools)
+	case apiMessages:
+		return c.respondMessages(ctx, model, instructions, history, tools)
+	case apiGemini:
+		return c.respondGemini(ctx, model, instructions, history, tools)
+	}
 	reqBody := map[string]any{
 		"model": model, "store": false, "stream": true, "input": input, "tools": tools, "parallel_tool_calls": true, "include": []string{"reasoning.encrypted_content"},
 		"instructions": instructions,

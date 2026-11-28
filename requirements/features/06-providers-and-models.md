@@ -18,7 +18,9 @@ remote catalogs.
 ## Models (per provider)
 
 - Manually curated favorites: `id` (API model string), `name`, `context_limit`,
-  `reasoning`, optional `prompt_price` / `completion_price` (USD per token).
+  `reasoning`, optional `prompt_price` / `completion_price` (USD per token),
+  optional `base_url` (model-only endpoint, which also selects the wire
+  format; see Wire formats).
 - Prefill: Settings can request upstream `/models` (OpenRouter returns
   `context_length` + pricing; OpenAI-compatible often only ids) and fill the
   edit form — catalogs are not persisted wholesale. An OpenRouter request asks
@@ -37,6 +39,24 @@ remote catalogs.
 - Compaction and context use the context length stored on the model in
   effect. There is no global context-length setting. See REQ-PM-14.
 
+## Wire formats
+
+- A provider profile is one base URL plus key. The base URL picks the wire
+  format, so a vendor that serves several APIs needs one provider per family
+  (or one model-level override, below): a URL ending in `/chat/completions`
+  talks Chat Completions, one containing `/anthropic/` (or ending `/messages`)
+  talks Anthropic Messages, one containing `/google/` or
+  `generativelanguage` talks Gemini `streamGenerateContent`, anything else is
+  the OpenAI Responses API.
+- A model may carry its own `base_url`, which wins over the provider's. This is
+  how one provider (for example opencode.ai, whose families live under
+  `/inference/openai/v1`, `/inference/anthropic/v1`, `/inference/google/v1beta`)
+  gets models from more than one family. Catalog prefill fills it from the
+  catalog's `api` map.
+- Requests and streams are translated to and from the Responses item shape, so
+  the agent loop, journal, and transcript do not change per format. Side tasks
+  (compaction, summarization, filter, transcription) still speak Responses.
+
 ## Budget / spend
 
 - **Session spend:** accumulate billed tokens for the process/thread; estimate
@@ -47,7 +67,10 @@ remote catalogs.
     (that key's cap). `GET {base}/credits` with the provider's management
     key → account credits minus usage. See REQ-PM-7.
   - LiteLLM: `GET {base}/key/info` with the key as the bearer. The key’s `max_budget` minus its `spend` is the remaining amount. `GET /user/info` is the user, not the key.
-  - Others: omit remaining.
+  - Others: omit remaining. opencode.ai exposes no balance, credit, or budget
+    endpoint (only `console/api/v1/models` and `console/api/v2/usage/export`,
+    a CSV of past daily spend that needs a key with `Usage › Read`), so its
+    remaining stays blank.
 - Fetch sparsely: on session load, when status becomes idle, manual refresh;
   server cache TTL ~90s.
 - Chat label for OpenRouter: `key left $…` so it is not confused with credits.

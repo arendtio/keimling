@@ -136,7 +136,9 @@ func (fc *fileConfig) mirrorActiveModelProvider() {
 		return
 	}
 	p.ensureProviderModels()
-	if u := strings.TrimSpace(p.BaseURL); u != "" {
+	if m := p.activeModel(); m != nil && strings.TrimSpace(m.BaseURL) != "" {
+		fc.API.BaseURL = strings.TrimSpace(m.BaseURL)
+	} else if u := strings.TrimSpace(p.BaseURL); u != "" {
 		fc.API.BaseURL = u
 	}
 	if m := strings.TrimSpace(p.Model); m != "" {
@@ -165,6 +167,9 @@ func publicModelProviders(list []modelProvider) []map[string]any {
 				"transcribes":      m.Transcribes,
 				"speaks":           m.Speaks,
 				"realtime":         m.Realtime,
+			}
+			if m.BaseURL != "" {
+				row["base_url"] = m.BaseURL
 			}
 			if m.SeesImages {
 				row["sees_images"] = true
@@ -203,10 +208,14 @@ func applyActiveProviderToAgent(a *Agent, fc fileConfig) {
 		return
 	}
 	p.ensureProviderModels()
-	if u := strings.TrimSpace(p.BaseURL); u != "" {
-		a.Cfg.BaseURL = u
+	base := strings.TrimSpace(p.BaseURL)
+	if m := p.activeModel(); m != nil && strings.TrimSpace(m.BaseURL) != "" {
+		base = strings.TrimSpace(m.BaseURL)
+	}
+	if base != "" {
+		a.Cfg.BaseURL = base
 		if a.Client != nil {
-			a.Client.BaseURL = u
+			a.Client.BaseURL = base
 		}
 	}
 	if k := strings.TrimSpace(p.APIKey); k != "" {

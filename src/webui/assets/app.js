@@ -347,6 +347,7 @@
   var provModelProvider = document.getElementById("prov-model-provider");
   var provModelID = document.getElementById("prov-model-id");
   var provModelName = document.getElementById("prov-model-name");
+  var provModelBaseURL = document.getElementById("prov-model-base-url");
   var provModelContext = document.getElementById("prov-model-context");
   var provModelReasoning = document.getElementById("prov-model-reasoning");
   var provModelPromptPrice = document.getElementById("prov-model-prompt-price");
@@ -1796,6 +1797,7 @@
   function clearModelForm() {
     if (provModelID) provModelID.value = "";
     if (provModelName) provModelName.value = "";
+    if (provModelBaseURL) provModelBaseURL.value = "";
     if (provModelContext) provModelContext.value = "";
     if (provModelReasoning) provModelReasoning.value = "";
     if (provModelPromptPrice) provModelPromptPrice.value = "";
@@ -1808,6 +1810,7 @@
     if (!m) { clearModelForm(); return; }
     if (provModelID) provModelID.value = m.id || "";
     if (provModelName) provModelName.value = m.name || "";
+    if (provModelBaseURL) provModelBaseURL.value = m.base_url || "";
     if (provModelContext) provModelContext.value = m.context_limit ? String(m.context_limit) : "";
     if (provModelReasoning) provModelReasoning.value = m.reasoning || "";
     if (provModelPromptPrice) provModelPromptPrice.value = usdPerMillionFromToken(m.prompt_price);
@@ -1903,6 +1906,12 @@
         label.className = "profile-pick";
         var meta = [p.name || p.id];
         if (m.context_limit) meta.push(m.context_limit + " ctx");
+        if (m.base_url) {
+          var fam = /chat\/completions$/.test(m.base_url) ? "chat" :
+            /anthropic|\/messages$/.test(m.base_url) ? "messages" :
+            /google|generativelanguage/.test(m.base_url) ? "gemini" : "responses";
+          meta.push(fam);
+        }
         if (m.transcribes) meta.push("transcribes");
         if (m.speaks) meta.push("speaks");
         if (m.realtime) meta.push("realtime");
@@ -1965,6 +1974,7 @@
     var row = {
       id: id,
       name: provModelName ? provModelName.value.trim() : "",
+      base_url: provModelBaseURL ? provModelBaseURL.value.trim() : "",
       context_limit: ctx || 0,
       reasoning: provModelReasoning ? provModelReasoning.value : "",
       prompt_price: promptPrice,
@@ -2036,6 +2046,7 @@
     if (provModelID) provModelID.value = entry.id || "";
     if (provModelName && entry.name) provModelName.value = entry.name;
     if (provModelContext && entry.context_limit) provModelContext.value = String(entry.context_limit);
+    if (provModelBaseURL && entry.base_url) provModelBaseURL.value = entry.base_url;
     if (provModelPromptPrice && entry.prompt_price) provModelPromptPrice.value = usdPerMillionFromToken(entry.prompt_price);
     if (provModelCompletionPrice && entry.completion_price) provModelCompletionPrice.value = usdPerMillionFromToken(entry.completion_price);
     if (entry.capabilities_known) setModelCapabilities(entry);

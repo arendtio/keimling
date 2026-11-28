@@ -31,6 +31,9 @@ type catalogModel struct {
 	// Outputs is the catalog's output kind when it is not plain text, so the
 	// prefill list can show speech, transcription, image, and the rest.
 	Outputs string `json:"outputs,omitempty"`
+	// BaseURL is the endpoint the catalog names for this model. Its path picks
+	// the wire format, which is how one provider serves several API families.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 func fetchProviderModelCatalog(ctx context.Context, baseURL, apiKey, kind string) ([]catalogModel, error) {
@@ -140,6 +143,17 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 					} `json:"output"`
 				} `json:"text"`
 			} `json:"cost"`
+			Type       string `json:"type"`
+			Modalities *struct {
+				Input  []string `json:"input"`
+				Output []string `json:"output"`
+			} `json:"modalities"`
+			Capabilities *struct {
+				Reasoning struct {
+					Supported bool `json:"supported"`
+				} `json:"reasoning"`
+			} `json:"capabilities"`
+			API          map[string]catalogAPIEntry `json:"api"`
 			Architecture *struct {
 				Modality         string   `json:"modality"`
 				InputModalities  []string `json:"input_modalities"`
@@ -152,7 +166,7 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 			continue
 		}
 		id := strings.TrimSpace(row.ID)
-		if id == "" {
+		if id == "" || strings.EqualFold(row.Type, "embedding") {
 			continue
 		}
 		m := catalogModel{
@@ -192,11 +206,42 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 			m.Outputs = catalogOutputs(outputs)
 		}
 		endpoints := row.Endpoints
-		m.CapabilitiesKnown = row.Architecture != nil || len(endpoints) > 0
+		if row.Modalities != nil {
+			inputs = append(inputs, row.Modalities.Input...)
+			outputs = append(outputs, row.Modalities.Output...)
+			m.Outputs = catalogOutputs(outputs)
+		}
+		if base := catalogAPIBase(row.API); base != "" {
+			m.BaseURL = base
+		}
+		m.CapabilitiesKnown = row.Architecture != nil || len(endpoints) > 0 || row.Modalities != nil
 		m.SeesImages, m.HearsAudio, m.Transcribes, m.Speaks, m.Realtime = catalogCapabilities(inputs, modality, outputs, endpoints)
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// catalogAPIEntry is one wire format a catalog model is served on.
+type catalogAPIEntry struct {
+	BaseURL string `json:"base_url"`
+}
+
+// catalogAPIBase picks the endpoint to call, preferring the family Keimling
+// speaks natively. Chat Completions shares its base with the Responses API, so
+// that one is stored as the full endpoint to make the format detectable.
+func catalogAPIBase(api map[string]catalogAPIEntry) string {
+	for _, family := range []string{"responses", "chat-completions", "messages", "generate-content"} {
+		entry, ok := api[family]
+		base := strings.TrimRight(strings.TrimSpace(entry.BaseURL), "/")
+		if !ok || base == "" {
+			continue
+		}
+		if family == "chat-completions" && !strings.HasSuffix(base, "/chat/completions") {
+			base += "/chat/completions"
+		}
+		return base
+	}
+	return ""
 }
 
 // catalogCapabilities reads what the catalog actually reports. A model whose

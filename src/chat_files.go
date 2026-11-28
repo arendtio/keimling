@@ -673,10 +673,11 @@ func searchWorkspaceFiles(root, query string, limit int) []map[string]string {
 
 func catalogModalities(input []string, modality string) (images, audio bool) {
 	check := func(s string) {
-		switch strings.ToLower(strings.TrimSpace(s)) {
-		case "image", "vision":
+		s = strings.ToLower(strings.TrimSpace(s))
+		switch {
+		case s == "vision", strings.HasPrefix(s, "image"):
 			images = true
-		case "audio":
+		case strings.HasPrefix(s, "audio"):
 			audio = true
 		}
 	}

@@ -186,6 +186,10 @@
             <label>Display name
               <input id="prov-model-name" type="text" autocomplete="off" placeholder="optional">
             </label>
+            <label>API base URL for this model
+              <input id="prov-model-base-url" type="url" autocomplete="off" placeholder="optional, e.g. https://opencode.ai/inference/anthropic/v1">
+            </label>
+            <p class="hint" id="prov-model-base-url-hint">Optional. The URL picks the wire format: <code>/chat/completions</code> Chat Completions, <code>/anthropic/</code> Messages, <code>/google/</code> Gemini, otherwise the Responses API.</p>
             <label>Context limit
               <input id="prov-model-context" type="number" min="0" step="1000" placeholder="e.g. 128000">
             </label>

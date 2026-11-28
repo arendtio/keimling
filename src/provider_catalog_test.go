@@ -94,6 +94,45 @@ func TestParseModelCatalogModelsDevShape(t *testing.T) {
 	}
 }
 
+func TestParseModelCatalogModelsDevFamilies(t *testing.T) {
+	raw := []byte(`{"data":[
+		{"id":"gpt-x","type":"chat","modalities":{"input":["text","image/png"],"output":["text"]},"api":{"responses":{"base_url":"https://opencode.ai/inference/openai/v1"}}},
+		{"id":"kimi-x","type":"chat","modalities":{"input":["text"],"output":["text"]},"api":{"chat-completions":{"base_url":"https://opencode.ai/inference/openai/v1/"}}},
+		{"id":"claude-x","type":"chat","api":{"messages":{"base_url":"https://opencode.ai/inference/anthropic/v1"}}},
+		{"id":"gemini-x","type":"chat","api":{"interactions":{"base_url":"https://opencode.ai/inference/google/v1beta"},"generate-content":{"base_url":"https://opencode.ai/inference/google/v1beta"}}},
+		{"id":"embed","type":"embedding","api":{"embeddings":{"base_url":"https://opencode.ai/inference/openai/v1"}}}
+	]}`)
+	got, err := parseModelCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"gpt-x":    "https://opencode.ai/inference/openai/v1",
+		"kimi-x":   "https://opencode.ai/inference/openai/v1/chat/completions",
+		"claude-x": "https://opencode.ai/inference/anthropic/v1",
+		"gemini-x": "https://opencode.ai/inference/google/v1beta",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%#v", got)
+	}
+	for _, m := range got {
+		if m.BaseURL != want[m.ID] {
+			t.Fatalf("%s base %q", m.ID, m.BaseURL)
+		}
+		if m.ID == "gpt-x" && (!m.SeesImages || !m.CapabilitiesKnown) {
+			t.Fatalf("gpt-x %#v", m)
+		}
+		if m.ID == "kimi-x" && m.SeesImages {
+			t.Fatalf("kimi-x %#v", m)
+		}
+	}
+	for _, m := range got {
+		if m.ID == "embed" {
+			t.Fatalf("embedding model kept")
+		}
+	}
+}
+
 func TestLiteLLMCatalogUsesModelInfo(t *testing.T) {
 	var modelsQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -21,6 +21,11 @@ type providerModel struct {
 	Transcribes     bool   `json:"transcribes,omitempty"`
 	Speaks          bool   `json:"speaks,omitempty"`
 	Realtime        bool   `json:"realtime,omitempty"`
+	// BaseURL overrides the provider endpoint for this model only. It also
+	// selects the wire format: ".../anthropic/v1" talks Messages, a
+	// ".../google/v1beta" URL talks Gemini, "/chat/completions" talks Chat
+	// Completions, anything else the Responses API.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 func (m providerModel) displayName() string {
@@ -37,6 +42,7 @@ func normalizeProviderModel(m providerModel) (providerModel, error) {
 	m.PromptPrice = strings.TrimSpace(m.PromptPrice)
 	m.CompletionPrice = strings.TrimSpace(m.CompletionPrice)
 	m.Instructions = strings.TrimSpace(m.Instructions)
+	m.BaseURL = strings.TrimSpace(m.BaseURL)
 	if m.ID == "" {
 		return m, errors.New("model id required")
 	}
