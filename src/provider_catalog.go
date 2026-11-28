@@ -126,6 +126,20 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 				Prompt     json.RawMessage `json:"prompt"`
 				Completion json.RawMessage `json:"completion"`
 			} `json:"pricing"`
+			// models.dev shape, as opencode.ai/inference/v1/models serves it.
+			Limit *struct {
+				Context float64 `json:"context"`
+			} `json:"limit"`
+			Cost *struct {
+				Text *struct {
+					Input struct {
+						Price json.RawMessage `json:"price"`
+					} `json:"input"`
+					Output struct {
+						Price json.RawMessage `json:"price"`
+					} `json:"output"`
+				} `json:"text"`
+			} `json:"cost"`
 			Architecture *struct {
 				Modality         string   `json:"modality"`
 				InputModalities  []string `json:"input_modalities"`
@@ -153,12 +167,18 @@ func parseModelCatalog(b []byte) ([]catalogModel, error) {
 		case row.MaxInputTokens > 0:
 			// LiteLLM /v1/models reports the group's input limit here.
 			m.ContextLimit = int(row.MaxInputTokens)
+		case row.Limit != nil && row.Limit.Context > 0:
+			m.ContextLimit = int(row.Limit.Context)
 		case row.MaxTokens > 0:
 			m.ContextLimit = int(row.MaxTokens)
 		}
 		if row.Pricing != nil {
 			m.PromptPrice = catalogPrice(row.Pricing.Prompt)
 			m.CompletionPrice = catalogPrice(row.Pricing.Completion)
+		} else if row.Cost != nil && row.Cost.Text != nil {
+			// models.dev quotes USD per million tokens; the form stores per token.
+			m.PromptPrice = catalogPricePerToken(row.Cost.Text.Input.Price)
+			m.CompletionPrice = catalogPricePerToken(row.Cost.Text.Output.Price)
 		}
 		inputs := row.InputModalities
 		modality := ""
@@ -252,6 +272,16 @@ func catalogPrice(raw json.RawMessage) string {
 		return ""
 	}
 	return strconv.FormatFloat(n, 'g', -1, 64)
+}
+
+// catalogPricePerToken turns a per-million price into the per-token string the
+// model form stores. 0 stays "0" so a free model lists as free.
+func catalogPricePerToken(raw json.RawMessage) string {
+	v, ok := parseUSDPerToken(catalogPrice(raw))
+	if !ok {
+		return ""
+	}
+	return strconv.FormatFloat(v/1e6, 'g', -1, 64)
 }
 
 func mergeCatalogModels(base, extra []catalogModel) []catalogModel {

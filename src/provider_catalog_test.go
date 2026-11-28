@@ -71,6 +71,29 @@ func TestParseModelCatalogNumericPrice(t *testing.T) {
 	}
 }
 
+func TestParseModelCatalogModelsDevShape(t *testing.T) {
+	raw := []byte(`{"data":[
+		{"id":"paid","limit":{"context":200000,"output":32000},"cost":{"text":{"input":{"price":3},"output":{"price":15}}}},
+		{"id":"free","limit":{"context":128000},"cost":{"text":{"input":{"price":0},"output":{"price":0}}}}
+	]}`)
+	got, err := parseModelCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ContextLimit != 200000 {
+		t.Fatalf("%#v", got)
+	}
+	if pin, ok := parseUSDPerToken(got[0].PromptPrice); !ok || pin != 0.000003 {
+		t.Fatalf("prompt %q", got[0].PromptPrice)
+	}
+	if pout, ok := parseUSDPerToken(got[0].CompletionPrice); !ok || pout != 0.000015 {
+		t.Fatalf("completion %q", got[0].CompletionPrice)
+	}
+	if got[1].ContextLimit != 128000 || got[1].PromptPrice != "0" {
+		t.Fatalf("%#v", got[1])
+	}
+}
+
 func TestLiteLLMCatalogUsesModelInfo(t *testing.T) {
 	var modelsQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
